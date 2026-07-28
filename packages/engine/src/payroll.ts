@@ -193,6 +193,12 @@ export const PERIODS_PER_YEAR = {
 
 export type PayFrequency = keyof typeof PERIODS_PER_YEAR;
 
+/**
+ * Engine version recorded in every run_snapshot (spec payroll-engine snapshot
+ * contract). Keep in sync with package.json — bump minor on additive changes.
+ */
+export const ENGINE_VERSION = "0.2.0";
+
 export function calculatePayroll(input: PayrollInput): PayrollResult {
   const { monthlySalary, priorYtdGross, taxConfig, federalExempt } = input;
   const periodsPerYear = input.periodsPerYear ?? 12;

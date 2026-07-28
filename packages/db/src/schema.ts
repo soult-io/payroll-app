@@ -249,6 +249,8 @@ export const payrollRuns = pgTable(
      * live config (D5).
      */
     runSnapshot: jsonb("run_snapshot").notNull(),
+    /** SHA-256 of the canonical snapshot JSON (spec documents determinism check). */
+    snapshotHash: text("snapshot_hash"),
     /** 'scheduler' or user.id. */
     createdBy: text("created_by"),
     approvedBy: text("approved_by"),

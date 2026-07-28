@@ -19,6 +19,7 @@
     "migrate": "drizzle-kit migrate"
   },
   "dependencies": {
+    "@payroll/engine": "workspace:*",
     "drizzle-kit": "~0.31.4",
     "drizzle-orm": "~0.44.5",
     "postgres": "~3.4.5"

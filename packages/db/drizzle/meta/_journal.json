@@ -29,6 +29,13 @@
       "when": 1785272203659,
       "tag": "0003_setup_tokens",
       "breakpoints": true
+    },
+    {
+      "idx": 4,
+      "version": "7",
+      "when": 1785274271218,
+      "tag": "0004_snapshot_hash",
+      "breakpoints": true
     }
   ]
 }

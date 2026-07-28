@@ -126,6 +126,9 @@ importers:
 
   packages/db:
     dependencies:
+      '@payroll/engine':
+        specifier: workspace:*
+        version: link:../engine
       drizzle-kit:
         specifier: ~0.31.4
         version: 0.31.10
