@@ -1,0 +1,20 @@
+{
+  "version": "7",
+  "dialect": "postgresql",
+  "entries": [
+    {
+      "idx": 0,
+      "version": "7",
+      "when": 1785271033465,
+      "tag": "0000_abnormal_franklin_richards",
+      "breakpoints": true
+    },
+    {
+      "idx": 1,
+      "version": "7",
+      "when": 1785271100000,
+      "tag": "0001_compensation_exclusion_and_run_immutability",
+      "breakpoints": true
+    }
+  ]
+}

@@ -1,0 +1,143 @@
+# Self-contained deployment per plan/specs/deployment.md (spec 8).
+# Worst-case footprint ≈ 1 GB (app 512m + migrate 512m one-shot + db 512m).
+#
+# Deploy flow (anyone): clone, cp .env.example .env, place secrets, docker compose up -d.
+# Deploy flow (Portainer GitOps): CI rewrites the image tag; Portainer polls and redeploys.
+
+name: payroll
+
+services:
+  app:
+    image: ghcr.io/nsoult-agentic/payroll:sha-local
+    build:
+      context: .
+      dockerfile: Dockerfile
+    restart: unless-stopped
+    environment:
+      NODE_ENV: production
+      PORT: 8989
+      SECRETS_DIR: /run/secrets
+      DB_HOST: db
+      DB_PORT: 5432
+      DB_NAME: payroll
+      DB_USER: payroll
+      # SMTP_HOST / SMTP_PORT / SMTP_USER / SMTP_FROM come from .env (spec 8:
+      # nothing hardcoded to personal infrastructure).
+      SMTP_HOST: ${SMTP_HOST:-}
+      SMTP_PORT: ${SMTP_PORT:-587}
+      SMTP_USER: ${SMTP_USER:-}
+      SMTP_FROM: ${SMTP_FROM:-}
+    ports:
+      # Loopback-only; NPM proxies the public hostname with TLS + HSTS.
+      - "127.0.0.1:8989:8989"
+    depends_on:
+      db:
+        condition: service_healthy
+      app-migrate:
+        condition: service_completed_successfully
+    deploy:
+      resources:
+        limits:
+          memory: 512m
+          cpus: "1.0"
+    read_only: true
+    tmpfs:
+      - /tmp
+    security_opt:
+      - no-new-privileges:true
+    cap_drop:
+      - ALL
+    healthcheck:
+      test: ["CMD", "wget", "-qO-", "http://127.0.0.1:8989/health"]
+      interval: 30s
+      timeout: 5s
+      start_period: 10s
+      retries: 3
+    # --- Production secrets (spec 8: files under /srv/payroll/secrets, mounted
+    # --- read-only; never env values). Host paths don't exist on a dev machine,
+    # --- so they are commented out here — uncomment on the deploy host:
+    # secrets:
+    #   - db-password
+    #   - smtp-password
+    #   - encryption-key
+    #   - session-secret
+
+  app-migrate:
+    image: ghcr.io/nsoult-agentic/payroll:sha-local
+    build:
+      context: .
+      dockerfile: Dockerfile
+    # One-shot: drizzle-kit migrate (+ seeds in a later step), then exits.
+    # The app service gates boot on this completing successfully.
+    command:
+      - sh
+      - -c
+      - |
+        export DATABASE_URL="postgres://$${DB_USER}:$${DB_PASSWORD}@$${DB_HOST}:$${DB_PORT}/$${DB_NAME}"
+        cd /app/db && ./node_modules/.bin/drizzle-kit migrate --config drizzle.config.ts
+    environment:
+      DB_HOST: db
+      DB_PORT: 5432
+      DB_NAME: payroll
+      DB_USER: payroll
+      # Dev convenience; production reads the password from the mounted file:
+      #   DB_PASSWORD: $(cat /run/secrets/db-password) via an entrypoint wrapper.
+      DB_PASSWORD: ${POSTGRES_PASSWORD:-payroll}
+    depends_on:
+      db:
+        condition: service_healthy
+    deploy:
+      resources:
+        limits:
+          memory: 512m
+          cpus: "1.0"
+    security_opt:
+      - no-new-privileges:true
+    cap_drop:
+      - ALL
+    # secrets:
+    #   - db-password
+
+  db:
+    image: postgres:16-alpine
+    restart: unless-stopped
+    environment:
+      POSTGRES_DB: payroll
+      POSTGRES_USER: payroll
+      # Dev default only — production uses POSTGRES_PASSWORD_FILE with the
+      # mounted secret (commented below).
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-payroll}
+      # POSTGRES_PASSWORD_FILE: /run/secrets/db-password
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+    deploy:
+      resources:
+        limits:
+          memory: 512m
+          cpus: "1.0"
+    security_opt:
+      - no-new-privileges:true
+    cap_drop:
+      - ALL
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U payroll -d payroll"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+    # secrets:
+    #   - db-password
+
+volumes:
+  pgdata:
+
+# --- Production secrets (spec 8). Uncomment on the deploy host; the host paths
+# --- do not exist on a dev machine:
+# secrets:
+#   db-password:
+#     file: /srv/payroll/secrets/db-password
+#   smtp-password:
+#     file: /srv/payroll/secrets/smtp-password
+#   encryption-key:
+#     file: /srv/payroll/secrets/encryption-key
+#   session-secret:
+#     file: /srv/payroll/secrets/session-secret

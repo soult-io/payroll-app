@@ -1,0 +1,118 @@
+# Payroll Webapp — Decision Register
+
+Every decision below requires **explicit owner sign-off** before any code is written.
+Status legend: `PENDING` = awaiting owner, `CONFIRMED` = owner verified in interview (2026-07-28).
+
+Full research reports: [research/backend.md](research/backend.md) · [research/frontend.md](research/frontend.md) · [research/auth.md](research/auth.md)
+
+---
+
+## D1 — Backend runtime & framework  `CONFIRMED 2026-07-28: Node.js LTS + TypeScript`
+
+Owner chose Node/TS. Deno was explicitly checked at owner request — **rejected** (see
+[research/deno.md](research/deno.md)): pg TLS compat regressions, pg-boss untested, Better Auth CLI
+officially unsupported, Deno.cron unstable/non-persistent, 6–9-month LTS lines, no footprint win.
+
+Final stack: **Node.js LTS + Fastify + Drizzle ORM + pg-boss (Postgres job queue) + Better Auth +
+pdfmake/pdf-lib.** Existing tested `payroll.ts` math and the pdfmake renderer are reused verbatim.
+
+(Alternatives considered — Go (matrix leader, 94/105, but DIY auth + math port + weakest PDF
+ecosystem) and .NET 10 (89/105, first-class decimal, QuestPDF license flag) — documented in
+[research/backend.md](research/backend.md).)
+
+## D2 — Frontend framework & design system  `CONFIRMED 2026-07-28: Vue 3 + PrimeVue`
+
+**Vue 3 + Vite SPA + PrimeVue 4.x (Material preset).** Pin PrimeVue 4.x (5.0.0 days old);
+a11y audit budgeted for the polish pass; business logic lives in composables to keep any
+future library migration cheap. API client generated from the backend's OpenAPI spec
+(`openapi-typescript` or hey-api) for end-to-end type safety.
+
+## D3 — Authentication architecture  `CONFIRMED 2026-07-28`
+
+**Recommendation: embedded auth (Better Auth if D1=Node/TS), cookie sessions in Postgres.**
+- Server-side sessions, `HttpOnly; Secure; SameSite=Lax` cookie — no JWTs, instant revocation
+- **TOTP mandatory at v1** for all users (internet-exposed payroll PII); backup codes; passkeys fast-follow
+- Invite-only: self-registration disabled at code level; tokenized email setup flow (≤24h, hashed at rest)
+- Argon2id password hashing (OWASP params); RBAC `admin`/`employee` enforced server-side
+- Append-only `auth_events` audit table from day one
+- No external IdP (Keycloak ~1.25GB, Authentik ~700MB, Zitadel viable but v2-if-needed)
+
+- [ ] **Owner confirm: embedded auth + TOTP-at-v1 ☐** (any deviation: note it)
+
+## D4 — Database topology  `CONFIRMED 2026-07-28 (incl. sole-writer amendment)`
+
+Per owner: **dedicated Postgres instance for this app** (own container in the new repo's compose),
+self-contained, no dependency on `second-brain-db`. One-time migration copies payroll-relevant
+data (employees, compensation, w4_elections, tax_config, tax_brackets, payroll history) out of
+the `accounting` schema into the new app's schema. **Owner confirmed: the new app is the ONLY
+writer** for payroll config/tax data after cutover — old `accounting` payroll tables become
+read-only history.
+
+## D5 — Payslip documents: on-demand generation, no stored PDFs  `CONFIRMED by owner (B4/B5)`
+
+- Data is the source of truth; PDFs rendered on-demand at download time
+- Historical **data** imported (payroll runs + entries), not PDF files
+- ⚠ Open item for spec phase: an issued payslip should be **immutable** — regeneration must be
+  deterministic from the frozen run snapshot, never from live config. Spec will enforce a
+  `run_snapshot` JSON on the payroll run so config edits never rewrite history.
+
+## D6 — Payroll run workflow  `CONFIRMED by owner (D7/D8 of interview)`
+
+- Draft → approve → issue; admin notified when a draft awaits approval
+- Configurable schedule, default: **15th of every month**
+- Calculation + payslip only; no payment recording in v1
+- Schema must support multiple pay frequencies (monthly in practice)
+
+## D7 — Employee change requests  `CONFIRMED by owner (E)`
+
+- Fields: address, W-4/withholding elections, bank details, legal name (no tax ID changes)
+- **Effective-dated** on approval; admin approve/deny with **full comment thread**
+
+## D8 — Notifications  `CONFIRMED by owner (F)`
+
+- SMTP credentials via app config — nothing hardcoded to personal infrastructure
+- Per-event (not digest): payslip issued → employee; change request submitted → admin;
+  request approved/denied → employee; payroll draft awaiting approval → admin
+- Per-user notification settings (opt toggles per event class)
+
+## D9 — Deployment topology  `CONFIRMED by owner (B6)`
+
+- New repository, new service; deployed via established Portainer GitOps + NPM proxy pattern
+- App must be deployable **without** that pattern too (reusable product) — compose file is
+  one deployment artifact, not a hard dependency
+- Hardened container conventions (read-only rootfs, dropped caps, resource limits, secrets as files)
+
+## D10 — Schema futures (design-in, build-later)  `CONFIRMED by owner (H)`
+
+- Time-off tracking: tables in schema, no UI in v1
+- Contractor/1099 invoicing: schema considerations only, next iteration
+- Bookkeeping: out of scope; possible future **export capability** (CSV/JSON/journal entries)
+- Compliance filing: not designed in for v1
+
+## D11 — Roles: one app, two roles  `CONFIRMED by owner (C6)`
+
+Single login system, `admin`/`employee` roles on one app. (No compelling case for two apps:
+doubles deployment surface and auth complexity for zero security gain at this scale —
+RBAC + server-side enforcement is the standard pattern.)
+
+## D12 — Explicit v1 exclusions  `CONFIRMED by owner`
+
+Payments · bookkeeping · mobile app · third-party API · multi-currency · time-off UI ·
+invoicing · self-registration · payroll PDF file storage · Nextcloud integration of any kind
+
+---
+
+## After sign-off
+
+Once D1–D4 are decided, the compartmentalized specs get written, one file each:
+1. `specs/data-model.md` — full schema (incl. D10 futures), migrations strategy
+2. `specs/payroll-engine.md` — calculation integration, run lifecycle, idempotency
+3. `specs/auth.md` — flows, session model, audit events
+4. `specs/change-requests.md` — state machine, effective dating, comment threads
+5. `specs/documents.md` — payslip rendering, immutability, download API
+6. `specs/notifications.md` — SMTP config, event catalog, templates
+7. `specs/frontend.md` — routes, screens, component inventory
+8. `specs/deployment.md` — repo layout, Dockerfile, compose, CI, NPM proxy
+9. `specs/migration.md` — data copy from `accounting` schema, cutover, retiring the agent routine
+
+Each spec gets its own explicit owner approval before the build begins.

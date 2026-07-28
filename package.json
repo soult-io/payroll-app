@@ -1,0 +1,18 @@
+{
+  "name": "payroll",
+  "private": true,
+  "version": "0.0.0",
+  "description": "Payroll webapp — stable, deterministic payroll for small business (see plan/).",
+  "engines": {
+    "node": ">=22"
+  },
+  "packageManager": "pnpm@11.17.0",
+  "scripts": {
+    "dev": "pnpm -r --parallel run dev",
+    "build": "pnpm -r run build",
+    "test": "pnpm -r run test",
+    "typecheck": "pnpm -r run typecheck",
+    "db:generate": "pnpm --filter @payroll/db run generate",
+    "db:migrate": "pnpm --filter @payroll/db run migrate"
+  }
+}
