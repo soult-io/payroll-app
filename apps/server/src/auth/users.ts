@@ -168,6 +168,44 @@ export async function unlockUser(
   }
 }
 
+/**
+ * Resend an invite to a user still pending enrollment: fresh single-use
+ * token + security_invite email. Only valid while the user has never
+ * completed onboarding (banned with reason pending_enrollment).
+ */
+export async function resendInvite(
+  deps: UserServiceDeps,
+  userId: string,
+  actorId: string | null,
+  auditCtx: AuthEventContext = {},
+): Promise<InviteResult> {
+  const { auth, db, config } = deps;
+  const ctx = await auth.$context;
+  const user = (await ctx.internalAdapter.findUserById(userId)) as
+    | { id: string; email: string; banned?: boolean | null; banReason?: string | null }
+    | null;
+  if (!user) throw new UserServiceError("not_found", "user not found");
+  if (!user.banned || user.banReason !== "pending_enrollment") {
+    throw new UserServiceError("not_pending_enrollment", "user is not pending enrollment");
+  }
+  await revokeOutstandingSetupTokens(db, userId);
+  const { token } = await createSetupToken(db, userId, "invite");
+  const link = setupLink(config, "invite", token);
+  await queueSetupEmail(db, config, userId, "invite", link);
+  await writeAuthEvent(db, AUTH_EVENT.inviteCreated, user.id, auditCtx);
+  if (actorId) {
+    await db.insert(auditEvents).values({
+      actorId,
+      action: "user.invite_resent",
+      entity: "user",
+      entityId: userId,
+      before: null,
+      after: null,
+    });
+  }
+  return { userId, email: user.email, setupLink: link, smtpMissing: !smtpConfigured(config) };
+}
+
 export class UserServiceError extends Error {
   constructor(
     public code: string,

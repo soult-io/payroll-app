@@ -11,13 +11,14 @@
 import type { FastifyInstance } from "fastify";
 import { desc, eq } from "drizzle-orm";
 import { z } from "zod";
-import { employees, notificationSettings, w4Elections } from "@payroll/db";
+import { authTwoFactor, employees, notificationSettings, w4Elections } from "@payroll/db";
 import { WORKFLOW_EVENTS } from "@payroll/notifications";
 import type { Db } from "../db.js";
 import type { AppConfig } from "../config.js";
 import type { Guards } from "../plugins/guards.js";
 import { employeeForUser } from "../change-requests/service.js";
 import { maskLast4 } from "../crypto/field-encryption.js";
+import { decodeCodeHashes } from "../auth/backup-codes.js";
 
 interface Deps {
   db: Db;
@@ -79,6 +80,23 @@ export function registerMyRoutes(app: FastifyInstance, deps: Deps): void {
             }
           : null,
       },
+    };
+  });
+
+  /**
+   * Security posture for the settings page: 2FA status + remaining backup
+   * codes. Active sessions come from Better Auth's own /api/auth/list-sessions.
+   */
+  app.get("/api/my/security", { preHandler: guards.requireAuth }, async (req) => {
+    const rows = await db
+      .select()
+      .from(authTwoFactor)
+      .where(eq(authTwoFactor.userId, req.authUser!.id))
+      .limit(1);
+    const twoFactor = rows[0];
+    return {
+      twoFactorEnabled: Boolean(req.authUser!.twoFactorEnabled),
+      backupCodesRemaining: twoFactor ? decodeCodeHashes(twoFactor.backupCodes).length : 0,
     };
   });
 

@@ -47,6 +47,13 @@ export function registerAdminNotificationRoutes(app: FastifyInstance, deps: Deps
       counts: Object.fromEntries(counts.map((c) => [c.status, c.count])),
       recentFailures,
       emailMode: config.emailMode,
+      smtp: {
+        configured: Boolean(config.smtp.host && config.smtp.from),
+        host: config.smtp.host || null,
+        port: config.smtp.port,
+        from: config.smtp.from || null,
+        secure: config.smtp.secure,
+      },
     };
   });
 

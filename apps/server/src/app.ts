@@ -21,6 +21,8 @@ import { registerPayslipRoutes } from "./routes/payslips.js";
 import { registerChangeRequestRoutes } from "./routes/change-requests.js";
 import { registerMyRoutes } from "./routes/my.js";
 import { registerAdminNotificationRoutes } from "./routes/admin-notifications.js";
+import { registerAdminEmployeeRoutes } from "./routes/admin-employees.js";
+import { registerAdminSettingsRoutes } from "./routes/admin-settings.js";
 import { registerStubRoutes } from "./routes/stubs.js";
 
 export interface BuildAppDeps {
@@ -65,6 +67,8 @@ export async function buildApp(deps: BuildAppDeps = {}) {
   registerChangeRequestRoutes(app, { db, config, guards });
   registerMyRoutes(app, { db, config, guards });
   registerAdminNotificationRoutes(app, { db, config, guards });
+  registerAdminEmployeeRoutes(app, { auth, db, config, guards });
+  registerAdminSettingsRoutes(app, { db, config, guards });
   registerStubRoutes(app, guards);
 
   // Serve the built SPA when present (spec 8: server serves the SPA).
