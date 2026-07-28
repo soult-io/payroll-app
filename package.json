@@ -13,6 +13,7 @@
     "test": "pnpm -r run test",
     "typecheck": "pnpm -r run typecheck",
     "db:generate": "pnpm --filter @payroll/db run generate",
-    "db:migrate": "pnpm --filter @payroll/db run migrate"
+    "db:migrate": "pnpm --filter @payroll/db run migrate",
+    "migrate:legacy": "pnpm --filter @payroll/server run migrate:legacy"
   }
 }

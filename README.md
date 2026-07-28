@@ -1,8 +1,12 @@
 # Payroll
 
-Stable, deterministic, authoritative payroll webapp for small business. Step 1
-skeleton: pnpm workspaces monorepo with the vendored, fully-tested payroll
-engine, the complete Drizzle database schema, and minimal server/web scaffolds.
+Stable, deterministic, authoritative payroll webapp for small business.
+**Feature-complete v1** — auth + TOTP onboarding, monthly payroll lifecycle
+(draft → approve → issue/void) with immutable snapshots and payslip PDFs,
+employee self-service (payslips, profile, change requests with threaded
+review), notification outbox with SMTP, admin configuration (tax tables, pay
+schedule, company, users, audit viewers), and one-time legacy migration
+tooling for the cutover from `second_brain.accounting`.
 
 ## Architecture (one paragraph)
 
@@ -42,13 +46,30 @@ Useful checks:
 
 ```sh
 pnpm -r run typecheck              # tsc / vue-tsc across all packages
-pnpm --filter @payroll/engine test # vendored engine unit tests (vitest)
+pnpm test                          # ALL tests: engine 54 + server 72 (vitest)
 pnpm -r run build                  # build everything
 pnpm db:generate                   # regenerate SQL migrations from the schema
 ```
 
 Environment variables are documented in [.env.example](.env.example); secrets
 are read as **files** from `SECRETS_DIR`, never as env values (spec 8).
+
+## Legacy migration & cutover
+
+One-time import of payroll history from `second_brain.accounting`
+(mcp-accounting), with snapshot reconstruction validated to the cent before
+any write. Dry-run by default; `--write` is idempotent (ledger table
+`legacy_migration_map`):
+
+```sh
+SOURCE_DATABASE_URL=postgres://…@second-brain-db:5432/second_brain \
+  pnpm migrate:legacy --dry-run --verbose   # analysis only, zero writes
+SOURCE_DATABASE_URL=postgres://…@second-brain-db:5432/second_brain \
+  pnpm migrate:legacy --write               # perform (re-run = no-op)
+```
+
+The full owner-side procedure (secrets, deploy order, verification, rollback)
+is in [docs/cutover.md](docs/cutover.md).
 
 ## Full container deployment
 
@@ -66,11 +87,13 @@ files under `/srv/payroll/secrets/`) is commented in
 
 ```
 apps/server/        Fastify API + serves built SPA (Node 22 LTS)
+  src/migrate/      legacy cutover tooling (pnpm migrate:legacy)
 apps/web/           Vue 3 + Vite SPA (PrimeVue 4.x, Material preset)
 packages/engine/    vendored payroll.ts + money.ts + tests (from stack-finance)
 packages/db/        Drizzle schema + migrations
 packages/shared/    Zod schemas, types shared by server+web
 plan/               approved plan: decisions.md + specs/ (docs, not code)
+docs/               operations docs (cutover runbook)
 Dockerfile          multi-stage: build web → build server → runtime
 docker-compose.yml  self-contained: app + postgres
 .github/workflows/  CI: test → build image → push ghcr (main only)

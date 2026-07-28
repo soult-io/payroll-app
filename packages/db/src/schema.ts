@@ -486,3 +486,30 @@ export const setupTokens = pgTable(
     index("setup_tokens_user_id_idx").on(t.userId),
   ],
 );
+
+// ---------------------------------------------------------------------------
+// 9. Step-6: legacy migration ledger (spec 9 — migration & cutover)
+// ---------------------------------------------------------------------------
+
+/**
+ * Idempotency ledger for the one-time legacy import from
+ * `second_brain.accounting` (mcp-accounting). Every migrated row is recorded
+ * as (entity, source_id) → target_id so re-running `pnpm migrate:legacy` is a
+ * no-op, and so migrated rows stay distinguishable from app-created rows for
+ * audit/rollback. The table is app-owned but written ONLY by the migration
+ * CLI — never by the runtime.
+ */
+export const legacyMigrationMap = pgTable(
+  "legacy_migration_map",
+  {
+    id: serial("id").primaryKey(),
+    /** 'company' | 'employee' | 'compensation' | 'w4' | 'tax_config' | 'tax_brackets' | 'run' */
+    entity: text("entity").notNull(),
+    /** Source primary key as text (e.g. accounting.payroll_runs.id). */
+    sourceId: text("source_id").notNull(),
+    /** Target primary key as text (run: payroll_runs.id). */
+    targetId: text("target_id").notNull(),
+    migratedAt: timestamp("migrated_at", { withTimezone: true }).defaultNow(),
+  },
+  (t) => [unique("legacy_migration_map_entity_source_uniq").on(t.entity, t.sourceId)],
+);

@@ -11,6 +11,7 @@
     "typecheck": "tsc --noEmit -p tsconfig.json",
     "test": "vitest run",
     "create-admin": "tsx src/cli/create-admin.ts",
+    "migrate:legacy": "tsx src/migrate/cli.ts",
     "gen-auth-sql": "tsx scripts/gen-better-auth-sql.ts",
     "seed": "tsx src/cli/seed.ts"
   },
