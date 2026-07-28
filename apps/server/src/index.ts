@@ -1,27 +1,16 @@
 /**
- * Payroll API server — step 1 skeleton.
- *
- * Fastify + pino structured JSON logs to stdout (spec 8 observability).
- * Only GET /health exists so far; auth, payroll, change-request and
- * notification routes land in steps 2–4 (see plan/README.md build order).
+ * Payroll API server entrypoint.
  */
 
-import Fastify from "fastify";
-import { loadConfig } from "./config.js";
+import { buildApp } from "./app.js";
 
-const config = loadConfig();
-
-const app = Fastify({
-  logger: {
-    level: config.logLevel,
-    // Structured JSON to stdout in every environment — docker logs is the sink.
-  },
-});
-
-app.get("/health", async () => ({ ok: true }));
+const { app, config } = await buildApp();
 
 const start = async () => {
   try {
+    if (config.nodeEnv !== "production" && config.sessionSecret.startsWith("dev-only")) {
+      app.log.warn("using dev fallback session secret — set SECRETS_DIR/session-secret in production");
+    }
     await app.listen({ port: config.port, host: config.host });
   } catch (err) {
     app.log.error(err);

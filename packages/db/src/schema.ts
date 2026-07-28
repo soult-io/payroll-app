@@ -431,3 +431,32 @@ export const timeOff = pgTable(
     check("time_off_type_check", sql`${t.type} IN ('sick','vacation','holiday','other')`),
   ],
 );
+
+// ---------------------------------------------------------------------------
+// 8. Step-2: setup tokens (spec 3 — invite/reset machinery)
+// ---------------------------------------------------------------------------
+
+/**
+ * Single-use setup tokens for invites and admin-initiated password resets.
+ * Only the SHA-256 hash of the plaintext token is stored; tokens expire ≤ 24h.
+ * userId references Better Auth's user.id (FK appended in migration 0003, since
+ * auth-owned tables are invisible to drizzle-kit generate).
+ */
+export const setupTokens = pgTable(
+  "setup_tokens",
+  {
+    id: serial("id").primaryKey(),
+    userId: text("user_id").notNull(),
+    /** SHA-256 hex of the plaintext token. */
+    tokenHash: text("token_hash").notNull(),
+    purpose: text("purpose").notNull(),
+    expiresAt: timestamp("expires_at", { withTimezone: true }).notNull(),
+    usedAt: timestamp("used_at", { withTimezone: true }),
+    createdAt: createdAt(),
+  },
+  (t) => [
+    uniqueIndex("setup_tokens_token_hash_uniq").on(t.tokenHash),
+    check("setup_tokens_purpose_check", sql`${t.purpose} IN ('invite','reset')`),
+    index("setup_tokens_user_id_idx").on(t.userId),
+  ],
+);

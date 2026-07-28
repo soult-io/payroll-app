@@ -15,6 +15,20 @@
       "when": 1785271100000,
       "tag": "0001_compensation_exclusion_and_run_immutability",
       "breakpoints": true
+    },
+    {
+      "idx": 2,
+      "version": "7",
+      "when": 1785272188441,
+      "tag": "0002_better_auth_tables",
+      "breakpoints": true
+    },
+    {
+      "idx": 3,
+      "version": "7",
+      "when": 1785272203659,
+      "tag": "0003_setup_tokens",
+      "breakpoints": true
     }
   ]
 }
