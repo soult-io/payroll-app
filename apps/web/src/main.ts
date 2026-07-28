@@ -1,6 +1,10 @@
 import { createApp } from "vue";
 import PrimeVue from "primevue/config";
 import Material from "@primeuix/themes/material";
+import ToastService from "primevue/toastservice";
+import ConfirmationService from "primevue/confirmationservice";
+import "primeicons/primeicons.css";
+import "./style.css";
 import App from "./App.vue";
 import { router } from "./router";
 import { pinia } from "./stores/pinia";
@@ -16,5 +20,7 @@ app.use(PrimeVue, {
     preset: Material,
   },
 });
+app.use(ToastService);
+app.use(ConfirmationService);
 
 app.mount("#app");

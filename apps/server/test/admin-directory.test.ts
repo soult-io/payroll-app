@@ -14,6 +14,7 @@ import { decryptField } from "../src/crypto/field-encryption.js";
 let t: TestContext;
 let adminCookie: string;
 let employeeCookie: string;
+let employeeUserId: string;
 
 function adminReq(method: string, url: string, payload?: unknown) {
   return t.app.inject({ method: method as "GET", url, headers: sessionHeader(adminCookie), ...(payload !== undefined ? { payload } : {}) });
@@ -25,6 +26,7 @@ beforeAll(async () => {
   const admin = await inviteAndOnboard(t, { email: "dir-admin@example.com", role: "admin" });
   adminCookie = (await login(t, admin.email, TEST_PASSWORD)).sessionCookie;
   const employee = await inviteAndOnboard(t, { email: "dir-employee@example.com", role: "employee" });
+  employeeUserId = employee.userId;
   employeeCookie = (await login(t, employee.email, TEST_PASSWORD)).sessionCookie;
 });
 
@@ -192,5 +194,31 @@ describe("my security", () => {
     const body = res.json() as { twoFactorEnabled: boolean; backupCodesRemaining: number };
     expect(body.twoFactorEnabled).toBe(true);
     expect(body.backupCodesRemaining).toBe(10); // onboarded, none used
+  });
+
+  it("regenerates backup codes (old batch invalidated, new one hashed at rest)", async () => {
+    const { authTwoFactor } = await import("@payroll/db");
+    const before = await t.db
+      .select()
+      .from(authTwoFactor)
+      .where(eq(authTwoFactor.userId, employeeUserId))
+      .limit(1);
+    const res = await t.app.inject({
+      method: "POST",
+      url: "/api/my/backup-codes",
+      headers: sessionHeader(employeeCookie),
+    });
+    expect(res.statusCode).toBe(200);
+    const { backupCodes } = res.json() as { backupCodes: string[] };
+    expect(backupCodes).toHaveLength(10);
+    expect(backupCodes[0]).toMatch(/^[a-z2-9]{5}-[a-z2-9]{5}$/);
+
+    const after = await t.db
+      .select()
+      .from(authTwoFactor)
+      .where(eq(authTwoFactor.userId, employeeUserId))
+      .limit(1);
+    expect(after[0]!.backupCodes).not.toBe(before[0]!.backupCodes); // old batch gone
+    expect(after[0]!.backupCodes).not.toContain(backupCodes[0]!); // hashed, not plain
   });
 });

@@ -1,13 +1,59 @@
 <script setup lang="ts">
-import { computed } from "vue";
-import { useRouter } from "vue-router";
+/**
+ * App shell (spec 7): role-aware nav, pending-requests badge for admins,
+ * global Toast + ConfirmDialog (all mutations get feedback).
+ */
+import { computed, ref, watch } from "vue";
+import { useRoute, useRouter } from "vue-router";
 import Button from "primevue/button";
+import Badge from "primevue/badge";
+import Toast from "primevue/toast";
+import ConfirmDialog from "primevue/confirmdialog";
 import { useAuthStore } from "./stores/auth";
 import { pinia } from "./stores/pinia";
+import { changeRequestsApi } from "./lib/api";
 
+const route = useRoute();
 const router = useRouter();
 const auth = useAuthStore(pinia);
 const signedIn = computed(() => Boolean(auth.user));
+const pendingCount = ref(0);
+
+const employeeNav = [
+  { label: "Dashboard", name: "my-dashboard" },
+  { label: "Payslips", name: "my-payslips" },
+  { label: "Requests", name: "my-requests" },
+  { label: "Profile", name: "my-profile" },
+  { label: "Settings", name: "my-settings" },
+];
+
+const adminNav = [
+  { label: "Dashboard", name: "admin-dashboard" },
+  { label: "Payroll", name: "admin-payroll" },
+  { label: "Employees", name: "admin-employees" },
+  { label: "Requests", name: "admin-requests", badge: true },
+  { label: "Config", name: "admin-config" },
+  { label: "Settings", name: "admin-settings" },
+];
+
+async function refreshBadge() {
+  if (!auth.isAdmin) {
+    pendingCount.value = 0;
+    return;
+  }
+  try {
+    const { requests } = await changeRequestsApi.list({ status: "pending" });
+    pendingCount.value = requests.length;
+  } catch {
+    // Badge is best-effort; never block navigation on it.
+  }
+}
+
+watch(
+  () => [route.fullPath, auth.user?.id],
+  () => void refreshBadge(),
+  { immediate: true },
+);
 
 async function logout() {
   await auth.logout();
@@ -16,39 +62,122 @@ async function logout() {
 </script>
 
 <template>
-  <main class="app-shell">
-    <header class="topbar">
-      <h1>Payroll</h1>
-      <nav v-if="signedIn" class="nav">
-        <RouterLink :to="{ name: 'dashboard' }">Dashboard</RouterLink>
-        <RouterLink v-if="auth.isAdmin" :to="{ name: 'admin-users' }">Admin</RouterLink>
-        <Button label="Sign out" size="small" text @click="logout" />
+  <div class="shell">
+    <header v-if="signedIn" class="topbar">
+      <div class="brand-row">
+        <RouterLink :to="{ name: 'my-dashboard' }" class="brand">Payroll</RouterLink>
+        <span class="user-chip">
+          {{ auth.user?.name }}
+          <span v-if="auth.isAdmin" class="role">admin</span>
+        </span>
+        <Button label="Sign out" size="small" text icon="pi pi-sign-out" @click="logout" />
+      </div>
+      <nav class="nav">
+        <RouterLink
+          v-for="item in employeeNav"
+          :key="item.name"
+          :to="{ name: item.name }"
+          class="nav-link"
+        >
+          {{ item.label }}
+        </RouterLink>
+        <template v-if="auth.isAdmin">
+          <span class="nav-divider" aria-hidden="true" />
+          <RouterLink
+            v-for="item in adminNav"
+            :key="item.name"
+            :to="{ name: item.name }"
+            class="nav-link admin-link"
+          >
+            {{ item.label }}
+            <Badge
+              v-if="item.badge && pendingCount > 0"
+              :value="pendingCount"
+              severity="warn"
+              class="nav-badge"
+            />
+          </RouterLink>
+        </template>
       </nav>
     </header>
+
     <RouterView />
-  </main>
+    <Toast position="bottom-right" />
+    <ConfirmDialog />
+  </div>
 </template>
 
 <style scoped>
-.app-shell {
-  max-width: 960px;
-  margin: 0 auto;
-  padding: 2rem 1rem;
-  font-family: system-ui, sans-serif;
-}
 .topbar {
-  display: flex;
-  justify-content: space-between;
-  align-items: center;
-  border-bottom: 1px solid #e2e2e2;
-  margin-bottom: 1.5rem;
+  background: var(--p-surface-card, #fff);
+  border-bottom: 1px solid var(--p-surface-border, #e4e4e7);
+  padding: 0.5rem 1rem 0;
+  position: sticky;
+  top: 0;
+  z-index: 10;
 }
-.topbar h1 {
-  font-size: 1.25rem;
+.brand-row {
+  display: flex;
+  align-items: center;
+  gap: 0.75rem;
+}
+.brand {
+  font-size: 1.2rem;
+  font-weight: 700;
+  text-decoration: none;
+  color: inherit;
+  margin-right: auto;
+}
+.user-chip {
+  font-size: 0.85rem;
+  color: var(--p-text-muted-color, #666);
+}
+.role {
+  margin-left: 0.35rem;
+  padding: 0.05rem 0.4rem;
+  border-radius: 999px;
+  background: var(--p-primary-100, #dbe4f5);
+  color: var(--p-primary-700, #25458f);
+  font-size: 0.72rem;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
 }
 .nav {
   display: flex;
-  gap: 1rem;
+  gap: 0.25rem;
+  overflow-x: auto;
+  margin-top: 0.25rem;
+}
+.nav-link {
+  display: flex;
   align-items: center;
+  gap: 0.35rem;
+  padding: 0.55rem 0.8rem;
+  font-size: 0.9rem;
+  text-decoration: none;
+  color: var(--p-text-muted-color, #666);
+  border-bottom: 2px solid transparent;
+  white-space: nowrap;
+}
+.nav-link:hover {
+  color: var(--p-text-color, #1b1b1f);
+}
+.nav-link.router-link-active {
+  color: var(--p-primary-color, #3366cc);
+  border-bottom-color: var(--p-primary-color, #3366cc);
+  font-weight: 600;
+}
+.admin-link {
+  color: var(--p-primary-700, #25458f);
+}
+.nav-divider {
+  align-self: center;
+  width: 1px;
+  height: 1.25rem;
+  background: var(--p-surface-border, #e4e4e7);
+  margin: 0 0.35rem;
+}
+.nav-badge {
+  transform: scale(0.85);
 }
 </style>

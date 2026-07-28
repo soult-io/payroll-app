@@ -1,0 +1,145 @@
+/**
+ * Global styles (no utility framework — a small set of layout helpers on top
+ * of PrimeVue's Material preset variables).
+ */
+
+:root {
+  color-scheme: light;
+}
+
+* {
+  box-sizing: border-box;
+}
+
+body {
+  margin: 0;
+  font-family: system-ui, -apple-system, "Segoe UI", sans-serif;
+  background: var(--p-surface-ground, #f7f7f9);
+  color: var(--p-text-color, #1b1b1f);
+}
+
+#app {
+  min-height: 100vh;
+}
+
+/* --- layout helpers ---------------------------------------------------- */
+
+.page {
+  max-width: 1100px;
+  margin: 0 auto;
+  padding: 1.5rem 1rem 3rem;
+}
+
+.stack {
+  display: flex;
+  flex-direction: column;
+  gap: 1rem;
+}
+
+.row {
+  display: flex;
+  gap: 0.75rem;
+  align-items: center;
+  flex-wrap: wrap;
+}
+
+.grid-2 {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 1rem;
+}
+
+@media (max-width: 720px) {
+  .grid-2 {
+    grid-template-columns: 1fr;
+  }
+}
+
+.muted {
+  color: var(--p-text-muted-color, #666);
+}
+
+.small {
+  font-size: 0.85rem;
+}
+
+.mono {
+  font-family: ui-monospace, "SF Mono", Menlo, monospace;
+  font-size: 0.85em;
+}
+
+/* --- form helpers ------------------------------------------------------- */
+
+.field {
+  display: flex;
+  flex-direction: column;
+  gap: 0.35rem;
+  margin-bottom: 0.9rem;
+}
+
+.field > label {
+  font-size: 0.85rem;
+  font-weight: 600;
+}
+
+.field .error-text {
+  color: var(--p-red-500, #d32f2f);
+  font-size: 0.8rem;
+}
+
+.form-grid {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 0 1rem;
+}
+
+@media (max-width: 720px) {
+  .form-grid {
+    grid-template-columns: 1fr;
+  }
+}
+
+/* --- cards & tables ----------------------------------------------------- */
+
+.card {
+  background: var(--p-surface-card, #fff);
+  border: 1px solid var(--p-surface-border, #e4e4e7);
+  border-radius: 10px;
+  padding: 1.25rem;
+}
+
+.card h3 {
+  margin: 0 0 0.75rem;
+  font-size: 1.05rem;
+}
+
+.kv {
+  display: grid;
+  grid-template-columns: minmax(140px, 220px) 1fr;
+  gap: 0.4rem 1rem;
+  margin: 0;
+}
+
+.kv dt {
+  color: var(--p-text-muted-color, #666);
+  font-size: 0.85rem;
+}
+
+.kv dd {
+  margin: 0;
+}
+
+/* Responsive: on small screens DataTables overflow horizontally with a hint. */
+.table-scroll {
+  overflow-x: auto;
+}
+
+/* --- misc ---------------------------------------------------------------- */
+
+a {
+  color: var(--p-primary-color, #3366cc);
+}
+
+.p-component {
+  font-family: inherit;
+}

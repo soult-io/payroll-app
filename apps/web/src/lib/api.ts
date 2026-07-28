@@ -1,0 +1,461 @@
+/**
+ * Typed API client (frontend spec: hand-maintained typed wrapper mirroring
+ * apps/server/src/routes — OpenAPI codegen was aspirational; this is the
+ * pragmatic choice and stays close to the real endpoints).
+ *
+ * Same-origin cookies carry the session; every function throws ApiError on
+ * non-2xx so views can toast uniformly.
+ */
+
+// ---------------------------------------------------------------------------
+// DTO types (mirror server responses)
+// ---------------------------------------------------------------------------
+
+export interface Address {
+  line1: string;
+  line2?: string;
+  city: string;
+  state: string;
+  zip: string;
+  country: string;
+}
+
+export type RunStatus = "draft" | "awaiting_approval" | "approved" | "issued" | "void";
+export type RequestStatus = "pending" | "approved" | "denied" | "withdrawn";
+export type ChangeRequestType = "address" | "w4" | "bank_details" | "legal_name";
+
+export interface PayslipSummary {
+  publicId: string;
+  periodStart: string;
+  periodEnd: string;
+  payDate: string;
+  status: RunStatus;
+  grossPay: number;
+  netPay: number;
+  snapshotHash: string;
+  issuedAt: string | null;
+}
+
+export interface PayslipDetail extends PayslipSummary {
+  snapshot: RunSnapshot;
+}
+
+export interface RunSnapshot {
+  inputs: {
+    periodAmount: number;
+    frequency: string;
+    periodsPerYear: number;
+    w4: Record<string, unknown> | null;
+    taxConfig: Record<string, unknown>;
+    brackets: { ordinal: number; minAmount: string; maxAmount: string | null; rate: string }[];
+    priorYtdGross: number;
+    periodStart: string;
+    periodEnd: string;
+    payDate: string;
+    company: { legalName: string };
+    employee: { legalName: string; preferredName: string | null };
+  };
+  result: {
+    grossPay: number;
+    federalWithholding: number;
+    socialSecurity: number;
+    medicare: number;
+    stateWithholding: number;
+    netPay: number;
+    employerSocialSecurity: number;
+    employerMedicare: number;
+    employerFUTA: number;
+    [key: string]: number;
+  };
+  engineVersion: string;
+  templateVersion: number;
+}
+
+export interface ChangeRequest {
+  publicId: string;
+  employeeId: number;
+  employeeName?: string;
+  requestType: ChangeRequestType;
+  payload: Record<string, unknown>;
+  effectiveFrom: string;
+  status: RequestStatus;
+  submittedAt: string | null;
+  decidedBy: string | null;
+  decidedAt: string | null;
+  appliedAt: string | null;
+}
+
+export interface ChangeRequestComment {
+  id: number;
+  authorId: string;
+  authorName: string;
+  body: string;
+  createdAt: string | null;
+}
+
+export interface MyProfile {
+  legalName: string;
+  preferredName: string | null;
+  employmentType: string;
+  hireDate: string;
+  status: string;
+  address: Address | null;
+  bankDetails: { type: string | null; routingMasked: string | null; accountMasked: string | null } | null;
+  taxIdMasked: string | null;
+  w4: {
+    taxYear: number;
+    filingStatus: string;
+    federalExempt: boolean;
+    dependentsAmount: string;
+    otherIncome: string;
+    deductionsAmount: string;
+    extraWithholding: string;
+    effectiveFrom: string;
+  } | null;
+}
+
+export interface NotificationSetting {
+  eventType: string;
+  enabled: boolean;
+}
+
+export interface PayrollRunRow {
+  publicId: string;
+  employeeId: number;
+  periodStart: string;
+  periodEnd: string;
+  payDate: string;
+  status: RunStatus;
+  snapshotHash: string | null;
+  createdBy: string;
+  createdAt: string | null;
+  runSnapshot?: RunSnapshot;
+  approvedBy?: string | null;
+  approvedAt?: string | null;
+  issuedAt?: string | null;
+  voidedAt?: string | null;
+  voidReason?: string | null;
+}
+
+export interface PaySchedule {
+  id: number;
+  employeeId: number | null;
+  frequency: string;
+  draftDayOfMonth: number;
+  payDayOfMonth: number;
+  autoDraft: boolean;
+  active: boolean;
+}
+
+export interface CompensationRow {
+  id: number;
+  employeeId: number;
+  periodAmount: string;
+  frequency: string;
+  effectiveFrom: string;
+  effectiveTo: string | null;
+}
+
+export interface W4ElectionRow {
+  id: number;
+  employeeId: number;
+  taxYear: number;
+  filingStatus: string;
+  federalExempt: boolean;
+  multipleJobs: boolean;
+  dependentsAmount: string;
+  otherIncome: string;
+  deductionsAmount: string;
+  extraWithholding: string;
+  effectiveFrom: string;
+  filedDate: string;
+  renewalDeadline: string | null;
+  note: string | null;
+}
+
+export interface TaxConfigRow {
+  id: number;
+  jurisdiction: string;
+  taxYear: number;
+  standardDeduction: string;
+  socialSecurityRate: string;
+  socialSecurityWageCap: string;
+  medicareRate: string;
+  medicareAdditionalRate: string;
+  medicareAdditionalThreshold: string;
+  stateWithholdingRate: string;
+  employerSocialSecurityRate: string;
+  employerMedicareRate: string;
+  futaRate: string;
+  futaWageCap: string;
+}
+
+export interface TaxBracketRow {
+  id: number;
+  jurisdiction: string;
+  taxYear: number;
+  ordinal: number;
+  minAmount: string;
+  maxAmount: string | null;
+  rate: string;
+}
+
+export interface AdminEmployeeListRow {
+  id: number;
+  userId: string | null;
+  legalName: string;
+  preferredName: string | null;
+  employmentType: string;
+  hireDate: string;
+  terminationDate: string | null;
+  status: string;
+  userEmail: string | null;
+  userBanned: boolean | null;
+}
+
+export interface AdminEmployeeDetail {
+  id: number;
+  userId: string | null;
+  legalName: string;
+  preferredName: string | null;
+  employmentType: string;
+  hireDate: string;
+  terminationDate: string | null;
+  status: string;
+  address: Address | null;
+  dateOfBirth: string | null;
+  user: { id: string; email: string | null; banned: boolean | null; banReason: string | null } | null;
+}
+
+export interface InviteResult {
+  userId: string;
+  email: string;
+  setupLink: string;
+  smtpMissing: boolean;
+  resent?: boolean;
+}
+
+export interface OutboxHealth {
+  counts: Record<string, number>;
+  recentFailures: {
+    id: number;
+    userId: string;
+    eventType: string;
+    subject: string;
+    attempts: number;
+    lastError: string | null;
+    lastAttemptAt: string | null;
+    createdAt: string | null;
+  }[];
+  emailMode: "smtp" | "log";
+  smtp: {
+    configured: boolean;
+    host: string | null;
+    port: number;
+    from: string | null;
+    secure: boolean;
+  };
+}
+
+export interface CompanyProfile {
+  id: number;
+  legalName: string;
+  einMasked: string | null;
+  address: Address | null;
+}
+
+export interface AuthEventRow {
+  id: number;
+  userId: string | null;
+  event: string;
+  ip: string | null;
+  userAgent: string | null;
+  createdAt: string | null;
+}
+
+export interface AuditEventRow {
+  id: number;
+  actorId: string;
+  action: string;
+  entity: string;
+  entityId: string;
+  before: unknown;
+  after: unknown;
+  createdAt: string | null;
+}
+
+export interface Paged<T> {
+  events: T[];
+  total: number;
+  limit: number;
+  offset: number;
+}
+
+// ---------------------------------------------------------------------------
+// Fetch core
+// ---------------------------------------------------------------------------
+
+export class ApiError extends Error {
+  constructor(
+    public status: number,
+    public code: string,
+    message: string,
+    public details?: unknown,
+  ) {
+    super(message);
+  }
+}
+
+async function request<T>(method: string, path: string, body?: unknown): Promise<T> {
+  const init: RequestInit = { method };
+  if (body !== undefined) {
+    init.headers = { "content-type": "application/json" };
+    init.body = JSON.stringify(body);
+  }
+  const res = await fetch(path, init);
+  if (!res.ok) {
+    let code = "request_failed";
+    let message = `Request failed (${res.status})`;
+    let details: unknown;
+    try {
+      const data = (await res.json()) as { error?: string; message?: string; details?: unknown };
+      if (data.error) code = data.error;
+      if (data.message) message = data.message;
+      details = data.details;
+    } catch {
+      // non-JSON error body — keep defaults
+    }
+    throw new ApiError(res.status, code, message, details);
+  }
+  return (await res.json()) as T;
+}
+
+const get = <T>(path: string) => request<T>("GET", path);
+const post = <T>(path: string, body?: unknown) => request<T>("POST", path, body ?? {});
+const put = <T>(path: string, body: unknown) => request<T>("PUT", path, body);
+
+function qs(params: Record<string, string | number | boolean | undefined>): string {
+  const search = new URLSearchParams();
+  for (const [key, value] of Object.entries(params)) {
+    if (value !== undefined) search.set(key, String(value));
+  }
+  const s = search.toString();
+  return s ? `?${s}` : "";
+}
+
+// ---------------------------------------------------------------------------
+// Endpoint namespaces
+// ---------------------------------------------------------------------------
+
+export const onboardingApi = {
+  verifyToken: (token: string) =>
+    post<{ email: string; name: string; purpose: string }>("/api/onboarding/verify-token", { token }),
+  setPassword: (token: string, password: string) =>
+    post<{ ok: true; next: string }>("/api/onboarding/set-password", { token, password }),
+  totpEnable: (token: string) => post<{ totpURI: string }>("/api/onboarding/totp-enable", { token }),
+  totpVerify: (token: string, code: string) =>
+    post<{ ok: true; backupCodes: string[] }>("/api/onboarding/totp-verify", { token, code }),
+};
+
+export const payslipsApi = {
+  list: () => get<{ payslips: PayslipSummary[] }>("/api/payslips"),
+  detail: (publicId: string) => get<{ payslip: PayslipDetail }>(`/api/payslips/${publicId}`),
+  pdfUrl: (publicId: string) => `/api/payslips/${publicId}/pdf`,
+};
+
+export const changeRequestsApi = {
+  submit: (input: { requestType: ChangeRequestType; payload: Record<string, unknown>; effectiveFrom: string }) =>
+    post<{ request: ChangeRequest }>("/api/change-requests", input),
+  list: (filter: { status?: RequestStatus; requestType?: ChangeRequestType } = {}) =>
+    get<{ requests: ChangeRequest[] }>(`/api/change-requests${qs(filter)}`),
+  detail: (publicId: string) =>
+    get<{ request: ChangeRequest; comments: ChangeRequestComment[] }>(`/api/change-requests/${publicId}`),
+  comment: (publicId: string, body: string) =>
+    post<{ ok: true }>(`/api/change-requests/${publicId}/comments`, { body }),
+  approve: (publicId: string, input: { note?: string; effectiveFromOverride?: string } = {}) =>
+    post<{ request: ChangeRequest }>(`/api/change-requests/${publicId}/approve`, input),
+  deny: (publicId: string, reason: string) =>
+    post<{ request: ChangeRequest }>(`/api/change-requests/${publicId}/deny`, { reason }),
+  withdraw: (publicId: string) =>
+    post<{ request: ChangeRequest }>(`/api/change-requests/${publicId}/withdraw`),
+};
+
+export const myApi = {
+  profile: () => get<{ profile: MyProfile }>("/api/my/profile"),
+  security: () =>
+    get<{ twoFactorEnabled: boolean; backupCodesRemaining: number }>("/api/my/security"),
+  regenerateBackupCodes: () => post<{ backupCodes: string[] }>("/api/my/backup-codes"),
+  notificationSettings: () => get<{ settings: NotificationSetting[] }>("/api/my/notification-settings"),
+  putNotificationSettings: (settings: NotificationSetting[]) =>
+    put<{ ok: true }>("/api/my/notification-settings", { settings }),
+};
+
+export const adminPayrollApi = {
+  runs: (filter: { status?: RunStatus; employeeId?: number; year?: number } = {}) =>
+    get<{ runs: PayrollRunRow[] }>(`/api/admin/payroll-runs${qs(filter)}`),
+  run: (publicId: string) => get<{ run: PayrollRunRow }>(`/api/admin/payroll-runs/${publicId}`),
+  generate: (input: { year: number; month: number; employeeId?: number }) =>
+    post<{ generated: PayrollRunRow[]; skipped: { employeeId: number; reason: string }[] }>(
+      "/api/admin/payroll-runs/generate",
+      input,
+    ),
+  act: (publicId: string, action: "approve" | "issue" | "void", reason?: string) =>
+    post<{ run: PayrollRunRow }>(`/api/admin/payroll-runs/${publicId}/${action}`, reason ? { reason } : {}),
+  schedules: () => get<{ schedules: PaySchedule[] }>("/api/admin/pay-schedules"),
+  putSchedule: (input: { draftDayOfMonth: number; payDayOfMonth: number; autoDraft: boolean; active: boolean }) =>
+    put<{ schedule: PaySchedule }>("/api/admin/pay-schedules", input),
+  compensation: (employeeId: number) =>
+    get<{ compensation: CompensationRow[] }>(`/api/admin/employees/${employeeId}/compensation`),
+  addCompensation: (employeeId: number, input: { periodAmount: number; frequency: string; effectiveFrom: string; effectiveTo?: string | null }) =>
+    post<{ compensation: CompensationRow }>(`/api/admin/employees/${employeeId}/compensation`, input),
+  w4: (employeeId: number) => get<{ w4Elections: W4ElectionRow[] }>(`/api/admin/employees/${employeeId}/w4`),
+  addW4: (employeeId: number, input: Record<string, unknown>) =>
+    post<{ w4: W4ElectionRow }>(`/api/admin/employees/${employeeId}/w4`, input),
+  taxConfig: (filter: { year?: number; jurisdiction?: string } = {}) =>
+    get<{ taxConfig: TaxConfigRow[]; taxBrackets: TaxBracketRow[] }>(`/api/admin/tax-config${qs(filter)}`),
+  putTaxConfig: (input: {
+    jurisdiction: string;
+    taxYear: number;
+    config: Record<string, number>;
+    brackets: { ordinal: number; minAmount: number; maxAmount: number | null; rate: number }[];
+  }) => put<{ ok: true }>("/api/admin/tax-config", input),
+};
+
+export const adminEmployeesApi = {
+  list: () => get<{ employees: AdminEmployeeListRow[] }>("/api/admin/employees"),
+  detail: (employeeId: number) => get<{ employee: AdminEmployeeDetail }>(`/api/admin/employees/${employeeId}`),
+  create: (input: {
+    legalName: string;
+    preferredName?: string;
+    employmentType: string;
+    hireDate: string;
+    address?: Address;
+    taxId?: string;
+  }) => post<{ employee: AdminEmployeeDetail }>("/api/admin/employees", input),
+  invite: (employeeId: number, input: { email?: string; name?: string } = {}) =>
+    post<InviteResult>(`/api/admin/employees/${employeeId}/invite`, input),
+  setStatus: (employeeId: number, input: { status: "active" | "terminated"; terminationDate?: string }) =>
+    post<{ employee: AdminEmployeeDetail }>(`/api/admin/employees/${employeeId}/status`, input),
+};
+
+export const adminUsersApi = {
+  invite: (input: { name: string; email: string; role: "admin" | "employee" }) =>
+    post<InviteResult>("/api/admin/users", input),
+  reset: (userId: string) => post<InviteResult>(`/api/admin/users/${userId}/reset`),
+  unlock: (userId: string) => post<{ ok: true }>(`/api/admin/users/${userId}/unlock`),
+};
+
+export const adminNotificationsApi = {
+  outbox: () => get<OutboxHealth>("/api/admin/notifications/outbox"),
+  testEmail: () => post<{ ok: true; queued: boolean }>("/api/admin/settings/test-email"),
+};
+
+export const adminSettingsApi = {
+  company: () => get<{ company: CompanyProfile }>("/api/admin/company"),
+  putCompany: (input: { legalName: string; address?: Address }) =>
+    put<{ company: CompanyProfile }>("/api/admin/company", input),
+  authEvents: (input: { limit?: number; offset?: number } = {}) =>
+    get<Paged<AuthEventRow>>(`/api/admin/audit/auth-events${qs(input)}`),
+  auditEvents: (input: { limit?: number; offset?: number } = {}) =>
+    get<Paged<AuditEventRow>>(`/api/admin/audit/audit-events${qs(input)}`),
+};

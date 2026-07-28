@@ -18,7 +18,7 @@ import type { AppConfig } from "../config.js";
 import type { Guards } from "../plugins/guards.js";
 import { employeeForUser } from "../change-requests/service.js";
 import { maskLast4 } from "../crypto/field-encryption.js";
-import { decodeCodeHashes } from "../auth/backup-codes.js";
+import { decodeCodeHashes, encodeCodeHashes, generateBackupCodes } from "../auth/backup-codes.js";
 
 interface Deps {
   db: Db;
@@ -98,6 +98,28 @@ export function registerMyRoutes(app: FastifyInstance, deps: Deps): void {
       twoFactorEnabled: Boolean(req.authUser!.twoFactorEnabled),
       backupCodesRemaining: twoFactor ? decodeCodeHashes(twoFactor.backupCodes).length : 0,
     };
+  });
+
+  /**
+   * Regenerate backup codes (spec 3 storage: hashed at rest, shown once).
+   * Replaces ALL existing codes — the plain codes are returned exactly once.
+   */
+  app.post("/api/my/backup-codes", { preHandler: guards.requireAuth }, async (req, reply) => {
+    const rows = await db
+      .select()
+      .from(authTwoFactor)
+      .where(eq(authTwoFactor.userId, req.authUser!.id))
+      .limit(1);
+    const twoFactor = rows[0];
+    if (!twoFactor || !req.authUser!.twoFactorEnabled) {
+      return reply.code(409).send({ error: "totp_not_enrolled" });
+    }
+    const backupCodes = generateBackupCodes(10);
+    await db
+      .update(authTwoFactor)
+      .set({ backupCodes: encodeCodeHashes(backupCodes) })
+      .where(eq(authTwoFactor.id, twoFactor.id));
+    return { backupCodes };
   });
 
   app.get("/api/my/notification-settings", { preHandler: guards.requireAuth }, async (req) => {
