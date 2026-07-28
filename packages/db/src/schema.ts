@@ -262,8 +262,13 @@ export const payrollRuns = pgTable(
     updatedAt: updatedAt(),
   },
   (t) => [
-    /** Idempotent monthly generation. */
-    unique("payroll_runs_employee_period_start_uniq").on(t.employeeId, t.periodStart),
+    /**
+     * Idempotent monthly generation — partial: void runs release the slot so
+     * regenerating after a void creates a NEW run row (spec payroll-engine).
+     */
+    uniqueIndex("payroll_runs_employee_period_start_uniq")
+      .on(t.employeeId, t.periodStart)
+      .where(sql`${t.status} <> 'void'`),
     check(
       "payroll_runs_status_check",
       sql`${t.status} IN ('draft','awaiting_approval','approved','issued','void')`,

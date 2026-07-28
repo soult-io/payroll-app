@@ -16,6 +16,8 @@ import { csrfOriginCheck } from "./plugins/csrf.js";
 import { securityHeaders } from "./plugins/security-headers.js";
 import { registerOnboardingRoutes } from "./routes/onboarding.js";
 import { registerAdminRoutes } from "./routes/admin-users.js";
+import { registerAdminPayrollRoutes } from "./routes/admin-payroll.js";
+import { registerPayslipRoutes } from "./routes/payslips.js";
 import { registerStubRoutes } from "./routes/stubs.js";
 
 export interface BuildAppDeps {
@@ -25,6 +27,8 @@ export interface BuildAppDeps {
    * createDb() (postgres-js over TCP).
    */
   database?: Database;
+  /** Re-register scheduler cron after pay-schedule edits (wired in index.ts). */
+  onScheduleChange?: () => Promise<void>;
 }
 
 export async function buildApp(deps: BuildAppDeps = {}) {
@@ -48,6 +52,12 @@ export async function buildApp(deps: BuildAppDeps = {}) {
   mountBetterAuth(app, { auth, config });
   registerOnboardingRoutes(app, { auth, db, config, guards });
   registerAdminRoutes(app, { auth, db, config, guards });
+  registerAdminPayrollRoutes(app, {
+    db,
+    guards,
+    ...(deps.onScheduleChange ? { onScheduleChange: deps.onScheduleChange } : {}),
+  });
+  registerPayslipRoutes(app, { db, guards });
   registerStubRoutes(app, guards);
 
   // Serve the built SPA when present (spec 8: server serves the SPA).

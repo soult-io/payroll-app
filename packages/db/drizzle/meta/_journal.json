@@ -36,6 +36,13 @@
       "when": 1785274271218,
       "tag": "0004_snapshot_hash",
       "breakpoints": true
+    },
+    {
+      "idx": 5,
+      "version": "7",
+      "when": 1785274967391,
+      "tag": "0005_void_releases_period_slot",
+      "breakpoints": true
     }
   ]
 }

@@ -1,0 +1,2 @@
+ALTER TABLE "payroll_runs" DROP CONSTRAINT "payroll_runs_employee_period_start_uniq";--> statement-breakpoint
+CREATE UNIQUE INDEX "payroll_runs_employee_period_start_uniq" ON "payroll_runs" USING btree ("employee_id","period_start") WHERE "payroll_runs"."status" <> 'void';
