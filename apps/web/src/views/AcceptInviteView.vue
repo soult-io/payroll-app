@@ -9,8 +9,20 @@ const token = computed(() => (typeof route.query.token === "string" ? route.quer
 </script>
 
 <template>
-  <OnboardingWizard v-if="token" :token="token" mode="invite" />
-  <Message v-else severity="error" :closable="false">
-    This invite link is missing its token. Use the full link from your invitation email.
-  </Message>
+  <div class="auth-wrap">
+    <section class="card">
+      <OnboardingWizard v-if="token" :token="token" mode="invite" />
+      <Message v-else severity="error" :closable="false">
+        This invite link is missing its token. Use the full link from your invitation email.
+      </Message>
+    </section>
+  </div>
 </template>
+
+<style scoped>
+.auth-wrap {
+  max-width: 560px;
+  margin: 3rem auto;
+  padding: 0 1rem;
+}
+</style>

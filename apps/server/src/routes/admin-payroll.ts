@@ -80,6 +80,8 @@ export function registerAdminPayrollRoutes(app: FastifyInstance, deps: AdminPayr
         snapshotHash: payrollRuns.snapshotHash,
         createdBy: payrollRuns.createdBy,
         createdAt: payrollRuns.createdAt,
+        // Included for the row-expansion entries breakdown (admin-only data).
+        runSnapshot: payrollRuns.runSnapshot,
       })
       .from(payrollRuns)
       .where(conditions.length ? and(...conditions) : undefined)
