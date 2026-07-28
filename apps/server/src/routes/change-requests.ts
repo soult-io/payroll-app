@@ -33,12 +33,13 @@ interface Deps {
   guards: Guards;
 }
 
-/** Never leak bank payloads: account masked, everything else as-is. */
+/** Never leak bank payloads: routing + account masked (••••1234), never ciphertext. */
 function maskPayload(requestType: string, payload: unknown, key: string): unknown {
   if (requestType !== "bank_details" || !payload || typeof payload !== "object") return payload;
   const bank = payload as Record<string, unknown>;
   return {
     ...bank,
+    routing: typeof bank.routing === "string" ? maskLast4(bank.routing, key) : null,
     account: typeof bank.account === "string" ? maskLast4(bank.account, key) : null,
   };
 }

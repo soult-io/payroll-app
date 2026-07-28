@@ -30,6 +30,7 @@ import {
   type TemplateContext,
 } from "@payroll/notifications";
 import type { Db } from "../db.js";
+import { isUniqueViolation } from "../db.js";
 import type { AppConfig } from "../config.js";
 import {
   resolveCompensation,
@@ -274,7 +275,7 @@ export async function generateDraft(
     });
   } catch (err) {
     // Unique race (scheduler retry / double click): someone else created it.
-    if (err && typeof err === "object" && "code" in err && (err as { code: string }).code === "23505") {
+    if (isUniqueViolation(err)) {
       const rows = await db
         .select()
         .from(payrollRuns)

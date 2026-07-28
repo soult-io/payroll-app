@@ -95,10 +95,13 @@ export async function login(
   password: string,
   extra: { remoteAddress?: string } = {},
 ): Promise<LoginResult> {
+  // remoteAddress alone is invisible to Better Auth (it reads proxy headers);
+  // mirror production (NPM) by also setting x-forwarded-for.
+  const ipHeaders = extra.remoteAddress ? { "x-forwarded-for": extra.remoteAddress } : {};
   const signIn = await t.app.inject({
     method: "POST",
     url: "/api/auth/sign-in/email",
-    headers: ORIGIN,
+    headers: { ...ORIGIN, ...ipHeaders },
     remoteAddress: extra.remoteAddress,
     payload: { email, password },
   });
@@ -119,7 +122,7 @@ export async function login(
   const verify = await t.app.inject({
     method: "POST",
     url: "/api/auth/two-factor/verify-totp",
-    headers: { ...ORIGIN, cookie: `payroll.two_factor=${twoFactorCookie}` },
+    headers: { ...ORIGIN, ...ipHeaders, cookie: `payroll.two_factor=${twoFactorCookie}` },
     remoteAddress: extra.remoteAddress,
     payload: { code },
   });

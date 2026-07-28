@@ -28,6 +28,7 @@ import {
 } from "@payroll/notifications";
 import type { BankDetailsPayload } from "@payroll/shared";
 import type { Db } from "../db.js";
+import { isUniqueViolation } from "../db.js";
 import type { AppConfig } from "../config.js";
 import { encryptField, isEncrypted } from "../crypto/field-encryption.js";
 import { companyName } from "../notify/outbox.js";
@@ -135,7 +136,7 @@ export async function submitRequest(
       .returning();
     row = inserted[0]!;
   } catch (err) {
-    if (err && typeof err === "object" && "code" in err && (err as { code: string }).code === "23505") {
+    if (isUniqueViolation(err)) {
       throw new ChangeRequestError(
         "duplicate_pending",
         `a pending ${input.requestType} request already exists for this employee`,
