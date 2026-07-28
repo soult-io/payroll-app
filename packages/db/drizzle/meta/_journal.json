@@ -43,6 +43,13 @@
       "when": 1785274967391,
       "tag": "0005_void_releases_period_slot",
       "breakpoints": true
+    },
+    {
+      "idx": 6,
+      "version": "7",
+      "when": 1785275254594,
+      "tag": "0006_notifications_outbox_devices",
+      "breakpoints": true
     }
   ]
 }

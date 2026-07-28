@@ -17,6 +17,7 @@ import {
   w4Elections,
 } from "@payroll/db";
 import type { Db } from "../db.js";
+import type { AppConfig } from "../config.js";
 import type { Guards } from "../plugins/guards.js";
 import {
   generateDraftsForPeriod,
@@ -28,6 +29,7 @@ import {
 
 interface AdminPayrollDeps {
   db: Db;
+  config: AppConfig;
   guards: Guards;
   /** Re-register pg-boss cron after a pay-schedule change (no-op without scheduler). */
   onScheduleChange?: () => Promise<void>;
@@ -43,7 +45,7 @@ const serviceError = (err: unknown, reply: { code: (n: number) => { send: (b: un
 };
 
 export function registerAdminPayrollRoutes(app: FastifyInstance, deps: AdminPayrollDeps): void {
-  const { db, guards } = deps;
+  const { db, config, guards } = deps;
   const admin = guards.requireRole("admin");
 
   async function audit(actorId: string, action: string, entity: string, entityId: string, before: unknown, after: unknown) {
@@ -102,7 +104,7 @@ export function registerAdminPayrollRoutes(app: FastifyInstance, deps: AdminPayr
       .safeParse(req.body);
     if (!body.success) return reply.code(400).send({ error: "invalid_body", details: body.error.issues });
     const result = await generateDraftsForPeriod(
-      { db },
+      { db, config },
       {
         year: body.data.year,
         month: body.data.month,
@@ -130,7 +132,7 @@ export function registerAdminPayrollRoutes(app: FastifyInstance, deps: AdminPayr
       if (!body.success) return reply.code(400).send({ error: "invalid_body" });
       try {
         const run = await transitionRun(
-          { db },
+          { db, config },
           {
             publicId,
             action,

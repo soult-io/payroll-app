@@ -21,6 +21,10 @@ export interface AppConfig {
   secretsDir: string;
   /** Resolved session secret (from $SECRETS_DIR/session-secret; dev fallback allowed). */
   sessionSecret: string;
+  /** AES-256-GCM key for field-level encryption (bank_details, tax_id, ein). */
+  encryptionKey: string;
+  /** 'smtp' = real sending; 'log' = dev mode: log emails, mark sent (spec 6 dev flag). */
+  emailMode: "smtp" | "log";
   db: {
     host: string;
     port: number;
@@ -32,6 +36,10 @@ export interface AppConfig {
     port: number;
     user: string;
     from: string;
+    /** From $SECRETS_DIR/smtp-password (never an env value). */
+    password?: string | undefined;
+    /** true = implicit TLS (port 465-style); false = STARTTLS/plain per port. */
+    secure: boolean;
   };
 }
 
@@ -69,6 +77,13 @@ export function loadConfig(overrides: Partial<AppConfig> = {}): AppConfig {
             throw new Error("session-secret missing from SECRETS_DIR in production");
           })()
         : "dev-only-insecure-session-secret"),
+    encryptionKey:
+      readSecret({ secretsDir }, "encryption-key") ??
+      (nodeEnv === "production"
+        ? (() => {
+            throw new Error("encryption-key missing from SECRETS_DIR in production");
+          })()
+        : "dev-only-insecure-encryption-key-0123456789abcdef"),
     db: {
       host: env("DB_HOST", "localhost"),
       port: Number(env("DB_PORT", "5432")),
@@ -80,7 +95,15 @@ export function loadConfig(overrides: Partial<AppConfig> = {}): AppConfig {
       port: Number(env("SMTP_PORT", "587")),
       user: env("SMTP_USER"),
       from: env("SMTP_FROM"),
+      password: readSecret({ secretsDir }, "smtp-password"),
+      secure: env("SMTP_SECURE", "false") === "true",
     },
+    // Dev mode without SMTP: log emails instead of sending (spec 6 config flag).
+    emailMode: ((): "smtp" | "log" => {
+      const mode = env("EMAIL_MODE");
+      if (mode === "smtp" || mode === "log") return mode;
+      return env("SMTP_HOST") ? "smtp" : "log";
+    })(),
   };
   return { ...base, ...overrides };
 }

@@ -5,11 +5,13 @@
 
 import { eq } from "drizzle-orm";
 import { auditEvents, authUser, emailOutbox } from "@payroll/db";
+import { EVENT_TYPE, securityInvite, securityPasswordReset } from "@payroll/notifications";
 import type { Auth } from "./auth.js";
 import type { Db } from "../db.js";
 import { smtpConfigured, type AppConfig } from "../config.js";
 import { createSetupToken, revokeOutstandingSetupTokens, type SetupTokenPurpose } from "./tokens.js";
 import { writeAuthEvent, AUTH_EVENT, type AuthEventContext } from "./audit.js";
+import { companyName } from "../notify/outbox.js";
 
 export interface UserServiceDeps {
   auth: Auth;
@@ -30,22 +32,22 @@ function setupLink(config: AppConfig, purpose: SetupTokenPurpose, token: string)
   return `${config.baseUrl}${path}?token=${token}`;
 }
 
-/** Queue the setup email (outbox pattern — actual SMTP sending lands in step 4). */
+/** Queue the setup email (outbox pattern — spec 6 security templates, always on). */
 async function queueSetupEmail(
   db: Db,
+  config: AppConfig,
   userId: string,
   purpose: SetupTokenPurpose,
   link: string,
 ): Promise<void> {
-  const subject =
-    purpose === "invite" ? "You're invited to Payroll" : "Payroll password reset";
+  const ctx = { companyName: await companyName(db), appUrl: config.baseUrl };
+  const rendered =
+    purpose === "invite" ? securityInvite(ctx, { setupLink: link }) : securityPasswordReset(ctx, { setupLink: link });
   await db.insert(emailOutbox).values({
     userId,
-    eventType: purpose === "invite" ? "invite_created" : "password_reset",
-    subject,
-    bodyHtml: `<p>Use this single-use link within 24 hours to ${
-      purpose === "invite" ? "set up your account" : "reset your password"
-    }:</p><p><a href="${link}">${link}</a></p>`,
+    eventType: purpose === "invite" ? EVENT_TYPE.securityInvite : EVENT_TYPE.securityPasswordReset,
+    subject: rendered.subject,
+    bodyHtml: rendered.html,
   });
 }
 
@@ -82,7 +84,7 @@ export async function inviteUser(
   await revokeOutstandingSetupTokens(db, user.id);
   const { token } = await createSetupToken(db, user.id, "invite");
   const link = setupLink(config, "invite", token);
-  await queueSetupEmail(db, user.id, "invite", link);
+  await queueSetupEmail(db, config, user.id, "invite", link);
   await writeAuthEvent(db, AUTH_EVENT.inviteCreated, user.id, auditCtx);
   if (actorId) {
     await db.insert(auditEvents).values({
@@ -127,7 +129,7 @@ export async function initiateReset(
   await revokeOutstandingSetupTokens(db, userId);
   const { token } = await createSetupToken(db, userId, "reset");
   const link = setupLink(config, "reset", token);
-  await queueSetupEmail(db, userId, "reset", link);
+  await queueSetupEmail(db, config, userId, "reset", link);
   if (actorId) {
     await db.insert(auditEvents).values({
       actorId,

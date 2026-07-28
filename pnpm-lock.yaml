@@ -31,6 +31,9 @@ importers:
       '@payroll/engine':
         specifier: workspace:*
         version: link:../../packages/engine
+      '@payroll/notifications':
+        specifier: workspace:*
+        version: link:../../packages/notifications
       '@payroll/shared':
         specifier: workspace:*
         version: link:../../packages/shared
@@ -49,6 +52,9 @@ importers:
       kysely-postgres-js:
         specifier: ~3.0.0
         version: 3.0.0(kysely@0.29.4)(postgres@3.4.9)
+      nodemailer:
+        specifier: ^9.0.3
+        version: 9.0.3
       pg:
         specifier: ^8.22.0
         version: 8.22.0
@@ -74,6 +80,9 @@ importers:
       '@types/node':
         specifier: ~22.18.13
         version: 22.18.13
+      '@types/nodemailer':
+        specifier: ^8.0.1
+        version: 8.0.1
       '@types/pg':
         specifier: ^8.20.0
         version: 8.20.0
@@ -182,6 +191,15 @@ importers:
       vitest:
         specifier: ~3.2.4
         version: 3.2.7(@types/node@22.18.13)(jiti@2.7.0)(tsx@4.23.1)
+
+  packages/notifications:
+    devDependencies:
+      '@types/node':
+        specifier: ~22.18.13
+        version: 22.18.13
+      typescript:
+        specifier: ~5.9.2
+        version: 5.9.3
 
   packages/shared:
     dependencies:
@@ -1107,6 +1125,9 @@ packages:
   '@types/node@22.18.13':
     resolution: {integrity: sha512-Bo45YKIjnmFtv6I1TuC8AaHBbqXtIo+Om5fE4QiU1Tj8QR/qt+8O3BAtOimG5IFmwaWiPmB3Mv3jtYzBA4Us2A==}
 
+  '@types/nodemailer@8.0.1':
+    resolution: {integrity: sha512-PxpaInm8V1JQDd4j0ds5HfvWQk8JupS1C0Picb96QJsrrRDjBH+DlK7L4ZdNSqNULhiZRQHc40nLVShaGxXAMw==}
+
   '@types/pg@8.20.0':
     resolution: {integrity: sha512-bEPFOaMAHTEP1EzpvHTbmwR8UsFyHSKsRisLIHVMXnpNefSbGA1bD6CVy+qKjGSqmZqNqBDV2azOBo8TgkcVow==}
 
@@ -1814,6 +1835,10 @@ packages:
   node-abi@3.94.0:
     resolution: {integrity: sha512-W5ZNO5KRPB5TkYmGVD9F6YqhsglXJzE6etpbmT+f6EQElhiX/UTG551cnsRGvLG3fyZEg9HwaDmNmj5nwJ4z9g==}
     engines: {node: '>=10'}
+
+  nodemailer@9.0.3:
+    resolution: {integrity: sha512-n+YP+NKwR5zRWa60k3GiQ6Q3B4KXCoAw40dAKeCtYn020iNN74aWK2liXIC3ZEATeGql7we3tE3t8QwhY0eskw==}
+    engines: {node: '>=6.0.0'}
 
   non-error@0.1.0:
     resolution: {integrity: sha512-TMB1uHiGsHRGv1uYclfhivcnf0/PdFp2pNqRxXjncaAsjYMoisaQJI+SSZCqRq+VliwRTC8tsMQfmrWjDMhkPQ==}
@@ -2967,6 +2992,10 @@ snapshots:
     dependencies:
       undici-types: 6.21.0
 
+  '@types/nodemailer@8.0.1':
+    dependencies:
+      '@types/node': 22.18.13
+
   '@types/pg@8.20.0':
     dependencies:
       '@types/node': 22.18.13
@@ -3700,6 +3729,8 @@ snapshots:
     dependencies:
       semver: 7.8.5
     optional: true
+
+  nodemailer@9.0.3: {}
 
   non-error@0.1.0: {}
 

@@ -376,17 +376,36 @@ export const emailOutbox = pgTable(
     eventType: text("event_type").notNull(),
     subject: text("subject").notNull(),
     bodyHtml: text("body_html").notNull(),
+    /** 'suppressed' = user opted out via notification_settings (workflow events). */
     status: text("status").notNull().default("pending"),
     attempts: integer("attempts").notNull().default(0),
     lastError: text("last_error"),
+    /** Last send attempt — drives exponential backoff in the drain worker. */
+    lastAttemptAt: timestamp("last_attempt_at", { withTimezone: true }),
     createdAt: createdAt(),
     /** Set on success. */
     sentAt: timestamp("sent_at", { withTimezone: true }).defaultNow(),
   },
   (t) => [
-    check("email_outbox_status_check", sql`${t.status} IN ('pending','sent','failed')`),
+    check(
+      "email_outbox_status_check",
+      sql`${t.status} IN ('pending','sent','failed','suppressed')`,
+    ),
     index("email_outbox_status_idx").on(t.status),
   ],
+);
+
+/** Device fingerprints seen at login — drives security_login_new_device (spec 6). */
+export const userDevices = pgTable(
+  "user_devices",
+  {
+    userId: text("user_id").notNull(),
+    /** SHA-256 of (user-agent + IP /24). */
+    fingerprint: text("fingerprint").notNull(),
+    firstSeenAt: timestamp("first_seen_at", { withTimezone: true }).notNull().defaultNow(),
+    lastSeenAt: timestamp("last_seen_at", { withTimezone: true }).notNull().defaultNow(),
+  },
+  (t) => [primaryKey({ columns: [t.userId, t.fingerprint] })],
 );
 
 // ---------------------------------------------------------------------------

@@ -7,19 +7,22 @@
  *   double-generate (the DB UNIQUE(employee_id, period_start) is the second
  *   belt).
  * - Cron re-registers on boot and on pay-schedule change (syncSchedules).
- * - The email outbox drain worker is STUBBED here (drain-pattern shape only);
- *   actual SMTP sending lands in step 4.
+ * - The email outbox drain worker (spec 6) sends pending rows via nodemailer
+ *   (SMTP) or the dev log transport, with exponential backoff handled in
+ *   notify/outbox.ts.
  *
  * This module only wires pg-boss; all business logic lives in runs.ts and is
  * integration-tested without pg-boss (which needs a real Postgres).
  */
 
 import { PgBoss } from "pg-boss";
+import nodemailer from "nodemailer";
 import { eq, isNull } from "drizzle-orm";
-import { emailOutbox, employees, paySchedules } from "@payroll/db";
+import { authUser, employees, paySchedules } from "@payroll/db";
 import type { Db } from "../db.js";
 import type { AppConfig } from "../config.js";
 import { generateDraftsForPeriod, monthlyPeriod } from "./runs.js";
+import { drainOutbox, type MailTransport } from "../notify/outbox.js";
 
 const TICK_QUEUE = "payroll-draft-tick";
 const GENERATE_QUEUE = "payroll-generate-draft";
@@ -82,7 +85,7 @@ export async function startScheduler(deps: {
     async (jobs) => {
       for (const job of jobs) {
         await generateDraftsForPeriod(
-          { db },
+          { db, config },
           {
             year: job.data.year,
             month: job.data.month,
@@ -95,15 +98,39 @@ export async function startScheduler(deps: {
     },
   );
 
-  // Outbox drain — STUB (step 4 wires SMTP). Establishes the drain pattern:
-  // a repeating job that inspects pending rows; sending replaces the count.
+  // Outbox drain (spec 6): nodemailer over SMTP, or the dev log transport.
+  // Backoff / suppression / max-attempts all live in drainOutbox.
+  const transport: MailTransport | undefined =
+    config.emailMode === "smtp"
+      ? nodemailer.createTransport({
+          host: config.smtp.host,
+          port: config.smtp.port,
+          secure: config.smtp.secure,
+          ...(config.smtp.user
+            ? { auth: { user: config.smtp.user, pass: config.smtp.password ?? "" } }
+            : {}),
+        })
+      : undefined;
+
+  const resolveRecipientEmail = async (userId: string): Promise<string | null> => {
+    const rows = await db
+      .select({ email: authUser.email })
+      .from(authUser)
+      .where(eq(authUser.id, userId))
+      .limit(1);
+    return rows[0]?.email ?? null;
+  };
+
   await boss.work(OUTBOX_QUEUE, async () => {
-    const pending = await db
-      .select({ id: emailOutbox.id })
-      .from(emailOutbox)
-      .where(eq(emailOutbox.status, "pending"));
-    if (pending.length > 0) {
-      console.log(`[outbox-stub] ${pending.length} pending email(s) — SMTP sending arrives in step 4`);
+    const result = await drainOutbox({
+      db,
+      config,
+      ...(transport ? { transport } : {}),
+      resolveRecipientEmail,
+      log: (msg) => console.log(msg),
+    });
+    if (result.sent + result.failed + result.suppressed + result.logged > 0) {
+      console.log(`[outbox] drain: ${JSON.stringify(result)}`);
     }
   });
 
@@ -121,7 +148,7 @@ export async function startScheduler(deps: {
         tz: config.appTz,
       });
     }
-    // Outbox drain every minute (stub worker above; step 4 implements sending).
+    // Outbox drain every minute (spec 6 outbox worker).
     await boss.schedule(OUTBOX_QUEUE, "47 * * * *", null, { tz: config.appTz });
   }
 

@@ -23,7 +23,14 @@ import {
   type PayFrequency,
   type TaxConfig,
 } from "@payroll/engine";
+import {
+  EVENT_TYPE,
+  payrollDraftReady as tplPayrollDraftReady,
+  payslipIssued as tplPayslipIssued,
+  type TemplateContext,
+} from "@payroll/notifications";
 import type { Db } from "../db.js";
+import type { AppConfig } from "../config.js";
 import {
   resolveCompensation,
   resolvePriorYtdGross,
@@ -75,9 +82,34 @@ export type RunRow = typeof payrollRuns.$inferSelect;
 
 interface GenerateDeps {
   db: Db;
+  config: AppConfig;
 }
 
-async function notifyDraftReady(tx: DbLike & Pick<Db, "insert">, run: RunRow, employeeName: string): Promise<void> {
+async function templateCtx(
+  tx: DbLike,
+  config: AppConfig,
+  fallbackCompanyName?: string,
+): Promise<TemplateContext> {
+  let companyName = fallbackCompanyName;
+  if (!companyName) {
+    const rows = await tx.select({ legalName: company.legalName }).from(company).limit(1);
+    companyName = rows[0]?.legalName ?? "Payroll";
+  }
+  return { companyName, appUrl: config.baseUrl };
+}
+
+async function notifyDraftReady(
+  tx: DbLike & Pick<Db, "insert">,
+  ctx: TemplateContext,
+  run: RunRow,
+  employeeName: string,
+): Promise<void> {
+  const rendered = tplPayrollDraftReady(ctx, {
+    employeeName,
+    periodStart: run.periodStart,
+    periodEnd: run.periodEnd,
+    payDate: run.payDate,
+  });
   const admins = await tx
     .select({ id: authUser.id, email: authUser.email })
     .from(authUser)
@@ -85,9 +117,9 @@ async function notifyDraftReady(tx: DbLike & Pick<Db, "insert">, run: RunRow, em
   for (const admin of admins) {
     await tx.insert(emailOutbox).values({
       userId: admin.id,
-      eventType: "payroll_draft_ready",
-      subject: `Payroll draft ready: ${employeeName} ${run.periodStart}`,
-      bodyHtml: `<p>A payroll draft for <strong>${employeeName}</strong> (period ${run.periodStart} → ${run.periodEnd}, pay date ${run.payDate}) awaits approval.</p>`,
+      eventType: EVENT_TYPE.payrollDraftReady,
+      subject: rendered.subject,
+      bodyHtml: rendered.html,
     });
   }
 }
@@ -236,7 +268,8 @@ export async function generateDraft(
         })),
       );
 
-      await notifyDraftReady(tx as DbLike & Pick<Db, "insert">, run, employee.legalName);
+      const tplCtx = await templateCtx(tx, deps.config, companyRow.legalName);
+      await notifyDraftReady(tx as DbLike & Pick<Db, "insert">, tplCtx, run, employee.legalName);
       return { run, created: true };
     });
   } catch (err) {
@@ -331,15 +364,24 @@ const TRANSITIONS: Record<string, { from: string[]; to: string }> = {
 
 export type RunAction = keyof typeof TRANSITIONS;
 
-async function notifyPayslipIssued(tx: DbLike & Pick<Db, "insert">, run: RunRow): Promise<void> {
+async function notifyPayslipIssued(
+  tx: DbLike & Pick<Db, "insert">,
+  ctx: TemplateContext,
+  run: RunRow,
+): Promise<void> {
   const rows = await tx.select().from(employees).where(eq(employees.id, run.employeeId)).limit(1);
   const employee = rows[0];
   if (!employee?.userId) return;
+  // Spec: period + "log in to view/download" — no net pay, no attachment.
+  const rendered = tplPayslipIssued(ctx, {
+    periodLabel: `${run.periodStart} → ${run.periodEnd}`,
+    payDate: run.payDate,
+  });
   await tx.insert(emailOutbox).values({
     userId: employee.userId,
-    eventType: "payslip_issued",
-    subject: `Your payslip for ${run.periodStart.slice(0, 7)} is available`,
-    bodyHtml: `<p>Your payslip for the period ${run.periodStart} → ${run.periodEnd} (pay date ${run.payDate}) has been issued and is available in the app.</p>`,
+    eventType: EVENT_TYPE.payslipIssued,
+    subject: rendered.subject,
+    bodyHtml: rendered.html,
   });
 }
 
@@ -393,7 +435,8 @@ export async function transitionRun(
     });
 
     if (input.action === "issue") {
-      await notifyPayslipIssued(tx as DbLike & Pick<Db, "insert">, next);
+      const tplCtx = await templateCtx(tx as DbLike, deps.config);
+      await notifyPayslipIssued(tx as DbLike & Pick<Db, "insert">, tplCtx, next);
     }
     return next;
   });

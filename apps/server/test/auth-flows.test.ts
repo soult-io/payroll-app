@@ -43,7 +43,8 @@ describe("invite-only onboarding", () => {
 
     const outbox = await t.db.select().from(emailOutbox).where(eq(emailOutbox.userId, invite.userId));
     expect(outbox).toHaveLength(1);
-    expect(outbox[0]!.eventType).toBe("invite_created");
+    // Spec 6 catalog name (step 4: invite email uses the security_invite template).
+    expect(outbox[0]!.eventType).toBe("security_invite");
     expect(outbox[0]!.status).toBe("pending");
     expect(outbox[0]!.bodyHtml).toContain("/accept-invite?token=");
 

@@ -16,6 +16,8 @@ import { generateRandomString, symmetricDecrypt, symmetricEncrypt } from "better
 import type { Auth } from "../auth/auth.js";
 import type { Db } from "../db.js";
 import type { AppConfig } from "../config.js";
+import { notificationSettings } from "@payroll/db";
+import { WORKFLOW_EVENTS } from "@payroll/notifications";
 import {
   consumeSetupToken,
   findValidSetupToken,
@@ -199,6 +201,13 @@ export function registerOnboardingRoutes(app: FastifyInstance, deps: OnboardingD
       where: [{ field: "id", value: twoFactor.id }],
     });
     await consumeSetupToken(db, resolved.row.id);
+
+    // Default notification settings: all workflow events enabled (spec 6).
+    // onConflictDoNothing — a password reset must not clobber existing toggles.
+    await db
+      .insert(notificationSettings)
+      .values(WORKFLOW_EVENTS.map((eventType) => ({ userId: resolved.user.id, eventType, enabled: true })))
+      .onConflictDoNothing({ target: [notificationSettings.userId, notificationSettings.eventType] });
 
     const auditCtx = requestContext(toHeaders(req));
     await writeAuthEvent(

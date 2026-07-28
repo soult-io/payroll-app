@@ -97,6 +97,7 @@ export function buildAuthOptions(deps: AuthDeps): BetterAuthOptions {
     hooks: {
       after: createAuditHook({
         db,
+        config,
         lockout: async (userId, auditCtx) => {
           const ctx = await authContext();
           await lockoutUser(db, ctx.internalAdapter, userId, auditCtx);

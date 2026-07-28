@@ -9,6 +9,8 @@ import { and, desc, eq, or } from "drizzle-orm";
 import { authEvents, authUser } from "@payroll/db";
 import { writeAuthEvent, AUTH_EVENT, requestContext } from "./audit.js";
 import type { Db } from "../db.js";
+import type { AppConfig } from "../config.js";
+import { trackDevice } from "../notify/device.js";
 
 export const LOCKOUT_THRESHOLD = 10;
 
@@ -52,9 +54,24 @@ async function findUserIdByEmail(db: Db, email: string): Promise<string | null> 
  */
 export function createAuditHook(deps: {
   db: Db;
+  config: AppConfig;
   lockout: (userId: string, auditCtx: { ip?: string | null; userAgent?: string | null }) => Promise<void>;
 }) {
   const { db } = deps;
+
+  /** security_login_new_device on a completed 2FA challenge (spec 6, always on). */
+  async function trackNewDevice(userId: string | null, auditCtx: { ip?: string | null; userAgent?: string | null }) {
+    if (!userId) return;
+    try {
+      await trackDevice(
+        { db, config: deps.config },
+        { userId, userAgent: auditCtx.userAgent ?? null, ip: auditCtx.ip ?? null },
+      );
+    } catch (err) {
+      // Device tracking must never break a successful login.
+      console.error("[device-track] failed:", err);
+    }
+  }
   return createAuthMiddleware(async (ctx) => {
     const auditCtx = requestContext(ctx.headers ?? new Headers());
     const returned = ctx.context.returned;
@@ -84,6 +101,14 @@ export function createAuditHook(deps: {
         const returnedUser = (returned as { user?: { id?: string } } | undefined)?.user;
         const userId = sessionUser?.id ?? returnedUser?.id ?? null;
         await writeAuthEvent(db, isFailure ? AUTH_EVENT.mfaFail : AUTH_EVENT.mfaPass, userId, auditCtx);
+        if (!isFailure) await trackNewDevice(userId, auditCtx);
+        break;
+      }
+      case "/backup-code/verify": {
+        // The backup-code plugin writes its own mfa_pass/mfa_fail events;
+        // here we only track the device on a completed sign-in.
+        const returnedUser = (returned as { user?: { id?: string } } | undefined)?.user;
+        if (!isFailure) await trackNewDevice(sessionUser?.id ?? returnedUser?.id ?? null, auditCtx);
         break;
       }
       case "/change-password": {
