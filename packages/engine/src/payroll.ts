@@ -139,6 +139,21 @@ export interface PayrollInput {
   /** This month's gross wage (resolved from the compensation schedule). */
   monthlySalary: number;
   /**
+   * Pay periods per year — 12 (monthly), 24 (semimonthly), 26 (biweekly),
+   * or 52 (weekly). Annualization = monthlySalary × periodsPerYear and
+   * withholding de-annualizes by the same factor. Optional: when omitted the
+   * legacy monthly behavior (12) applies, bit-identical to the pre-frequency
+   * engine.
+   */
+  periodsPerYear?: 12 | 24 | 26 | 52;
+  /**
+   * 2020+ W-4 adjustment amounts (IRS Pub 15-T annual wage method). All
+   * optional; absent/zero fields leave the legacy computation untouched.
+   * Filing-status bracket selection happens at config-resolution time (the
+   * caller passes the matching bracket set inside taxConfig).
+   */
+  w4?: W4Adjustments;
+  /**
    * Gross pay already earned in prior months this year — the SUM of the
    * `gross_pay` payroll_entries for months before this one, NOT `wage × month`.
    * Drives the SS wage-cap, additional-Medicare, and FUTA-base logic.
@@ -150,12 +165,54 @@ export interface PayrollInput {
   federalExempt: boolean;
 }
 
+/**
+ * 2020+ W-4 dollar adjustments (Pub 15-T Worksheet 1A / automated percentage
+ * method): annual `other_income` (4a) and `deductions_amount` (4b) shift the
+ * wage base before the standard deduction; `dependents_amount` (step 3) is a
+ * credit subtracted AFTER the bracket computation; `extra_withholding` (4c) is
+ * a flat per-period add-on.
+ */
+export interface W4Adjustments {
+  /** Step 3 — annual dependent credit (dollars). */
+  dependentsAmount?: number;
+  /** Step 4a — other annual income added to the wage base. */
+  otherIncome?: number;
+  /** Step 4b — annual deductions subtracted from the wage base. */
+  deductionsAmount?: number;
+  /** Step 4c — extra withholding PER PAY PERIOD. */
+  extraWithholding?: number;
+}
+
+/** Canonical frequency → periods-per-year map (compensation.frequency). */
+export const PERIODS_PER_YEAR = {
+  weekly: 52,
+  biweekly: 26,
+  semimonthly: 24,
+  monthly: 12,
+} as const;
+
+export type PayFrequency = keyof typeof PERIODS_PER_YEAR;
+
 export function calculatePayroll(input: PayrollInput): PayrollResult {
   const { monthlySalary, priorYtdGross, taxConfig, federalExempt } = input;
+  const periodsPerYear = input.periodsPerYear ?? 12;
+  if (![12, 24, 26, 52].includes(periodsPerYear)) {
+    throw new RangeError(`periodsPerYear must be 12, 24, 26 or 52 — got ${periodsPerYear}`);
+  }
+  const w4 = input.w4 ?? {};
+  const otherIncome = w4.otherIncome ?? 0;
+  const deductionsAmount = w4.deductionsAmount ?? 0;
+  const dependentsAmount = w4.dependentsAmount ?? 0;
+  const extraWithholding = w4.extraWithholding ?? 0;
   const ytdGross = priorYtdGross + monthlySalary;
 
-  const annualGross = monthlySalary * 12;
-  const annualTaxable = Math.max(0, annualGross - taxConfig.standardDeduction);
+  // Pub 15-T annual wage method: adjust the annualized wage by other income
+  // and deductions BEFORE the standard deduction. With zero adjustments and
+  // periodsPerYear=12 every intermediate value is IEEE-identical to the
+  // legacy monthly path.
+  const annualGross = monthlySalary * periodsPerYear;
+  const adjustedAnnualWage = annualGross + otherIncome - deductionsAmount;
+  const annualTaxable = Math.max(0, adjustedAnnualWage - taxConfig.standardDeduction);
   let annualFederalTax = 0;
   let remaining = annualTaxable;
   for (const bracket of taxConfig.federalBrackets) {
@@ -164,8 +221,13 @@ export function calculatePayroll(input: PayrollInput): PayrollResult {
     annualFederalTax += taxableInBracket * bracket.rate;
     remaining -= taxableInBracket;
   }
-  // An exempt W-4 zeroes federal income-tax withholding only; FICA still applies.
-  const federalWithholding = federalExempt ? 0 : annualFederalTax / 12;
+  // Dependent credits come off AFTER the bracket computation (floor $0).
+  const afterCredits = Math.max(0, annualFederalTax - dependentsAmount);
+  // An exempt W-4 zeroes federal income-tax withholding only; FICA still
+  // applies. Extra withholding is a flat per-period add-on.
+  const federalWithholding = federalExempt
+    ? 0
+    : afterCredits / periodsPerYear + extraWithholding;
 
   const ssThisMonth =
     priorYtdGross < taxConfig.socialSecurityWageCap
