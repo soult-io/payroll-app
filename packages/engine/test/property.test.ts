@@ -102,7 +102,9 @@ describe("engine properties (fast-check)", () => {
           expect(r.medicare).toBe(basePart);
         } else {
           const excess = Math.min(s, ytd + s - cfg.medicareAdditionalThreshold);
-          expect(r.medicare).toBe(round2(s * cfg.medicareRate + excess * cfg.medicareAdditionalRate));
+          expect(r.medicare).toBe(
+            round2(s * cfg.medicareRate + excess * cfg.medicareAdditionalRate),
+          );
         }
       }),
       { seed: 4203, ...RUNS },
