@@ -81,6 +81,12 @@ services:
       - sh
       - -c
       - |
+        set -eu
+        if [ ! -r /run/secrets/db-password ]; then
+          echo "FATAL: /run/secrets/db-password is not readable by the payroll user (uid 10001)." >&2
+          echo "Host fix: chown 10001:10001 /srv/payroll/secrets/* (compose bind-mounts preserve host ownership)." >&2
+          exit 1
+        fi
         export DB_PASSWORD=$$(cat /run/secrets/db-password)
         export DATABASE_URL="postgres://$${DB_USER}:$${DB_PASSWORD}@$${DB_HOST}:$${DB_PORT}/$${DB_NAME}"
         cd /app/db && ./node_modules/.bin/drizzle-kit migrate --config drizzle.config.ts

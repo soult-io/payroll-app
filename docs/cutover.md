@@ -40,7 +40,11 @@ Nextcloud — D5, no file migration).
 
 ## 2. Secrets checklist — `/srv/payroll/secrets`
 
-Create these four files (0600, owned root or the deploy user) **before** first boot:
+Create these four files **before** first boot. Ownership matters: compose
+bind-mounts secret files preserving host ownership, and the app + migrate
+containers run as the non-root `payroll` user (**uid/gid 10001**, fixed in the
+Dockerfile) — so the files must be owned `10001:10001`, mode `0600` (the `db`
+service reads its copy as root, so it works either way):
 
 | File | Contents | Used for |
 |---|---|---|
@@ -63,6 +67,8 @@ openssl rand -hex 32 | sudo tee /srv/payroll/secrets/encryption-key
 openssl rand -hex 32 | sudo tee /srv/payroll/secrets/session-secret
 # db-password and smtp-password: write real values the same way (no trailing newline issues —
 # the app trims; keep one line each).
+sudo chmod 600 /srv/payroll/secrets/*
+sudo chown 10001:10001 /srv/payroll/secrets/*   # container payroll user — REQUIRED
 ```
 
 The `secrets:` blocks in `docker-compose.yml` are already wired (mounted from

@@ -45,7 +45,11 @@ RUN rm -rf /usr/local/lib/node_modules/npm \
            /usr/local/bin/npm /usr/local/bin/npx \
            /usr/local/bin/yarn /usr/local/bin/yarnpkg \
            /usr/local/bin/corepack
-RUN addgroup -S payroll && adduser -S payroll -G payroll
+# Fixed uid/gid (10001) so the host knows exactly which account must be able
+# to read the secret FILES under /srv/payroll/secrets (0600, chown 10001:10001)
+# — compose bind-mounts them, preserving host ownership, and the app runs as
+# this non-root user.
+RUN addgroup -g 10001 -S payroll && adduser -u 10001 -S -G payroll payroll
 COPY --from=build --chown=payroll:payroll /prod/app ./
 # Built SPA — Fastify static serving is wired in a later step (spec 8 says the
 # server serves the SPA; step 1 only ships the assets in the image).
