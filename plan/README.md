@@ -1,8 +1,8 @@
 # Payroll Webapp — Master Plan
 
 **Status: APPROVED by owner 2026-07-28 — all twelve decisions (D1–D12) and all nine specs
-signed off, with one amendment: published port is 8989 (spec 8 updated accordingly).
-Build is authorized.**
+signed off. Port amended twice: 8989 (2026-07-28) → 8927 (2026-07-29, 8989 collided with
+sonarr on the NUC; single port everywhere, no host:container mapping). Build is authorized.**
 
 ## Project goal (from owner interview, 2026-07-28)
 

@@ -19,14 +19,14 @@ services:
     restart: unless-stopped
     environment:
       NODE_ENV: production
-      PORT: 8989
+      PORT: 8927
       SECRETS_DIR: /run/secrets
       DB_HOST: db
       DB_PORT: 5432
       DB_NAME: payroll
       DB_USER: payroll
       # Public URL behind the NPM proxy (spec 8). Set in .env on the host.
-      BASE_URL: ${BASE_URL:-http://localhost:8989}
+      BASE_URL: ${BASE_URL:-http://localhost:8927}
       # SMTP_HOST / SMTP_PORT / SMTP_USER / SMTP_FROM come from .env (spec 8:
       # nothing hardcoded to personal infrastructure).
       SMTP_HOST: ${SMTP_HOST:-}
@@ -39,10 +39,10 @@ services:
       - mcp_network  # NPM proxy (payroll.stabpablo.eu) resolves this container by name
     ports:
       # Loopback-only; NPM proxies the public hostname with TLS + HSTS.
-      # Host bind is 8927 (next free in the fleet 89xx loopback registry —
-      # 8989 is sonarr's on 0.0.0.0). Container port stays 8989; NPM reaches
-      # payroll-app:8989 over mcp_network, unaffected by the host binding.
-      - "127.0.0.1:8927:8989"
+      # One port everywhere (owner 2026-07-29): 8927 is the app's listen port,
+      # the host bind, and the NPM upstream (payroll-app:8927 over mcp_network).
+      # 8927 = next free in the fleet 89xx loopback registry; 8989 is sonarr's.
+      - "127.0.0.1:8927:8927"
     depends_on:
       db:
         condition: service_healthy
@@ -61,7 +61,7 @@ services:
     cap_drop:
       - ALL
     healthcheck:
-      test: ["CMD", "wget", "-qO-", "http://127.0.0.1:8989/health"]
+      test: ["CMD", "wget", "-qO-", "http://127.0.0.1:8927/health"]
       interval: 30s
       timeout: 5s
       start_period: 10s

@@ -215,7 +215,7 @@ docker exec payroll-app node dist/cli/create-admin.js you@example.com --name "Ad
 
 ## 8. Go public
 
-- [ ] NPM: proxy host **payroll.stabpablo.eu → payroll-app:8989**, scheme http,
+- [ ] NPM: proxy host **payroll.stabpablo.eu → payroll-app:8927**, scheme http,
       websockets off, TLS cert + Force SSL + HSTS. (NPM resolves the container
       by name over the shared `mcp_network`; the host loopback bind on 8927 is
       only for host-side debugging.)

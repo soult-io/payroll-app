@@ -32,9 +32,10 @@ Total worst-case footprint ≈ 1 GB — comfortable on the NUC alongside the exi
 
 - **Secrets:** `/srv/payroll/secrets/` files mounted read-only (`db-password`, `smtp-password`,
   `encryption-key`, `session-secret`), never env values — established convention.
-- **Networking:** loopback-only published port `127.0.0.1:8989:8989` (owner-assigned
-  2026-07-28). NPM proxies the public hostname (suggest
-  `payroll.stabpablo.eu`) with TLS + HSTS.
+- **Networking:** loopback-only published port `127.0.0.1:8927:8927` (owner-assigned
+  2026-07-28 as 8989; re-assigned to 8927 on 2026-07-29 — 8989 collided with sonarr on
+  the NUC. One port number everywhere: container, host bind, NPM upstream). NPM proxies
+  the public hostname (`payroll.stabpablo.eu`) to `payroll-app:8927` with TLS + HSTS.
 - **Deploy flow (your infra):** push → CI builds/pushes ghcr image, rewrites compose tag →
   Portainer GitOps polls repo → redeploys → migrate one-shot runs → app boots.
 - **Deploy flow (anyone else):** clone, `cp .env.example .env`, place secrets,

@@ -34,7 +34,7 @@ docker compose up -d db
 # 3. Run migrations (needs DATABASE_URL; matches the dev compose defaults)
 DATABASE_URL=postgres://payroll:payroll@localhost:5432/payroll pnpm db:migrate
 
-# 4. Dev servers — API on :8989, web on :5173 (proxying /api → :8989)
+# 4. Dev servers — API on :8927, web on :5173 (proxying /api → :8927)
 pnpm dev
 
 # Or individually:
@@ -84,10 +84,10 @@ docker compose up -d --build
 For local dev, copy `.env.example` instead — it documents every knob.
 
 Boots `db` (postgres:16-alpine) → `app-migrate` (one-shot `drizzle-kit
-migrate`) → `app`, host loopback bind `127.0.0.1:8927` (container port 8989;
-NPM reaches `payroll-app:8989` over the shared docker network). Secrets wiring
-(mounted files under `/srv/payroll/secrets/`) is in
-[docker-compose.yml](docker-compose.yml).
+migrate`) → `app` on `127.0.0.1:8927` (one port everywhere: app listen port,
+host loopback bind, and the NPM upstream `payroll-app:8927` over the shared
+docker network). Secrets wiring (mounted files under `/srv/payroll/secrets/`)
+is in [docker-compose.yml](docker-compose.yml).
 
 ## Repo layout
 

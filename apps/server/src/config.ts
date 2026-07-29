@@ -63,12 +63,12 @@ export function loadConfig(overrides: Partial<AppConfig> = {}): AppConfig {
   const secretsDir = env("SECRETS_DIR", "./secrets");
   const nodeEnv = env("NODE_ENV", "development");
   const base: AppConfig = {
-    port: Number(env("PORT", "8989")),
+    port: Number(env("PORT", "8927")),
     host: env("HOST", "0.0.0.0"),
     nodeEnv,
     logLevel: env("LOG_LEVEL", "info"),
     appTz: env("APP_TZ", "Europe/Madrid"),
-    baseUrl: env("BASE_URL", `http://localhost:${Number(env("PORT", "8989"))}`),
+    baseUrl: env("BASE_URL", `http://localhost:${Number(env("PORT", "8927"))}`),
     totpIssuer: env("TOTP_ISSUER", "Payroll"),
     secretsDir,
     // In production the session secret MUST come from the secrets dir; in dev
