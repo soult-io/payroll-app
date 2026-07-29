@@ -84,8 +84,10 @@ docker compose up -d --build
 For local dev, copy `.env.example` instead — it documents every knob.
 
 Boots `db` (postgres:16-alpine) → `app-migrate` (one-shot `drizzle-kit
-migrate`) → `app` on `127.0.0.1:8989`. Secrets wiring (mounted files under
-`/srv/payroll/secrets/`) is in [docker-compose.yml](docker-compose.yml).
+migrate`) → `app`, host loopback bind `127.0.0.1:8927` (container port 8989;
+NPM reaches `payroll-app:8989` over the shared docker network). Secrets wiring
+(mounted files under `/srv/payroll/secrets/`) is in
+[docker-compose.yml](docker-compose.yml).
 
 ## Repo layout
 

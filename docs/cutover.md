@@ -93,7 +93,7 @@ Verify:
 
 ```sh
 docker compose ps                      # app healthy, app-migrate exited 0
-curl -s http://127.0.0.1:8989/health   # {"ok":true}
+curl -s http://127.0.0.1:8927/health   # {"ok":true}
 ```
 
 Seed reference data (company row, 2025+2026 federal tax tables, default pay

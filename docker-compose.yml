@@ -39,7 +39,10 @@ services:
       - mcp_network  # NPM proxy (payroll.stabpablo.eu) resolves this container by name
     ports:
       # Loopback-only; NPM proxies the public hostname with TLS + HSTS.
-      - "127.0.0.1:8989:8989"
+      # Host bind is 8927 (next free in the fleet 89xx loopback registry —
+      # 8989 is sonarr's on 0.0.0.0). Container port stays 8989; NPM reaches
+      # payroll-app:8989 over mcp_network, unaffected by the host binding.
+      - "127.0.0.1:8927:8989"
     depends_on:
       db:
         condition: service_healthy
