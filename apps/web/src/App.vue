@@ -2,22 +2,32 @@
 /**
  * App shell (spec 7): role-aware nav, pending-requests badge for admins,
  * global Toast + ConfirmDialog (all mutations get feedback).
+ *
+ * Nav shape: plain employees see their five links flat. Admins see the
+ * ADMIN links flat plus a "My payroll" dropdown holding their employee-area
+ * links (an admin is not necessarily an employee; the dropdown only appears
+ * when a linked employee record exists). This avoids the duplicated
+ * Dashboard/Requests/Settings labels of the original side-by-side layout.
  */
 import { computed, ref, watch } from "vue";
 import { useRoute, useRouter } from "vue-router";
 import Button from "primevue/button";
 import Badge from "primevue/badge";
+import Menu from "primevue/menu";
 import Toast from "primevue/toast";
 import ConfirmDialog from "primevue/confirmdialog";
 import { useAuthStore } from "./stores/auth";
 import { pinia } from "./stores/pinia";
-import { changeRequestsApi } from "./lib/api";
+import { changeRequestsApi, myApi } from "./lib/api";
 
 const route = useRoute();
 const router = useRouter();
 const auth = useAuthStore(pinia);
 const signedIn = computed(() => Boolean(auth.user));
 const pendingCount = ref(0);
+/** True when the signed-in user has a linked employee record (admins may not). */
+const hasEmployee = ref(false);
+const myMenu = ref<InstanceType<typeof Menu>>();
 
 const employeeNav = [
   { label: "Dashboard", name: "my-dashboard" },
@@ -36,6 +46,19 @@ const adminNav = [
   { label: "Settings", name: "admin-settings" },
 ];
 
+/** Employee-area links, shown to admins inside the "My payroll" dropdown. */
+const myMenuItems = employeeNav.map((item) => ({
+  label: item.label,
+  command: () => void router.push({ name: item.name }),
+}));
+
+/** Active-state for the dropdown button when any employee-area route is shown. */
+const myRouteActive = computed(() => route.name?.toString().startsWith("my-") ?? false);
+
+function toggleMyMenu(event: Event) {
+  myMenu.value?.toggle(event);
+}
+
 async function refreshBadge() {
   if (!auth.isAdmin) {
     pendingCount.value = 0;
@@ -48,6 +71,22 @@ async function refreshBadge() {
     // Badge is best-effort; never block navigation on it.
   }
 }
+
+/** Probe once per user: does a linked employee record exist? */
+watch(
+  () => auth.user?.id,
+  async (id) => {
+    hasEmployee.value = false;
+    if (!id) return;
+    try {
+      await myApi.profile();
+      hasEmployee.value = true;
+    } catch {
+      // No linked employee record (e.g. a pure admin) — hide the dropdown.
+    }
+  },
+  { immediate: true },
+);
 
 watch(
   () => [route.fullPath, auth.user?.id],
@@ -73,16 +112,19 @@ async function logout() {
         <Button label="Sign out" size="small" text icon="pi pi-sign-out" @click="logout" />
       </div>
       <nav class="nav">
-        <RouterLink
-          v-for="item in employeeNav"
-          :key="item.name"
-          :to="{ name: item.name }"
-          class="nav-link"
-        >
-          {{ item.label }}
-        </RouterLink>
-        <template v-if="auth.isAdmin">
-          <span class="nav-divider" aria-hidden="true" />
+        <!-- Plain employees: flat employee-area links. -->
+        <template v-if="!auth.isAdmin">
+          <RouterLink
+            v-for="item in employeeNav"
+            :key="item.name"
+            :to="{ name: item.name }"
+            class="nav-link"
+          >
+            {{ item.label }}
+          </RouterLink>
+        </template>
+        <!-- Admins: admin links flat + employee area under "My payroll". -->
+        <template v-else>
           <RouterLink
             v-for="item in adminNav"
             :key="item.name"
@@ -97,6 +139,20 @@ async function logout() {
               class="nav-badge"
             />
           </RouterLink>
+          <template v-if="hasEmployee">
+            <span class="nav-divider" aria-hidden="true" />
+            <button
+              type="button"
+              class="nav-link my-menu-button"
+              :class="{ 'router-link-active': myRouteActive }"
+              aria-haspopup="true"
+              @click="toggleMyMenu"
+            >
+              My payroll
+              <i class="pi pi-chevron-down my-menu-caret" aria-hidden="true" />
+            </button>
+            <Menu ref="myMenu" :model="myMenuItems" popup />
+          </template>
         </template>
       </nav>
     </header>
@@ -179,5 +235,16 @@ async function logout() {
 }
 .nav-badge {
   transform: scale(0.85);
+}
+.my-menu-button {
+  background: none;
+  border: none;
+  border-bottom: 2px solid transparent;
+  cursor: pointer;
+  font: inherit;
+  font-size: 0.9rem;
+}
+.my-menu-caret {
+  font-size: 0.65rem;
 }
 </style>
