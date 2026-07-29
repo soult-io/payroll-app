@@ -17,8 +17,8 @@
     "seed": "tsx src/cli/seed.ts"
   },
   "dependencies": {
-    "@better-auth/utils": "~0.4.2",
-    "@fastify/rate-limit": "~11.1.0",
+    "@better-auth/utils": "~0.5.0",
+    "@fastify/rate-limit": "~11.2.0",
     "@fastify/static": "~10.1.2",
     "@node-rs/argon2": "~2.0.2",
     "@payroll/db": "workspace:*",
@@ -27,16 +27,16 @@
     "@payroll/notifications": "workspace:*",
     "@payroll/shared": "workspace:*",
     "better-auth": "~1.6.25",
-    "drizzle-orm": "~0.44.7",
-    "fastify": "~5.6.0",
+    "drizzle-orm": "~0.45.2",
+    "fastify": "~5.10.0",
     "kysely": "^0.29.4",
     "kysely-postgres-js": "~3.0.0",
     "nodemailer": "^9.0.3",
     "pg": "^8.22.0",
     "pg-boss": "^12.26.3",
-    "pino": "~9.9.0",
+    "pino": "~10.3.1",
     "postgres": "~3.4.9",
-    "zod": "~3.25.76",
+    "zod": "~4.4.3",
     "zxcvbn": "~4.4.2"
   },
   "devDependencies": {

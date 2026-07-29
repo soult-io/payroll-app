@@ -21,7 +21,7 @@
   "dependencies": {
     "@payroll/engine": "workspace:*",
     "drizzle-kit": "~0.31.4",
-    "drizzle-orm": "~0.44.5",
+    "drizzle-orm": "~0.45.2",
     "postgres": "~3.4.5"
   },
   "devDependencies": {
