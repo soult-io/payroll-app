@@ -12,6 +12,7 @@
     "test": "vitest run",
     "e2e:serve": "tsx src/e2e/serve.ts",
     "create-admin": "tsx src/cli/create-admin.ts",
+    "fix-legacy-paydates": "tsx src/cli/fix-legacy-paydates.ts",
     "migrate:legacy": "tsx src/migrate/cli.ts",
     "gen-auth-sql": "tsx scripts/gen-better-auth-sql.ts",
     "seed": "tsx src/cli/seed.ts"

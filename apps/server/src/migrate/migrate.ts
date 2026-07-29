@@ -13,9 +13,9 @@
  *      row in legacy_migration_map so a re-run is a no-op.
  *
  * Documented choices (spec 9):
- *   - pay_date: the source has none; we use the LAST DAY of the period month
- *     (the old flow paid at month end; the app's own schedule pays mid-month
- *     going forward).
+ *   - pay_date: the source has none; we use the 15TH of the period month
+ *     (owner-confirmed 2026-07-29: the legacy flow paid mid-month — the same
+ *     day the app's own default pay schedule uses).
  *   - hire_date: the source has none; we use the earliest compensation
  *     effective_from (first paid period).
  *   - result in run_snapshot: the recomputed engine result. After validation
@@ -295,8 +295,9 @@ function planAndValidate(
     const periodStart = `${run.year}-${mm}-01`;
     const lastDay = lastDayOfMonth(run.year, run.month);
     const periodEnd = `${run.year}-${mm}-${String(lastDay).padStart(2, "0")}`;
-    // Spec 9: source has no pay_date — use the last day of the period month.
-    const payDate = periodEnd;
+    // Spec 9 (amended 2026-07-29): source has no pay_date — the legacy flow
+    // paid on the 15th of the period month (owner-confirmed).
+    const payDate = `${run.year}-${mm}-15`;
     const periodLabel = `${run.year}-${mm}`;
 
     // Compensation covering the period's first day (source semantics:

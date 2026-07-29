@@ -245,15 +245,16 @@ describe("legacy migration", () => {
       extraWithholding: "0.00",
     });
 
-    // Every run: issued, issued_at = created_at, pay_date = last day of month,
-    // snapshot hash recomputes, result matches entries to the cent.
+    // Every run: issued, issued_at = created_at, pay_date = 15th of the
+    // period month (owner-confirmed legacy payday), snapshot hash recomputes,
+    // result matches entries to the cent.
     const runs = await db.select().from(payrollRuns);
     expect(runs).toHaveLength(RUN_COUNT);
     for (const run of runs) {
       expect(run.status).toBe("issued");
       expect(run.createdBy).toBe("legacy-import");
       expect(run.issuedAt?.getTime()).toBe(run.createdAt?.getTime());
-      expect(run.payDate).toBe(run.periodEnd);
+      expect(run.payDate).toBe(`${run.periodStart.slice(0, 7)}-15`);
       const snapshot = run.runSnapshot as RunSnapshot;
       expect(snapshot.engineVersion).toBe(LEGACY_ENGINE_VERSION);
       expect(run.snapshotHash).toBe(snapshotHash(snapshot));

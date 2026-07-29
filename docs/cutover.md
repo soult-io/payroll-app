@@ -18,8 +18,17 @@ the step; the migration itself is a no-op on repeat.
 Moves: employees (1 row → company + employee), compensation (2 rows),
 w4_elections (1 row), tax_config + tax_brackets (2025 + 2026), payroll_runs +
 payroll_entries (all history, imported as `issued` with reconstructed
-snapshots, `engineVersion='legacy-import'`, `pay_date` = last day of the
-period month, `issued_at` = source `created_at`).
+snapshots, `engineVersion='legacy-import'`, `pay_date` = the 15th of the
+period month — owner-confirmed legacy payday, amended 2026-07-29 —
+`issued_at` = source `created_at`).
+
+> **Already migrated with the pre-amendment build?** The first import derived
+> `pay_date` as the last day of the period month. Run the one-off fixer once
+> (idempotent; patches the column, the snapshot, and the snapshot hash):
+>
+> ```sh
+> docker exec payroll-app node dist/cli/fix-legacy-paydates.js
+> ```
 
 Does **not** move (stays as read-only history in `second_brain.accounting`):
 `time_off`, `compliance_filings`, `deposits`, `pay_stub_path` (PDFs stay in
