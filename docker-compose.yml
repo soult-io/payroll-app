@@ -8,7 +8,7 @@ name: payroll
 
 services:
   app:
-    image: ghcr.io/nsoult-agentic/payroll:sha-local
+    image: ghcr.io/soult-io/payroll-app:sha-local
     build:
       context: .
       dockerfile: Dockerfile
@@ -63,7 +63,7 @@ services:
     #   - session-secret
 
   app-migrate:
-    image: ghcr.io/nsoult-agentic/payroll:sha-local
+    image: ghcr.io/soult-io/payroll-app:sha-local
     build:
       context: .
       dockerfile: Dockerfile

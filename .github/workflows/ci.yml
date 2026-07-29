@@ -27,14 +27,19 @@ jobs:
       - name: Install
         run: pnpm install --frozen-lockfile
 
+      # Build BEFORE typecheck: cross-package imports resolve to dist/*.d.ts,
+      # which must exist first (locally, stale dist dirs mask this).
+      - name: Build web + server + packages
+        run: pnpm -r run build
+
       - name: Typecheck (all packages)
         run: pnpm -r run typecheck
 
       - name: Engine unit tests (regression oracle — spec 2)
         run: pnpm --filter @payroll/engine test
 
-      - name: Build web + server + packages
-        run: pnpm -r run build
+      - name: Server integration tests (PGlite — spec 2/3/4/6)
+        run: pnpm --filter @payroll/server test
 
       - name: Build container image
         run: docker build -t ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}:sha-${{ github.sha }} .
@@ -68,3 +73,15 @@ jobs:
             ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}:latest
           cache-from: type=gha
           cache-to: type=gha,mode=max
+
+      # Pin the compose file to this build's sha tag so Portainer GitOps
+      # (polling the repo) always deploys the image CI just pushed.
+      # [skip ci] prevents the bump commit from re-triggering this workflow.
+      - name: Pin compose image tag to this sha
+        run: |
+          sed -i "s|image: ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}:.*|image: ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}:sha-${{ github.sha }}|g" docker-compose.yml
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add docker-compose.yml
+          git diff --cached --quiet || git commit -m "deploy: pin image sha-${{ github.sha }} [skip ci]"
+          git push
