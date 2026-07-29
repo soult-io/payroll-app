@@ -47,10 +47,47 @@ jobs:
       - name: Build container image
         run: docker build -t ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}:sha-${{ github.sha }} .
 
+  # Browser E2E (hardening B): real SPA + Fastify on PGlite, Playwright
+  # chromium. Runs in parallel with verify; push-image waits for both.
+  e2e:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: pnpm/action-setup@v4
+        with:
+          version: 11.17.0
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: pnpm
+
+      - name: Install
+        run: pnpm install --frozen-lockfile
+
+      - name: Build web + packages (SPA dist + workspace dists)
+        run: pnpm -r run build
+
+      - name: Install Playwright chromium
+        run: pnpm --filter @payroll/e2e exec playwright install --with-deps chromium
+
+      - name: E2E (Playwright journeys)
+        run: pnpm --filter @payroll/e2e e2e
+
+      - name: Upload Playwright report on failure
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: playwright-report
+          path: e2e/playwright-report/
+          retention-days: 7
+
   push-image:
     # Image is pushed only from main (spec 8). Portainer GitOps polls the repo
     # and redeploys; compose tag rewrite happens in the deploy job (later step).
-    needs: verify
+    # E2E gates the push: the image carries exactly what the journeys exercise.
+    needs: [verify, e2e]
     if: github.event_name == 'push' && github.ref == 'refs/heads/main'
     runs-on: ubuntu-latest
     permissions:
