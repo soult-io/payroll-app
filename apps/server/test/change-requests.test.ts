@@ -74,7 +74,11 @@ async function submit(cookie: string, body: Record<string, unknown>) {
 }
 
 async function submitAddress(cookie: string, effectiveFrom = nextMonthStart()) {
-  const res = await submit(cookie, { requestType: "address", payload: ADDRESS_PAYLOAD, effectiveFrom });
+  const res = await submit(cookie, {
+    requestType: "address",
+    payload: ADDRESS_PAYLOAD,
+    effectiveFrom,
+  });
   expect(res.statusCode).toBe(201);
   return (res.json() as { request: { publicId: string } }).request.publicId;
 }
@@ -94,12 +98,18 @@ beforeAll(async () => {
   adminId = admin.userId;
   adminCookie = (await login(t, admin.email, TEST_PASSWORD)).sessionCookie;
 
-  const employee = await inviteAndOnboard(t, { email: "cr-employee@example.com", role: "employee" });
+  const employee = await inviteAndOnboard(t, {
+    email: "cr-employee@example.com",
+    role: "employee",
+  });
   employeeUserId = employee.userId;
   employeeId = await createEmployeeFor(employee.userId, "Cr Employee");
   employeeCookie = (await login(t, employee.email, TEST_PASSWORD)).sessionCookie;
 
-  const intruder = await inviteAndOnboard(t, { email: "cr-intruder@example.com", role: "employee" });
+  const intruder = await inviteAndOnboard(t, {
+    email: "cr-intruder@example.com",
+    role: "employee",
+  });
   await createEmployeeFor(intruder.userId, "Cr Intruder");
   intruderCookie = (await login(t, intruder.email, TEST_PASSWORD)).sessionCookie;
 });
@@ -146,7 +156,9 @@ describe("submit → comment → approve (address)", () => {
     const audits = await t.db
       .select()
       .from(auditEvents)
-      .where(and(eq(auditEvents.action, "change_request.approve"), eq(auditEvents.entityId, publicId)));
+      .where(
+        and(eq(auditEvents.action, "change_request.approve"), eq(auditEvents.entityId, publicId)),
+      );
     expect(audits).toHaveLength(1);
     expect(audits[0]!.before).toMatchObject({ address: { line1: "Old Street 1" } });
     expect(audits[0]!.actorId).toBe(adminId);
@@ -163,7 +175,10 @@ describe("submit → comment → approve (address)", () => {
     });
     expect(detail.statusCode).toBe(200);
     const { comments } = detail.json() as { comments: { body: string; authorName: string }[] };
-    expect(comments.map((c) => c.body)).toEqual(["Looks fine, approving.", "Welcome to the new place."]);
+    expect(comments.map((c) => c.body)).toEqual([
+      "Looks fine, approving.",
+      "Welcome to the new place.",
+    ]);
   });
 });
 
@@ -314,7 +329,11 @@ describe("W-4 append-only", () => {
       effectiveFrom,
     });
     // History row untouched.
-    expect(elections[1]).toMatchObject({ taxYear: 2024, filingStatus: "single", effectiveFrom: "2024-01-01" });
+    expect(elections[1]).toMatchObject({
+      taxYear: 2024,
+      filingStatus: "single",
+      effectiveFrom: "2024-01-01",
+    });
 
     // Profile shows the latest election as the W-4 summary.
     const profile = await t.app.inject({
@@ -349,7 +368,10 @@ describe("effective-date rule", () => {
     // The request must come from the run employee's account — use a direct
     // service-path request row instead: link a user to this employee.
     const runner = await inviteAndOnboard(t, { email: "cr-runner@example.com", role: "employee" });
-    await t.db.update(employees).set({ userId: runner.userId }).where(eq(employees.id, runEmployeeId));
+    await t.db
+      .update(employees)
+      .set({ userId: runner.userId })
+      .where(eq(employees.id, runEmployeeId));
     const runnerCookie = (await login(t, runner.email, TEST_PASSWORD)).sessionCookie;
 
     const res = await submit(runnerCookie, {
@@ -381,7 +403,9 @@ describe("effective-date rule", () => {
     const audits = await t.db
       .select()
       .from(auditEvents)
-      .where(and(eq(auditEvents.action, "change_request.approve"), eq(auditEvents.entityId, publicId)));
+      .where(
+        and(eq(auditEvents.action, "change_request.approve"), eq(auditEvents.entityId, publicId)),
+      );
     expect(audits).toHaveLength(1);
     expect(audits[0]!.after).toMatchObject({ effectiveFromOverride: "2025-06-15" });
   });
@@ -497,7 +521,12 @@ describe("bank details", () => {
     const audits = await t.db
       .select()
       .from(auditEvents)
-      .where(and(eq(auditEvents.action, "change_request.approve"), eq(auditEvents.entityId, request.publicId)));
+      .where(
+        and(
+          eq(auditEvents.action, "change_request.approve"),
+          eq(auditEvents.entityId, request.publicId),
+        ),
+      );
     expect(JSON.stringify(audits[0]!.after)).not.toContain("123456789012");
 
     // Profile masks the account (••••9012) and never returns ciphertext.
@@ -507,7 +536,9 @@ describe("bank details", () => {
       headers: sessionHeader(employeeCookie),
     });
     const body = profile.json() as {
-      profile: { bankDetails: { accountMasked: string; routingMasked: string; type: string } | null };
+      profile: {
+        bankDetails: { accountMasked: string; routingMasked: string; type: string } | null;
+      };
     };
     expect(body.profile.bankDetails).toMatchObject({
       accountMasked: "••••9012",

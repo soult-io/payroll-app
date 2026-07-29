@@ -70,7 +70,12 @@ ${bodyHtml}
 </body></html>`;
 }
 
-function email(ctx: TemplateContext, subject: string, bodyHtml: string, text: string): RenderedEmail {
+function email(
+  ctx: TemplateContext,
+  subject: string,
+  bodyHtml: string,
+  text: string,
+): RenderedEmail {
   return { subject: `${ctx.companyName} Payroll — ${subject}`, html: page(ctx, bodyHtml), text };
 }
 
@@ -163,10 +168,7 @@ export function changeRequestDenied(
 // Security events (always on)
 // ---------------------------------------------------------------------------
 
-export function securityInvite(
-  ctx: TemplateContext,
-  data: { setupLink: string },
-): RenderedEmail {
+export function securityInvite(ctx: TemplateContext, data: { setupLink: string }): RenderedEmail {
   const body = `<p>You have been invited to ${escapeHtml(ctx.companyName)} Payroll.</p><p><a href="${data.setupLink}">Set up your account</a> (single-use link, valid 24 hours). You will choose a password and enroll an authenticator app.</p>`;
   return email(
     ctx,

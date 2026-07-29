@@ -14,7 +14,9 @@ const { db, close } = createDb(config);
 
 try {
   await seedDatabase(db);
-  console.log("Seed complete: company (SOULT IO LTD), tax_config/brackets 2025+2026, default pay schedule.");
+  console.log(
+    "Seed complete: company (SOULT IO LTD), tax_config/brackets 2025+2026, default pay schedule.",
+  );
 } finally {
   await close();
 }

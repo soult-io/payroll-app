@@ -58,7 +58,9 @@ async function sendTest() {
     const res = await adminNotificationsApi.testEmail();
     notify.success(
       res.queued ? "Test email queued" : "Test email recorded",
-      outbox.value?.emailMode === "log" ? "SMTP is not configured — it was written to the outbox/log only." : undefined,
+      outbox.value?.emailMode === "log"
+        ? "SMTP is not configured — it was written to the outbox/log only."
+        : undefined,
     );
     await loadOutbox();
   } catch (err) {
@@ -158,7 +160,9 @@ async function invite() {
     });
     notify.success(
       "Invite sent",
-      res.smtpMissing ? "SMTP is not configured — copy the setup link below manually." : "Setup email queued.",
+      res.smtpMissing
+        ? "SMTP is not configured — copy the setup link below manually."
+        : "Setup email queued.",
     );
     if (res.smtpMissing) setupLink.value = res.setupLink;
     inviteName.value = "";
@@ -203,7 +207,9 @@ async function unlock(u: AdminUser) {
 
 function statusOf(u: AdminUser): string {
   if (!u.banned) return "active";
-  return u.banReason === "pending_enrollment" ? "pending enrollment" : `disabled (${u.banReason ?? "banned"})`;
+  return u.banReason === "pending_enrollment"
+    ? "pending enrollment"
+    : `disabled (${u.banReason ?? "banned"})`;
 }
 
 onMounted(() => {

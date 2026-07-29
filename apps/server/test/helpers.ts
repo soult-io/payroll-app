@@ -33,7 +33,9 @@ interface Journal {
 
 /** Run all migrations in journal order against PGlite. */
 export async function runMigrations(pglite: PGlite): Promise<string[]> {
-  const journal = JSON.parse(readFileSync(resolve(DRIZZLE_DIR, "meta/_journal.json"), "utf8")) as Journal;
+  const journal = JSON.parse(
+    readFileSync(resolve(DRIZZLE_DIR, "meta/_journal.json"), "utf8"),
+  ) as Journal;
   const skipped: string[] = [];
   for (const entry of journal.entries) {
     const file = resolve(DRIZZLE_DIR, `${entry.tag}.sql`);
@@ -100,7 +102,10 @@ export async function createTestApp(overrides: Partial<AppConfig> = {}): Promise
 export const ORIGIN = { origin: "http://localhost" };
 
 /** Extract a named cookie value from a set-cookie array. */
-export function cookieValue(setCookies: string | string[] | undefined, name: string): string | null {
+export function cookieValue(
+  setCookies: string | string[] | undefined,
+  name: string,
+): string | null {
   if (!setCookies) return null;
   const list = Array.isArray(setCookies) ? setCookies : [setCookies];
   for (const c of list) {

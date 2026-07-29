@@ -53,11 +53,16 @@ const effectiveFrom = ref<Date>(firstOfNextMonth());
 const busy = ref(false);
 const formComponent = computed(() => {
   switch (selectedType.value) {
-    case "address": return AddressRequestForm;
-    case "w4": return W4RequestForm;
-    case "bank_details": return BankRequestForm;
-    case "legal_name": return LegalNameRequestForm;
-    default: return null;
+    case "address":
+      return AddressRequestForm;
+    case "w4":
+      return W4RequestForm;
+    case "bank_details":
+      return BankRequestForm;
+    case "legal_name":
+      return LegalNameRequestForm;
+    default:
+      return null;
   }
 });
 

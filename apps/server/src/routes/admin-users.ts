@@ -32,11 +32,20 @@ export function registerAdminRoutes(app: FastifyInstance, deps: AdminDeps): void
         role: z.enum(["admin", "employee"]).default("employee"),
       })
       .safeParse(req.body);
-    if (!body.success) return reply.code(400).send({ error: "invalid_body", details: body.error.issues });
+    if (!body.success)
+      return reply.code(400).send({ error: "invalid_body", details: body.error.issues });
     try {
-      const result = await inviteUser(deps, body.data, req.authUser!.id, requestContext(toHeaders(req)));
+      const result = await inviteUser(
+        deps,
+        body.data,
+        req.authUser!.id,
+        requestContext(toHeaders(req)),
+      );
       if (result.smtpMissing) {
-        req.log.warn({ setupLink: result.setupLink }, "SMTP not configured — setup link must be copied manually");
+        req.log.warn(
+          { setupLink: result.setupLink },
+          "SMTP not configured — setup link must be copied manually",
+        );
       }
       return reply.code(201).send(result);
     } catch (err) {
@@ -50,9 +59,17 @@ export function registerAdminRoutes(app: FastifyInstance, deps: AdminDeps): void
   app.post("/api/admin/users/:userId/reset", { preHandler: admin }, async (req, reply) => {
     const { userId } = req.params as { userId: string };
     try {
-      const result = await initiateReset(deps, userId, req.authUser!.id, requestContext(toHeaders(req)));
+      const result = await initiateReset(
+        deps,
+        userId,
+        req.authUser!.id,
+        requestContext(toHeaders(req)),
+      );
       if (result.smtpMissing) {
-        req.log.warn({ setupLink: result.setupLink }, "SMTP not configured — reset link must be copied manually");
+        req.log.warn(
+          { setupLink: result.setupLink },
+          "SMTP not configured — reset link must be copied manually",
+        );
       }
       return result;
     } catch (err) {

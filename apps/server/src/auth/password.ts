@@ -16,10 +16,7 @@ export async function hashPassword(password: string): Promise<string> {
   return argonHash(password, OWASP_ARGON2ID);
 }
 
-export async function verifyPassword(data: {
-  hash: string;
-  password: string;
-}): Promise<boolean> {
+export async function verifyPassword(data: { hash: string; password: string }): Promise<boolean> {
   try {
     return await argonVerify(data.hash, data.password, OWASP_ARGON2ID);
   } catch {

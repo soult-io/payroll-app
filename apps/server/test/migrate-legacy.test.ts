@@ -65,7 +65,16 @@ afterEach(async () => {
 });
 
 async function countOf(
-  table: "company" | "employees" | "compensation" | "w4" | "taxConfig" | "taxBrackets" | "runs" | "entries" | "map",
+  table:
+    | "company"
+    | "employees"
+    | "compensation"
+    | "w4"
+    | "taxConfig"
+    | "taxBrackets"
+    | "runs"
+    | "entries"
+    | "map",
 ): Promise<number> {
   switch (table) {
     case "company":
@@ -89,8 +98,13 @@ async function countOf(
   }
 }
 
-async function runMigration(opts: { dryRun?: boolean; verbose?: boolean } = {}): Promise<MigrationReport> {
-  return migrateLegacy({ source: fixture.source, db }, { dryRun: opts.dryRun, verbose: opts.verbose, log: SILENT });
+async function runMigration(
+  opts: { dryRun?: boolean; verbose?: boolean } = {},
+): Promise<MigrationReport> {
+  return migrateLegacy(
+    { source: fixture.source, db },
+    { dryRun: opts.dryRun, verbose: opts.verbose, log: SILENT },
+  );
 }
 
 /** Target run rows joined to their source ids via the ledger. */
@@ -117,7 +131,10 @@ describe("legacy migration", () => {
     expect(byEntity.get("w4_elections")).toMatchObject({ sourceRows: 1, inserted: 1 });
     expect(byEntity.get("tax_config")).toMatchObject({ sourceRows: 2, inserted: 2 });
     expect(byEntity.get("tax_brackets")).toMatchObject({ sourceRows: 14, inserted: 14 });
-    expect(byEntity.get("payroll_runs")).toMatchObject({ sourceRows: RUN_COUNT, inserted: RUN_COUNT });
+    expect(byEntity.get("payroll_runs")).toMatchObject({
+      sourceRows: RUN_COUNT,
+      inserted: RUN_COUNT,
+    });
     // NOT-migrated accounting tables are reported as skipped.
     expect(report.skippedTables).toEqual([
       { table: "time_off", rows: 1 },
@@ -167,10 +184,12 @@ describe("legacy migration", () => {
 
     // compensation shape
     const comps = await db.select().from(compensation).orderBy(compensation.effectiveFrom);
-    expect(comps.map((c) => [c.periodAmount, c.frequency, c.effectiveFrom, c.effectiveTo])).toEqual([
-      ["3500.00", "monthly", "2025-01-01", "2026-03-31"],
-      ["3750.00", "monthly", "2026-04-01", null],
-    ]);
+    expect(comps.map((c) => [c.periodAmount, c.frequency, c.effectiveFrom, c.effectiveTo])).toEqual(
+      [
+        ["3500.00", "monthly", "2025-01-01", "2026-03-31"],
+        ["3750.00", "monthly", "2026-04-01", null],
+      ],
+    );
 
     // W-4 shape (exempt, effective-dated, renewal preserved, 2020+ fields 0)
     const [w4] = await db.select().from(w4Elections);

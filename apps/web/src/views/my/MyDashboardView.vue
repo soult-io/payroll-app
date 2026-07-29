@@ -9,7 +9,12 @@ import Skeleton from "primevue/skeleton";
 import PageHeader from "../../components/PageHeader.vue";
 import EmptyState from "../../components/EmptyState.vue";
 import StatusChip from "../../components/StatusChip.vue";
-import { payslipsApi, changeRequestsApi, type PayslipSummary, type ChangeRequest } from "../../lib/api";
+import {
+  payslipsApi,
+  changeRequestsApi,
+  type PayslipSummary,
+  type ChangeRequest,
+} from "../../lib/api";
 import { requestTypeLabel } from "../../composables/useRequestTypes";
 import { useMoney } from "../../composables/useMoney";
 import { useDates } from "../../composables/useDates";

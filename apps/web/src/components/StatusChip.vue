@@ -25,7 +25,10 @@ const LABELS: Record<string, string> = {
   suppressed: "Suppressed",
 };
 
-const SEVERITIES: Record<string, "success" | "info" | "warn" | "danger" | "secondary" | "contrast"> = {
+const SEVERITIES: Record<
+  string,
+  "success" | "info" | "warn" | "danger" | "secondary" | "contrast"
+> = {
   draft: "secondary",
   awaiting_approval: "warn",
   approved: "info",

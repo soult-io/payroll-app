@@ -58,7 +58,12 @@ const setupLink = ref("");
 
 const compDialog = ref(false);
 const compBusy = ref(false);
-const compForm = ref({ periodAmount: 0, frequency: "monthly", effectiveFrom: new Date(), effectiveTo: null as Date | null });
+const compForm = ref({
+  periodAmount: 0,
+  frequency: "monthly",
+  effectiveFrom: new Date(),
+  effectiveTo: null as Date | null,
+});
 
 const w4Dialog = ref(false);
 const w4Busy = ref(false);
@@ -80,8 +85,10 @@ const isTerminated = computed(() => employee.value?.status === "terminated");
 const accountState = computed(() => {
   const u = employee.value?.user;
   if (!u) return { label: "Not invited", canInvite: true, canResend: false };
-  if (u.banned && u.banReason === "pending_enrollment") return { label: "Invite pending", canInvite: false, canResend: true };
-  if (u.banned) return { label: `Disabled (${u.banReason ?? "banned"})`, canInvite: false, canResend: false };
+  if (u.banned && u.banReason === "pending_enrollment")
+    return { label: "Invite pending", canInvite: false, canResend: true };
+  if (u.banned)
+    return { label: `Disabled (${u.banReason ?? "banned"})`, canInvite: false, canResend: false };
   return { label: "Active", canInvite: false, canResend: false };
 });
 
@@ -117,7 +124,9 @@ async function sendInvite(resend: boolean) {
     inviteEmail.value = "";
     notify.success(
       resend ? "Invite resent" : "Invite sent",
-      result.smtpMissing ? "SMTP is not configured — copy the setup link below." : "Setup email queued.",
+      result.smtpMissing
+        ? "SMTP is not configured — copy the setup link below."
+        : "Setup email queued.",
     );
     if (result.smtpMissing) {
       // surfaced via setupLink under the header
@@ -143,10 +152,15 @@ function toggleStatus() {
     header: disabling ? "Disable employee" : "Re-enable employee",
     icon: "pi pi-exclamation-triangle",
     rejectProps: { label: "Cancel", severity: "secondary", text: true },
-    acceptProps: { label: disabling ? "Disable" : "Re-enable", severity: disabling ? "danger" : "success" },
+    acceptProps: {
+      label: disabling ? "Disable" : "Re-enable",
+      severity: disabling ? "danger" : "success",
+    },
     accept: async () => {
       try {
-        await adminEmployeesApi.setStatus(employeeId, { status: disabling ? "terminated" : "active" });
+        await adminEmployeesApi.setStatus(employeeId, {
+          status: disabling ? "terminated" : "active",
+        });
         notify.success(disabling ? "Employee disabled" : "Employee re-enabled");
         await load();
       } catch (err) {

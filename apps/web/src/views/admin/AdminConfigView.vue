@@ -64,7 +64,15 @@ const taxYear = ref<number>(new Date().getFullYear());
 const scalars = ref<Record<string, number | null>>({});
 const brackets = ref<BracketEdit[]>([]);
 /** Cache of loaded rows per year so "new year" can copy the previous one. */
-const rawByYear = ref<Map<number, { config: Record<string, string>; brackets: { minAmount: string; maxAmount: string | null; rate: string }[] }>>(new Map());
+const rawByYear = ref<
+  Map<
+    number,
+    {
+      config: Record<string, string>;
+      brackets: { minAmount: string; maxAmount: string | null; rate: string }[];
+    }
+  >
+>(new Map());
 
 const yearOptions = computed(() => {
   const current = new Date().getFullYear();
@@ -73,8 +81,7 @@ const yearOptions = computed(() => {
 });
 
 function fillTaxForm(year: number) {
-  const raw = rawByYear.value.get(year)
-    ?? rawByYear.value.get(year - 1); // new year: start from previous year's values
+  const raw = rawByYear.value.get(year) ?? rawByYear.value.get(year - 1); // new year: start from previous year's values
   const next: Record<string, number | null> = {};
   for (const f of SCALAR_FIELDS) {
     const v = raw?.config[f.key];
@@ -97,12 +104,20 @@ async function loadTax() {
   taxLoading.value = true;
   try {
     const { taxConfig, taxBrackets } = await adminPayrollApi.taxConfig({ jurisdiction: "federal" });
-    const map = new Map<number, { config: Record<string, string>; brackets: { minAmount: string; maxAmount: string | null; rate: string }[] }>();
+    const map = new Map<
+      number,
+      {
+        config: Record<string, string>;
+        brackets: { minAmount: string; maxAmount: string | null; rate: string }[];
+      }
+    >();
     for (const c of taxConfig) {
       map.set(c.taxYear, { config: { ...c } as unknown as Record<string, string>, brackets: [] });
     }
     for (const b of taxBrackets) {
-      map.get(b.taxYear)?.brackets.push({ minAmount: b.minAmount, maxAmount: b.maxAmount, rate: b.rate });
+      map
+        .get(b.taxYear)
+        ?.brackets.push({ minAmount: b.minAmount, maxAmount: b.maxAmount, rate: b.rate });
     }
     rawByYear.value = map;
     availableYears.value = [...map.keys()];
@@ -151,7 +166,12 @@ async function saveTax() {
   }
   taxSaving.value = true;
   try {
-    await adminPayrollApi.putTaxConfig({ jurisdiction: "federal", taxYear: taxYear.value, config, brackets: rows });
+    await adminPayrollApi.putTaxConfig({
+      jurisdiction: "federal",
+      taxYear: taxYear.value,
+      config,
+      brackets: rows,
+    });
     notify.success("Tax tables saved", `Federal ${taxYear.value} rates and brackets updated.`);
     await loadTax();
   } catch (err) {
@@ -214,10 +234,15 @@ async function saveSchedule() {
 async function generateNow() {
   generating.value = true;
   try {
-    const { generated, skipped } = await adminPayrollApi.generate({ year: genYear.value, month: genMonth.value });
+    const { generated, skipped } = await adminPayrollApi.generate({
+      year: genYear.value,
+      month: genMonth.value,
+    });
     notify.success(
       `Drafts generated: ${generated.length}`,
-      skipped.length ? `Skipped ${skipped.length}: ${skipped.map((s) => `#${s.employeeId} ${s.reason}`).join("; ")}` : undefined,
+      skipped.length
+        ? `Skipped ${skipped.length}: ${skipped.map((s) => `#${s.employeeId} ${s.reason}`).join("; ")}`
+        : undefined,
     );
   } catch (err) {
     notify.error(err, "Could not generate drafts");

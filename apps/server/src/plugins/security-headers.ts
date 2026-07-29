@@ -19,10 +19,7 @@ const CSP = [
   "form-action 'self'",
 ].join("; ");
 
-export async function securityHeaders(
-  _req: FastifyRequest,
-  reply: FastifyReply,
-): Promise<void> {
+export async function securityHeaders(_req: FastifyRequest, reply: FastifyReply): Promise<void> {
   reply.header("Content-Security-Policy", CSP);
   reply.header("X-Content-Type-Options", "nosniff");
   reply.header("Referrer-Policy", "strict-origin-when-cross-origin");

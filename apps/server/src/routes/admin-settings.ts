@@ -58,7 +58,8 @@ export function registerAdminSettingsRoutes(app: FastifyInstance, deps: Deps): v
           .optional(),
       })
       .safeParse(req.body);
-    if (!body.success) return reply.code(400).send({ error: "invalid_body", details: body.error.issues });
+    if (!body.success)
+      return reply.code(400).send({ error: "invalid_body", details: body.error.issues });
 
     const rows = await db.select().from(company).limit(1);
     const before = rows[0];

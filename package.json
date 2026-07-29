@@ -12,8 +12,13 @@
     "build": "pnpm -r run build",
     "test": "pnpm -r run test",
     "typecheck": "pnpm -r run typecheck",
+    "lint": "biome check",
+    "format": "biome format --write",
     "db:generate": "pnpm --filter @payroll/db run generate",
     "db:migrate": "pnpm --filter @payroll/db run migrate",
     "migrate:legacy": "pnpm --filter @payroll/server run migrate:legacy"
+  },
+  "devDependencies": {
+    "@biomejs/biome": "2.5.6"
   }
 }

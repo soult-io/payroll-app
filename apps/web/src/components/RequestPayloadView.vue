@@ -14,14 +14,18 @@ const props = defineProps<{ requestType: string; payload: Record<string, unknown
 const { money } = useMoney();
 const { date } = useDates();
 
-const str = (v: unknown): string => (typeof v === "string" ? v : v === null || v === undefined ? "—" : String(v));
+const str = (v: unknown): string =>
+  typeof v === "string" ? v : v === null || v === undefined ? "—" : String(v);
 
 const rows = computed<{ label: string; value: string }[]>(() => {
   const p = props.payload;
   switch (props.requestType) {
     case "address":
       return [
-        { label: "Street", value: [str(p.line1), str(p.line2)].filter((s) => s !== "—").join(", ") },
+        {
+          label: "Street",
+          value: [str(p.line1), str(p.line2)].filter((s) => s !== "—").join(", "),
+        },
         { label: "City", value: str(p.city) },
         { label: "State/Province", value: str(p.state) },
         { label: "ZIP/Postal code", value: str(p.zip) },

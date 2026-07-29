@@ -40,9 +40,13 @@ const issueDialog = ref(false);
 const issueConfirmText = ref("");
 
 const snapshot = computed(() => run.value?.runSnapshot ?? null);
-const canApprove = computed(() => run.value && ["draft", "awaiting_approval"].includes(run.value.status));
+const canApprove = computed(
+  () => run.value && ["draft", "awaiting_approval"].includes(run.value.status),
+);
 const canIssue = computed(() => run.value?.status === "approved");
-const canVoid = computed(() => run.value && ["draft", "awaiting_approval", "approved"].includes(run.value.status));
+const canVoid = computed(
+  () => run.value && ["draft", "awaiting_approval", "approved"].includes(run.value.status),
+);
 
 async function load() {
   try {

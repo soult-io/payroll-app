@@ -19,7 +19,11 @@ export function tokenFromLink(link: string): string {
 
 /** Current TOTP code for a user, derived from the encrypted secret in the DB. */
 export async function currentTotp(t: TestContext, userId: string): Promise<string> {
-  const rows = await t.db.select().from(authTwoFactor).where(eq(authTwoFactor.userId, userId)).limit(1);
+  const rows = await t.db
+    .select()
+    .from(authTwoFactor)
+    .where(eq(authTwoFactor.userId, userId))
+    .limit(1);
   if (!rows[0]) throw new Error("no twoFactor row");
   const ctx = await t.auth.$context;
   const secret = await symmetricDecrypt({ key: ctx.secretConfig, data: rows[0].secret });
@@ -39,7 +43,11 @@ export async function inviteAndOnboard(
 ): Promise<OnboardedUser> {
   const invite = await inviteUser(
     { auth: t.auth, db: t.db, config: t.config },
-    { name: input.name ?? input.email.split("@")[0]!, email: input.email, role: input.role ?? "employee" },
+    {
+      name: input.name ?? input.email.split("@")[0]!,
+      email: input.email,
+      role: input.role ?? "employee",
+    },
     null,
   );
   const token = tokenFromLink(invite.setupLink);
@@ -136,7 +144,11 @@ export async function login(
 
 export async function userIdByEmail(t: TestContext, email: string): Promise<string> {
   const { authUser } = await import("@payroll/db");
-  const rows = await t.db.select({ id: authUser.id }).from(authUser).where(eq(authUser.email, email)).limit(1);
+  const rows = await t.db
+    .select({ id: authUser.id })
+    .from(authUser)
+    .where(eq(authUser.email, email))
+    .limit(1);
   if (!rows[0]) throw new Error(`user ${email} not found`);
   return rows[0].id;
 }

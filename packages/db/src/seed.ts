@@ -12,7 +12,7 @@ import { sql } from "drizzle-orm";
 import type { PostgresJsDatabase } from "drizzle-orm/postgres-js";
 import { TAX_CONFIG, TAX_CONFIG_2025, type TaxConfig } from "@payroll/engine";
 import { company, paySchedules, taxBrackets, taxConfig } from "./schema.js";
-import * as schema from "./schema.js";
+import type * as schema from "./schema.js";
 
 export type SeedDb = PostgresJsDatabase<typeof schema>;
 

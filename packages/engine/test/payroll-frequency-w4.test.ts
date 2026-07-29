@@ -77,9 +77,7 @@ describe("frequency generalization (periodsPerYear)", () => {
 
   test("omitted periodsPerYear stays bit-identical to legacy monthly", () => {
     // The 2026 golden case from payroll.test.ts: 10,000/mo → 1,464.17.
-    const legacy = calculatePayroll(
-      input({ monthlySalary: 10_000, taxConfig: TAX_CONFIG }),
-    );
+    const legacy = calculatePayroll(input({ monthlySalary: 10_000, taxConfig: TAX_CONFIG }));
     const explicit = calculatePayroll(
       input({
         monthlySalary: 10_000,

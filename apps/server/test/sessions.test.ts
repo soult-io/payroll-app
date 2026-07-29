@@ -134,7 +134,9 @@ describe("session lifecycle", () => {
 
   it("banning a user kills all sessions instantly", async () => {
     await inviteAndOnboard(t, { email: "ban-admin@example.com", role: "admin" });
-    const admin = await login(t, "ban-admin@example.com", TEST_PASSWORD, { remoteAddress: nextIp() });
+    const admin = await login(t, "ban-admin@example.com", TEST_PASSWORD, {
+      remoteAddress: nextIp(),
+    });
 
     const email = "ban-victim@example.com";
     const { userId } = await inviteAndOnboard(t, { email });

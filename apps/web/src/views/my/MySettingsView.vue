@@ -24,10 +24,19 @@ const { dateTime } = useDates();
 
 // ------------------------------------------------------- notifications
 const EVENT_LABELS: Record<string, { label: string; blurb: string }> = {
-  payroll_draft_ready: { label: "Payroll draft ready", blurb: "When a draft payroll run awaits review (admins)" },
+  payroll_draft_ready: {
+    label: "Payroll draft ready",
+    blurb: "When a draft payroll run awaits review (admins)",
+  },
   payslip_issued: { label: "Payslip issued", blurb: "When a new payslip is available to you" },
-  change_request_submitted: { label: "Request submitted", blurb: "When an employee submits a change request (admins)" },
-  change_request_approved: { label: "Request approved", blurb: "When one of your requests is approved" },
+  change_request_submitted: {
+    label: "Request submitted",
+    blurb: "When an employee submits a change request (admins)",
+  },
+  change_request_approved: {
+    label: "Request approved",
+    blurb: "When one of your requests is approved",
+  },
   change_request_denied: { label: "Request denied", blurb: "When one of your requests is denied" },
 };
 const settings = ref<(NotificationSetting & { saving?: boolean })[]>([]);

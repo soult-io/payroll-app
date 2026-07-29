@@ -56,8 +56,7 @@ export type W4Payload = z.infer<typeof w4Payload>;
 function validRoutingChecksum(routing: string): boolean {
   const d = routing.split("").map(Number);
   if (d.length !== 9 || d.some((n) => Number.isNaN(n))) return false;
-  const sum =
-    3 * (d[0]! + d[3]! + d[6]!) + 7 * (d[1]! + d[4]! + d[7]!) + (d[2]! + d[5]! + d[8]!);
+  const sum = 3 * (d[0]! + d[3]! + d[6]!) + 7 * (d[1]! + d[4]! + d[7]!) + (d[2]! + d[5]! + d[8]!);
   return sum % 10 === 0;
 }
 

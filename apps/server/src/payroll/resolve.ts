@@ -51,7 +51,11 @@ export async function resolveCompensation(
  * effective_from <= period_start). An exempt election whose renewal_deadline
  * has passed no longer exempts (IRC §3402(n)).
  */
-export async function resolveW4(db: DbLike, employeeId: number, periodStart: string): Promise<W4Row | null> {
+export async function resolveW4(
+  db: DbLike,
+  employeeId: number,
+  periodStart: string,
+): Promise<W4Row | null> {
   const rows = await db
     .select()
     .from(w4Elections)

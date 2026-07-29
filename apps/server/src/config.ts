@@ -48,7 +48,10 @@ function env(name: string, fallback = ""): string {
 }
 
 /** Read a secret from $SECRETS_DIR/<name>; returns undefined when absent (dev tolerance). */
-export function readSecret(config: Pick<AppConfig, "secretsDir">, name: string): string | undefined {
+export function readSecret(
+  config: Pick<AppConfig, "secretsDir">,
+  name: string,
+): string | undefined {
   try {
     return readFileSync(join(config.secretsDir, name), "utf8").trim();
   } catch {

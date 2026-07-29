@@ -44,9 +44,7 @@ export async function writeAuthEvent(
 }
 
 /** Extract client IP / UA from Fastify request or Better Auth headers. */
-export function requestContext(headers: {
-  get(name: string): string | null;
-}): AuthEventContext {
+export function requestContext(headers: { get(name: string): string | null }): AuthEventContext {
   const fwd = headers.get("x-forwarded-for");
   return {
     ip: fwd?.split(",")[0]?.trim() ?? headers.get("x-real-ip") ?? null,

@@ -35,7 +35,9 @@ const verbose = args.includes("--verbose");
 
 const sourceUrl = process.env.SOURCE_DATABASE_URL;
 if (!sourceUrl) {
-  console.error("error: SOURCE_DATABASE_URL is required (the second_brain postgres connection string)");
+  console.error(
+    "error: SOURCE_DATABASE_URL is required (the second_brain postgres connection string)",
+  );
   process.exit(1);
 }
 if (!dryRun && !write) {
@@ -57,7 +59,9 @@ const database = createDb(config, process.env.DATABASE_URL);
 const log = (line: string) => console.log(line);
 
 console.log(`mode: ${dryRun ? "DRY-RUN (analysis only, zero writes)" : "WRITE"}`);
-console.log(`snapshots: engineVersion='${LEGACY_ENGINE_VERSION}', validated to the cent before any write`);
+console.log(
+  `snapshots: engineVersion='${LEGACY_ENGINE_VERSION}', validated to the cent before any write`,
+);
 
 try {
   const report = await migrateLegacy({ source, db: database.db }, { dryRun, verbose, log });

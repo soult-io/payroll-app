@@ -25,7 +25,9 @@ const { app, config, db } = await buildApp({
 const start = async () => {
   try {
     if (config.nodeEnv !== "production" && config.sessionSecret.startsWith("dev-only")) {
-      app.log.warn("using dev fallback session secret — set SECRETS_DIR/session-secret in production");
+      app.log.warn(
+        "using dev fallback session secret — set SECRETS_DIR/session-secret in production",
+      );
     }
     if (schedulerEnabled) {
       const scheduler = await startScheduler({ db, config, databaseUrl: databaseUrl(config) });

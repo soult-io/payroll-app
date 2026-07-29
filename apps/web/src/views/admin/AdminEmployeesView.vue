@@ -67,7 +67,9 @@ async function create() {
     const taxId = form.value.taxId.replaceAll("-", "").replaceAll("_", "");
     const { employee } = await adminEmployeesApi.create({
       legalName: form.value.legalName.trim(),
-      ...(form.value.preferredName.trim() ? { preferredName: form.value.preferredName.trim() } : {}),
+      ...(form.value.preferredName.trim()
+        ? { preferredName: form.value.preferredName.trim() }
+        : {}),
       employmentType: form.value.employmentType,
       hireDate,
       ...(taxId.length === 9 ? { taxId } : {}),

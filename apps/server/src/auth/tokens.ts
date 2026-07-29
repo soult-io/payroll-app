@@ -39,10 +39,7 @@ export async function createSetupToken(
 export type ValidSetupToken = typeof setupTokens.$inferSelect;
 
 /** Look up a VALID (unused, unexpired) setup token by plaintext value. */
-export async function findValidSetupToken(
-  db: Db,
-  token: string,
-): Promise<ValidSetupToken | null> {
+export async function findValidSetupToken(db: Db, token: string): Promise<ValidSetupToken | null> {
   const rows = await db
     .select()
     .from(setupTokens)

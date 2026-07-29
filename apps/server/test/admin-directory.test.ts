@@ -17,7 +17,12 @@ let employeeCookie: string;
 let employeeUserId: string;
 
 function adminReq(method: string, url: string, payload?: unknown) {
-  return t.app.inject({ method: method as "GET", url, headers: sessionHeader(adminCookie), ...(payload !== undefined ? { payload } : {}) });
+  return t.app.inject({
+    method: method as "GET",
+    url,
+    headers: sessionHeader(adminCookie),
+    ...(payload !== undefined ? { payload } : {}),
+  });
 }
 
 beforeAll(async () => {
@@ -25,7 +30,10 @@ beforeAll(async () => {
   await seedDatabase(t.db as unknown as SeedDb);
   const admin = await inviteAndOnboard(t, { email: "dir-admin@example.com", role: "admin" });
   adminCookie = (await login(t, admin.email, TEST_PASSWORD)).sessionCookie;
-  const employee = await inviteAndOnboard(t, { email: "dir-employee@example.com", role: "employee" });
+  const employee = await inviteAndOnboard(t, {
+    email: "dir-employee@example.com",
+    role: "employee",
+  });
   employeeUserId = employee.userId;
   employeeCookie = (await login(t, employee.email, TEST_PASSWORD)).sessionCookie;
 });
@@ -90,7 +98,9 @@ describe("employee directory", () => {
     const mails = await t.db
       .select()
       .from(emailOutbox)
-      .where(and(eq(emailOutbox.userId, invited.userId), eq(emailOutbox.eventType, "security_invite")));
+      .where(
+        and(eq(emailOutbox.userId, invited.userId), eq(emailOutbox.eventType, "security_invite")),
+      );
     expect(mails.length).toBe(2); // invite + resend
   });
 
@@ -113,13 +123,17 @@ describe("employee directory", () => {
     expect(emp!.terminationDate).toBe("2025-06-30");
 
     // Re-enable.
-    const enable = await adminReq("POST", `/api/admin/employees/${employeeId}/status`, { status: "active" });
+    const enable = await adminReq("POST", `/api/admin/employees/${employeeId}/status`, {
+      status: "active",
+    });
     expect(enable.statusCode).toBe(200);
     const [user2] = await t.db.select().from(authUser).where(eq(authUser.id, userId));
     expect(user2!.banned).toBe(false);
 
     // No-op is a conflict.
-    const noop = await adminReq("POST", `/api/admin/employees/${employeeId}/status`, { status: "active" });
+    const noop = await adminReq("POST", `/api/admin/employees/${employeeId}/status`, {
+      status: "active",
+    });
     expect(noop.statusCode).toBe(409);
   });
 
@@ -137,7 +151,9 @@ describe("company profile", () => {
   it("reads with masked EIN and updates name/address with audit", async () => {
     const get1 = await adminReq("GET", "/api/admin/company");
     expect(get1.statusCode).toBe(200);
-    const { company: before } = get1.json() as { company: { legalName: string; einMasked: string | null } };
+    const { company: before } = get1.json() as {
+      company: { legalName: string; einMasked: string | null };
+    };
     expect(before.legalName.length).toBeGreaterThan(0);
     expect(before.einMasked === null || before.einMasked.startsWith("••••")).toBe(true);
 

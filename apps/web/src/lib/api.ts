@@ -100,7 +100,11 @@ export interface MyProfile {
   hireDate: string;
   status: string;
   address: Address | null;
-  bankDetails: { type: string | null; routingMasked: string | null; accountMasked: string | null } | null;
+  bankDetails: {
+    type: string | null;
+    routingMasked: string | null;
+    accountMasked: string | null;
+  } | null;
   taxIdMasked: string | null;
   w4: {
     taxYear: number;
@@ -224,7 +228,12 @@ export interface AdminEmployeeDetail {
   status: string;
   address: Address | null;
   dateOfBirth: string | null;
-  user: { id: string; email: string | null; banned: boolean | null; banReason: string | null } | null;
+  user: {
+    id: string;
+    email: string | null;
+    banned: boolean | null;
+    banReason: string | null;
+  } | null;
 }
 
 export interface InviteResult {
@@ -349,10 +358,13 @@ function qs(params: Record<string, string | number | boolean | undefined>): stri
 
 export const onboardingApi = {
   verifyToken: (token: string) =>
-    post<{ email: string; name: string; purpose: string }>("/api/onboarding/verify-token", { token }),
+    post<{ email: string; name: string; purpose: string }>("/api/onboarding/verify-token", {
+      token,
+    }),
   setPassword: (token: string, password: string) =>
     post<{ ok: true; next: string }>("/api/onboarding/set-password", { token, password }),
-  totpEnable: (token: string) => post<{ totpURI: string }>("/api/onboarding/totp-enable", { token }),
+  totpEnable: (token: string) =>
+    post<{ totpURI: string }>("/api/onboarding/totp-enable", { token }),
   totpVerify: (token: string, code: string) =>
     post<{ ok: true; backupCodes: string[] }>("/api/onboarding/totp-verify", { token, code }),
 };
@@ -364,12 +376,17 @@ export const payslipsApi = {
 };
 
 export const changeRequestsApi = {
-  submit: (input: { requestType: ChangeRequestType; payload: Record<string, unknown>; effectiveFrom: string }) =>
-    post<{ request: ChangeRequest }>("/api/change-requests", input),
+  submit: (input: {
+    requestType: ChangeRequestType;
+    payload: Record<string, unknown>;
+    effectiveFrom: string;
+  }) => post<{ request: ChangeRequest }>("/api/change-requests", input),
   list: (filter: { status?: RequestStatus; requestType?: ChangeRequestType } = {}) =>
     get<{ requests: ChangeRequest[] }>(`/api/change-requests${qs(filter)}`),
   detail: (publicId: string) =>
-    get<{ request: ChangeRequest; comments: ChangeRequestComment[] }>(`/api/change-requests/${publicId}`),
+    get<{ request: ChangeRequest; comments: ChangeRequestComment[] }>(
+      `/api/change-requests/${publicId}`,
+    ),
   comment: (publicId: string, body: string) =>
     post<{ ok: true }>(`/api/change-requests/${publicId}/comments`, { body }),
   approve: (publicId: string, input: { note?: string; effectiveFromOverride?: string } = {}) =>
@@ -385,7 +402,8 @@ export const myApi = {
   security: () =>
     get<{ twoFactorEnabled: boolean; backupCodesRemaining: number }>("/api/my/security"),
   regenerateBackupCodes: () => post<{ backupCodes: string[] }>("/api/my/backup-codes"),
-  notificationSettings: () => get<{ settings: NotificationSetting[] }>("/api/my/notification-settings"),
+  notificationSettings: () =>
+    get<{ settings: NotificationSetting[] }>("/api/my/notification-settings"),
   putNotificationSettings: (settings: NotificationSetting[]) =>
     put<{ ok: true }>("/api/my/notification-settings", { settings }),
 };
@@ -400,19 +418,40 @@ export const adminPayrollApi = {
       input,
     ),
   act: (publicId: string, action: "approve" | "issue" | "void", reason?: string) =>
-    post<{ run: PayrollRunRow }>(`/api/admin/payroll-runs/${publicId}/${action}`, reason ? { reason } : {}),
+    post<{ run: PayrollRunRow }>(
+      `/api/admin/payroll-runs/${publicId}/${action}`,
+      reason ? { reason } : {},
+    ),
   schedules: () => get<{ schedules: PaySchedule[] }>("/api/admin/pay-schedules"),
-  putSchedule: (input: { draftDayOfMonth: number; payDayOfMonth: number; autoDraft: boolean; active: boolean }) =>
-    put<{ schedule: PaySchedule }>("/api/admin/pay-schedules", input),
+  putSchedule: (input: {
+    draftDayOfMonth: number;
+    payDayOfMonth: number;
+    autoDraft: boolean;
+    active: boolean;
+  }) => put<{ schedule: PaySchedule }>("/api/admin/pay-schedules", input),
   compensation: (employeeId: number) =>
     get<{ compensation: CompensationRow[] }>(`/api/admin/employees/${employeeId}/compensation`),
-  addCompensation: (employeeId: number, input: { periodAmount: number; frequency: string; effectiveFrom: string; effectiveTo?: string | null }) =>
-    post<{ compensation: CompensationRow }>(`/api/admin/employees/${employeeId}/compensation`, input),
-  w4: (employeeId: number) => get<{ w4Elections: W4ElectionRow[] }>(`/api/admin/employees/${employeeId}/w4`),
+  addCompensation: (
+    employeeId: number,
+    input: {
+      periodAmount: number;
+      frequency: string;
+      effectiveFrom: string;
+      effectiveTo?: string | null;
+    },
+  ) =>
+    post<{ compensation: CompensationRow }>(
+      `/api/admin/employees/${employeeId}/compensation`,
+      input,
+    ),
+  w4: (employeeId: number) =>
+    get<{ w4Elections: W4ElectionRow[] }>(`/api/admin/employees/${employeeId}/w4`),
   addW4: (employeeId: number, input: Record<string, unknown>) =>
     post<{ w4: W4ElectionRow }>(`/api/admin/employees/${employeeId}/w4`, input),
   taxConfig: (filter: { year?: number; jurisdiction?: string } = {}) =>
-    get<{ taxConfig: TaxConfigRow[]; taxBrackets: TaxBracketRow[] }>(`/api/admin/tax-config${qs(filter)}`),
+    get<{ taxConfig: TaxConfigRow[]; taxBrackets: TaxBracketRow[] }>(
+      `/api/admin/tax-config${qs(filter)}`,
+    ),
   putTaxConfig: (input: {
     jurisdiction: string;
     taxYear: number;
@@ -423,7 +462,8 @@ export const adminPayrollApi = {
 
 export const adminEmployeesApi = {
   list: () => get<{ employees: AdminEmployeeListRow[] }>("/api/admin/employees"),
-  detail: (employeeId: number) => get<{ employee: AdminEmployeeDetail }>(`/api/admin/employees/${employeeId}`),
+  detail: (employeeId: number) =>
+    get<{ employee: AdminEmployeeDetail }>(`/api/admin/employees/${employeeId}`),
   create: (input: {
     legalName: string;
     preferredName?: string;
@@ -434,8 +474,10 @@ export const adminEmployeesApi = {
   }) => post<{ employee: AdminEmployeeDetail }>("/api/admin/employees", input),
   invite: (employeeId: number, input: { email?: string; name?: string } = {}) =>
     post<InviteResult>(`/api/admin/employees/${employeeId}/invite`, input),
-  setStatus: (employeeId: number, input: { status: "active" | "terminated"; terminationDate?: string }) =>
-    post<{ employee: AdminEmployeeDetail }>(`/api/admin/employees/${employeeId}/status`, input),
+  setStatus: (
+    employeeId: number,
+    input: { status: "active" | "terminated"; terminationDate?: string },
+  ) => post<{ employee: AdminEmployeeDetail }>(`/api/admin/employees/${employeeId}/status`, input),
 };
 
 export const adminUsersApi = {

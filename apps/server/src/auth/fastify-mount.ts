@@ -34,7 +34,10 @@ async function sendFetchResponse(reply: FastifyReply, response: Response): Promi
   await reply.send(body.length > 0 ? body : null);
 }
 
-export function mountBetterAuth(app: FastifyInstance, deps: { auth: Auth; config: AppConfig }): void {
+export function mountBetterAuth(
+  app: FastifyInstance,
+  deps: { auth: Auth; config: AppConfig },
+): void {
   const { auth, config } = deps;
   app.route({
     method: ["GET", "POST"],

@@ -13,11 +13,7 @@ import EmptyState from "../../components/EmptyState.vue";
 import StatusChip from "../../components/StatusChip.vue";
 import RequestThread from "../../components/RequestThread.vue";
 import RequestPayloadView from "../../components/RequestPayloadView.vue";
-import {
-  changeRequestsApi,
-  type ChangeRequest,
-  type ChangeRequestComment,
-} from "../../lib/api";
+import { changeRequestsApi, type ChangeRequest, type ChangeRequestComment } from "../../lib/api";
 import { requestTypeLabel } from "../../composables/useRequestTypes";
 import { useDates } from "../../composables/useDates";
 import { useNotify } from "../../composables/useNotify";

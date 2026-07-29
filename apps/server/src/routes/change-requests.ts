@@ -110,7 +110,8 @@ export function registerChangeRequestRoutes(app: FastifyInstance, deps: Deps): v
         effectiveFrom: isoDate,
       })
       .safeParse(req.body);
-    if (!body.success) return reply.code(400).send({ error: "invalid_body", details: body.error.issues });
+    if (!body.success)
+      return reply.code(400).send({ error: "invalid_body", details: body.error.issues });
 
     const employee = await employeeForUser(db, req.authUser!.id);
     if (!employee) return reply.code(403).send({ error: "no_employee_record" });
@@ -122,12 +123,20 @@ export function registerChangeRequestRoutes(app: FastifyInstance, deps: Deps): v
     }
     // Top-level effective_from is authoritative (W-4 payload carries one too).
     const payload =
-      requestType === "w4" ? { ...parsed.data, effectiveFrom } : (parsed.data as Record<string, unknown>);
+      requestType === "w4"
+        ? { ...parsed.data, effectiveFrom }
+        : (parsed.data as Record<string, unknown>);
 
     try {
       const row = await submitRequest(
         { db, config },
-        { employeeId: employee.id, employeeName: employee.legalName, requestType, payload, effectiveFrom },
+        {
+          employeeId: employee.id,
+          employeeName: employee.legalName,
+          requestType,
+          payload,
+          effectiveFrom,
+        },
       );
       return reply.code(201).send({ request: requestView(row, config.encryptionKey) });
     } catch (err) {
@@ -165,47 +174,63 @@ export function registerChangeRequestRoutes(app: FastifyInstance, deps: Deps): v
     const rows = await db
       .select()
       .from(changeRequests)
-      .where(and(eq(changeRequests.employeeId, employee.id), ...(conditions.length ? [and(...conditions)!] : [])))
+      .where(
+        and(
+          eq(changeRequests.employeeId, employee.id),
+          ...(conditions.length ? [and(...conditions)!] : []),
+        ),
+      )
       .orderBy(desc(changeRequests.submittedAt));
     return { requests: rows.map((r) => requestView(r, config.encryptionKey)) };
   });
 
   // Participant or admin: detail + full comment thread.
-  app.get("/api/change-requests/:publicId", { preHandler: guards.requireAuth }, async (req, reply) => {
-    const { publicId } = req.params as { publicId: string };
-    const request = await byPublicId(publicId);
-    if (!request || !(await canAccess(req, request))) {
-      return reply.code(404).send({ error: "not_found" });
-    }
-    const comments = await db
-      .select({
-        id: changeRequestComments.id,
-        authorId: changeRequestComments.authorId,
-        authorName: authUser.name,
-        body: changeRequestComments.body,
-        createdAt: changeRequestComments.createdAt,
-      })
-      .from(changeRequestComments)
-      .innerJoin(authUser, eq(authUser.id, changeRequestComments.authorId))
-      .where(eq(changeRequestComments.requestId, request.id))
-      .orderBy(asc(changeRequestComments.id));
-    return { request: requestView(request, config.encryptionKey), comments };
-  });
+  app.get(
+    "/api/change-requests/:publicId",
+    { preHandler: guards.requireAuth },
+    async (req, reply) => {
+      const { publicId } = req.params as { publicId: string };
+      const request = await byPublicId(publicId);
+      if (!request || !(await canAccess(req, request))) {
+        return reply.code(404).send({ error: "not_found" });
+      }
+      const comments = await db
+        .select({
+          id: changeRequestComments.id,
+          authorId: changeRequestComments.authorId,
+          authorName: authUser.name,
+          body: changeRequestComments.body,
+          createdAt: changeRequestComments.createdAt,
+        })
+        .from(changeRequestComments)
+        .innerJoin(authUser, eq(authUser.id, changeRequestComments.authorId))
+        .where(eq(changeRequestComments.requestId, request.id))
+        .orderBy(asc(changeRequestComments.id));
+      return { request: requestView(request, config.encryptionKey), comments };
+    },
+  );
 
   // Participant or admin: append to the thread (open until decided; spec
   // allows comments "any state until decided" — we allow them after too, the
   // thread is the permanent record).
-  app.post("/api/change-requests/:publicId/comments", { preHandler: guards.requireAuth }, async (req, reply) => {
-    const { publicId } = req.params as { publicId: string };
-    const body = z.object({ body: z.string().trim().min(1).max(4000) }).safeParse(req.body);
-    if (!body.success) return reply.code(400).send({ error: "invalid_body" });
-    const request = await byPublicId(publicId);
-    if (!request || !(await canAccess(req, request))) {
-      return reply.code(404).send({ error: "not_found" });
-    }
-    await addComment({ db, config }, { requestId: request.id, authorId: req.authUser!.id, body: body.data.body });
-    return reply.code(201).send({ ok: true });
-  });
+  app.post(
+    "/api/change-requests/:publicId/comments",
+    { preHandler: guards.requireAuth },
+    async (req, reply) => {
+      const { publicId } = req.params as { publicId: string };
+      const body = z.object({ body: z.string().trim().min(1).max(4000) }).safeParse(req.body);
+      if (!body.success) return reply.code(400).send({ error: "invalid_body" });
+      const request = await byPublicId(publicId);
+      if (!request || !(await canAccess(req, request))) {
+        return reply.code(404).send({ error: "not_found" });
+      }
+      await addComment(
+        { db, config },
+        { requestId: request.id, authorId: req.authUser!.id, body: body.data.body },
+      );
+      return reply.code(201).send({ ok: true });
+    },
+  );
 
   // Admin: approve + apply in one transaction. Optional note (thread) and
   // effective-date override (audited).
@@ -214,7 +239,8 @@ export function registerChangeRequestRoutes(app: FastifyInstance, deps: Deps): v
     const body = z
       .object({ note: z.string().max(4000).optional(), effectiveFromOverride: isoDate.optional() })
       .safeParse(req.body ?? {});
-    if (!body.success) return reply.code(400).send({ error: "invalid_body", details: body.error.issues });
+    if (!body.success)
+      return reply.code(400).send({ error: "invalid_body", details: body.error.issues });
     try {
       const row = await approveRequest(
         { db, config },
@@ -239,7 +265,10 @@ export function registerChangeRequestRoutes(app: FastifyInstance, deps: Deps): v
     const body = z.object({ reason: z.string().trim().min(1).max(4000) }).safeParse(req.body);
     if (!body.success) return reply.code(400).send({ error: "reason_required" });
     try {
-      const row = await denyRequest({ db, config }, { publicId, adminId: req.authUser!.id, reason: body.data.reason });
+      const row = await denyRequest(
+        { db, config },
+        { publicId, adminId: req.authUser!.id, reason: body.data.reason },
+      );
       return { request: requestView(row, config.encryptionKey) };
     } catch (err) {
       return serviceError(err, reply);
@@ -247,13 +276,17 @@ export function registerChangeRequestRoutes(app: FastifyInstance, deps: Deps): v
   });
 
   // Employee owner: withdraw, pre-decision only.
-  app.post("/api/change-requests/:publicId/withdraw", { preHandler: guards.requireAuth }, async (req, reply) => {
-    const { publicId } = req.params as { publicId: string };
-    try {
-      const row = await withdrawRequest({ db, config }, { publicId, userId: req.authUser!.id });
-      return { request: requestView(row, config.encryptionKey) };
-    } catch (err) {
-      return serviceError(err, reply);
-    }
-  });
+  app.post(
+    "/api/change-requests/:publicId/withdraw",
+    { preHandler: guards.requireAuth },
+    async (req, reply) => {
+      const { publicId } = req.params as { publicId: string };
+      try {
+        const row = await withdrawRequest({ db, config }, { publicId, userId: req.authUser!.id });
+        return { request: requestView(row, config.encryptionKey) };
+      } catch (err) {
+        return serviceError(err, reply);
+      }
+    },
+  );
 }

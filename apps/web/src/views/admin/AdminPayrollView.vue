@@ -42,7 +42,10 @@ const statusOptions = [
 ];
 
 const yearFilter = ref<number | null>(new Date().getFullYear());
-const yearOptions = [null, 2026, 2025, 2024].map((y) => ({ label: y ? String(y) : "All years", value: y }));
+const yearOptions = [null, 2026, 2025, 2024].map((y) => ({
+  label: y ? String(y) : "All years",
+  value: y,
+}));
 
 const ENTRY_LABELS: [string, string][] = [
   ["grossPay", "Gross pay"],
