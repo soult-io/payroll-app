@@ -101,21 +101,28 @@ schedule). Idempotent — the migration adopts these rows rather than
 duplicating them:
 
 ```sh
-docker compose exec app node dist/cli/seed.js
+docker exec payroll-app node dist/cli/seed.js
 ```
 
 ## 4. Dry-run the migration (analysis + validation, ZERO writes)
 
-The migration must reach **both** databases. Easiest on the NUC: run it in the
-app container with the target URL overridden to the in-stack `db` service and
-the source URL pointing at the legacy stack (attach the payroll network to the
-legacy stack's network, or use a host-published port for `second-brain-db`).
+The migration must reach **both** databases. On the NUC the payroll-app
+container resolves the in-stack `db` service already; the legacy DB is
+`second-brain-db` on the external `second-brain` network — attach it
+temporarily (disconnect after the write step):
 
 ```sh
-docker compose exec \
-  -e SOURCE_DATABASE_URL="postgres://pai:LEGACY_DB_PASSWORD@second-brain-db:5432/second_brain" \
-  -e DATABASE_URL="postgres://payroll:PAYROLL_DB_PASSWORD@db:5432/payroll" \
-  app node dist/migrate/cli.js --dry-run --verbose
+docker network connect second-brain payroll-app
+```
+
+The legacy schema is owned by the least-privilege `accounting` role (password
+in `/srv/mcp-accounting/secrets/db-password` — same file mcp-accounting uses):
+
+```sh
+docker exec \
+  -e SOURCE_DATABASE_URL="postgres://accounting:$(sudo cat /srv/mcp-accounting/secrets/db-password)@second-brain-db:5432/second_brain" \
+  -e DATABASE_URL="postgres://payroll:$(sudo cat /srv/payroll/secrets/db-password)@db:5432/payroll" \
+  payroll-app node dist/migrate/cli.js --dry-run --verbose
 ```
 
 (From a repo checkout with network access to both DBs, the equivalent is
@@ -133,14 +140,21 @@ proceed.
 ## 5. Write the migration
 
 ```sh
-docker compose exec \
-  -e SOURCE_DATABASE_URL="postgres://pai:LEGACY_DB_PASSWORD@second-brain-db:5432/second_brain" \
-  -e DATABASE_URL="postgres://payroll:PAYROLL_DB_PASSWORD@db:5432/payroll" \
-  app node dist/migrate/cli.js --write --verbose
+docker exec \
+  -e SOURCE_DATABASE_URL="postgres://accounting:$(sudo cat /srv/mcp-accounting/secrets/db-password)@second-brain-db:5432/second_brain" \
+  -e DATABASE_URL="postgres://payroll:$(sudo cat /srv/payroll/secrets/db-password)@db:5432/payroll" \
+  payroll-app node dist/migrate/cli.js --write --verbose
 ```
 
 Then re-run the exact same command once: the second run must report
 `0 inserted` for every entity (idempotency proof via `legacy_migration_map`).
+
+Finally, remove the temporary network attach (D4 — the app has no business
+reaching the legacy DB after cutover):
+
+```sh
+docker network disconnect second-brain payroll-app
+```
 
 ## 6. Verification checklist
 
@@ -190,7 +204,7 @@ Visual PDF diff (one historical payslip, spec 9 step 2):
 
 ```sh
 # Admin (you) — prints a single-use setup link; also queued in email_outbox
-docker compose exec app node dist/cli/create-admin.js you@example.com --name "Admin"
+docker exec payroll-app node dist/cli/create-admin.js you@example.com --name "Admin"
 ```
 
 - [ ] Open the setup link → set password → enroll TOTP → save backup codes.
@@ -201,10 +215,13 @@ docker compose exec app node dist/cli/create-admin.js you@example.com --name "Ad
 
 ## 8. Go public
 
-- [ ] NPM: proxy host **payroll.stabpablo.eu → 127.0.0.1:8989**, scheme http,
-      websockets off, TLS cert + Force SSL + HSTS.
-- [ ] `BASE_URL=https://payroll.stabpablo.eu` in `.env` (setup links and auth
-      trusted origins depend on it) → `docker compose up -d`.
+- [ ] NPM: proxy host **payroll.stabpablo.eu → payroll-app:8989**, scheme http,
+      websockets off, TLS cert + Force SSL + HSTS. (NPM resolves the container
+      by name over the shared `mcp_network`; the host loopback bind on 8927 is
+      only for host-side debugging.)
+- [ ] `BASE_URL=https://payroll.stabpablo.eu` — already set in the committed
+      `.env`; no action unless the hostname changes (setup links and auth
+      trusted origins depend on it).
 - [ ] From outside: `https://payroll.stabpablo.eu` loads; sign in as admin.
 
 ## 9. Sole-writer declaration (D4)
