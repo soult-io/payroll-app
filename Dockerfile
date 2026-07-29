@@ -16,6 +16,18 @@ RUN pnpm -r run build
 # Self-contained production deploys (workspace:* deps resolved + inlined).
 RUN pnpm deploy --legacy --filter @payroll/server --prod /prod/app
 RUN pnpm deploy --legacy --filter @payroll/db --prod /prod/db
+# better-auth declares vite/vitest/tsx as OPTIONAL peers (used only by its CLI,
+# which we never run). pnpm auto-installs peers, so test/build tooling leaks
+# into the prod bundle — including esbuild 0.25.12's Go binary (CRITICAL
+# CVE-2025-68121, Trivy gate). None of it is executed at runtime; prune it.
+# Trivy re-verifies the image on every build, so a regression fails CI.
+RUN rm -rf /prod/app/node_modules/.pnpm/vite@* \
+           /prod/app/node_modules/.pnpm/vite-node@* \
+           /prod/app/node_modules/.pnpm/vitest@* \
+           /prod/app/node_modules/.pnpm/@vitest+* \
+           /prod/app/node_modules/.pnpm/tsx@4.20* \
+           /prod/app/node_modules/.pnpm/esbuild@0.25* \
+           /prod/app/node_modules/.pnpm/@esbuild+*@0.25*
 
 ## ---- runtime: node:22-alpine, non-root, healthcheck on /health ----
 FROM node:22-alpine AS runtime
