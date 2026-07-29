@@ -27,6 +27,9 @@ jobs:
       - name: Install
         run: pnpm install --frozen-lockfile
 
+      - name: Lint + format (biome)
+        run: pnpm lint
+
       # Build BEFORE typecheck: cross-package imports resolve to dist/*.d.ts,
       # which must exist first (locally, stale dist dirs mask this).
       - name: Build web + server + packages
@@ -35,11 +38,11 @@ jobs:
       - name: Typecheck (all packages)
         run: pnpm -r run typecheck
 
-      - name: Engine unit tests (regression oracle — spec 2)
-        run: pnpm --filter @payroll/engine test
+      - name: Engine unit tests + coverage (regression oracle — spec 2)
+        run: pnpm --filter @payroll/engine exec vitest run --coverage
 
-      - name: Server integration tests (PGlite — spec 2/3/4/6)
-        run: pnpm --filter @payroll/server test
+      - name: Server integration tests + coverage (PGlite — spec 2/3/4/6)
+        run: pnpm --filter @payroll/server exec vitest run --coverage
 
       - name: Build container image
         run: docker build -t ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}:sha-${{ github.sha }} .
@@ -53,6 +56,7 @@ jobs:
     permissions:
       contents: write   # push-image pins the compose tag and commits it back
       packages: write
+      security-events: write   # Trivy SARIF upload to code scanning
     steps:
       - uses: actions/checkout@v4
 
@@ -73,6 +77,23 @@ jobs:
             ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}:latest
           cache-from: type=gha
           cache-to: type=gha,mode=max
+
+      # Image vulnerability gate: fail on CRITICAL (fixed) findings only;
+      # SARIF goes to code scanning for the full picture.
+      - name: Trivy image scan
+        uses: aquasecurity/trivy-action@0.28.0
+        with:
+          image-ref: ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}:sha-${{ github.sha }}
+          severity: CRITICAL
+          ignore-unfixed: true
+          exit-code: "1"
+          format: sarif
+          output: trivy-results.sarif
+
+      - name: Upload Trivy SARIF
+        uses: github/codeql-action/upload-sarif@v3
+        with:
+          sarif_file: trivy-results.sarif
 
       # Pin the compose file to this build's sha tag so Portainer GitOps
       # (polling the repo) always deploys the image CI just pushed.
