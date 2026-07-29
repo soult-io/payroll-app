@@ -121,13 +121,16 @@ services:
           cpus: "1.0"
     security_opt:
       - no-new-privileges:true
-    cap_drop:
-      - ALL
+    # NO cap_drop here: the postgres image entrypoint starts as root and must
+    # chown/chmod /var/lib/postgresql/data + setuid down to the postgres user —
+    # cap_drop ALL strips CHOWN/SETUID/SETGID and initdb dies (fleet convention:
+    # synapse-db runs the same way). app/app-migrate keep their cap_drop.
     healthcheck:
       test: ["CMD-SHELL", "pg_isready -U payroll -d payroll"]
       interval: 10s
       timeout: 5s
       retries: 5
+      start_period: 30s
     secrets:
       - db-password
 
