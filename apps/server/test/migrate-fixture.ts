@@ -12,9 +12,16 @@
  *
  * Synthetic runs (2025 Jan–Dec, 2026 Jan–Jul) are computed by the VENDORED
  * engine itself (@payroll/engine — the same code that produced the legacy
- * data), so fixtures are self-consistent: the migration's reconstruction must
- * validate every one of them to the cent. A `corrupt` option perturbs one
- * stored entry by $0.01 to prove the halt path.
+ * data) and mirror the REAL history, including its Q1-2026 quirks
+ * (owner-confirmed 2026-07-29; brain #2010, #2319):
+ *   - 2026-01 / 2026-02 were issued with the WRONG (2025) tax tables, so this
+ *     fixture computes them with TAX_CONFIG_2025.
+ *   - 2026-03 was trued up against the filed Q1-2026 Form 941: the stored
+ *     federal_withholding is $472.73 ($324.33 March + $74.20 + $74.20 Jan/Feb
+ *     corrections) and net_pay $2,759.52 — NOT the engine's $238.33/$2,993.92.
+ * The migration must validate every run to the cent against exactly this —
+ * its two owner-approved overrides exist to make that possible. A `corrupt`
+ * option perturbs one stored entry by $0.01 to prove the halt path.
  */
 
 import { PGlite } from "@electric-sql/pglite";
@@ -287,7 +294,10 @@ export async function createSourceFixture(
     for (const { year, month } of FIXTURE_RUN_PERIODS) {
       const mm = String(month).padStart(2, "0");
       const periodStart = `${year}-${mm}-01`;
-      const taxConfig = year === 2025 ? TAX_CONFIG_2025 : TAX_CONFIG;
+      // 2026-01/02 were issued with the WRONG (2025) tables — the 2026 config
+      // did not yet exist in the legacy routine. Mirror that.
+      const useLegacy2025Tables = year === 2026 && (month === 1 || month === 2);
+      const taxConfig = year === 2025 || useLegacy2025Tables ? TAX_CONFIG_2025 : TAX_CONFIG;
       const priorYtdGross = ytd.get(year) ?? 0;
       const result = calculatePayroll({
         monthlySalary: salaryOn(periodStart),
@@ -296,6 +306,20 @@ export async function createSourceFixture(
         taxConfig,
         federalExempt: exemptOn(periodStart),
       });
+      // 2026-03 was trued up against the filed Q1-2026 Form 941 at the stub
+      // regeneration (2026-04-12): stub itemizes $324.33 (March at the filed
+      // monthly rate) + $74.20 + $74.20 (Jan/Feb corrections) = $472.73.
+      const isMarchTrueUp = year === 2026 && month === 3;
+      const storedFederal = isMarchTrueUp ? 472.73 : result.federalWithholding;
+      const storedNet = isMarchTrueUp
+        ? round2(
+            result.grossPay -
+              storedFederal -
+              result.socialSecurity -
+              result.medicare -
+              result.stateWithholding,
+          )
+        : result.netPay;
       // Approximate the legacy issue timestamp (late the following period-end).
       const lastDay = new Date(Date.UTC(year, month, 0)).getUTCDate();
       const createdAt = `${year}-${mm}-${String(lastDay).padStart(2, "0")}T18:00:00Z`;
@@ -311,11 +335,11 @@ export async function createSourceFixture(
 
       const entries: [string, number][] = [
         ["gross_pay", result.grossPay],
-        ["federal_withholding", result.federalWithholding],
+        ["federal_withholding", storedFederal],
         ["social_security", result.socialSecurity],
         ["medicare", result.medicare],
         ["state_withholding", result.stateWithholding],
-        ["net_pay", result.netPay],
+        ["net_pay", storedNet],
         ["employer_social_security", result.employerSocialSecurity],
         ["employer_medicare", result.employerMedicare],
         ["employer_futa", result.employerFUTA],

@@ -137,6 +137,22 @@ the dry-run plan. **Exit code 0 required.** Exit code 2 = validation or
 structural halt — read the report, fix the source data understanding, do NOT
 proceed.
 
+Two owner-approved legacy deviations are EXPECTED and must not be treated as
+failures (confirmed 2026-07-29 against the issued stubs + filed Q1-2026 Form
+941; coded as overrides in `apps/server/src/migrate/migrate.ts`):
+
+- **2026-01 / 2026-02** reconstruct against the **2025** tax tables — they
+  were issued before the 2026 config existed in the legacy routine
+  ($250.13/mo federal). Their snapshots carry a `legacyNotes` annotation.
+- **2026-03** validates with the stored ISSUED amounts for
+  `federal_withholding` ($472.73 = $324.33 March + $74.20 ×2 Jan/Feb
+  corrections) and `net_pay` ($2,759.52) instead of the recomputed
+  $238.33 / $2,993.92 — the true-up that reconciles the stubs with the
+  941 filed 2026-03-17. The verbose line reads
+  `(legacy deviation: stored issued amounts kept)` and the snapshot records
+  the divergence in `legacyDeviations`. Every other run and category still
+  validates to the cent.
+
 ## 5. Write the migration
 
 ```sh
@@ -179,7 +195,10 @@ docker compose exec db psql -U payroll -d payroll -c "
 Golden differential (the numbers that must never move):
 
 - [ ] 2025-01 federal_withholding = **250.13** (the issued-2025-stub value)
-- [ ] 2026-03 federal_withholding > 0, gross 3500.00 (last pre-raise month)
+- [ ] 2026-03 federal_withholding = **472.73**, net_pay = **2759.52**,
+      gross 3500.00 (last pre-raise month + the Q1-2026 941 true-up — see
+      the deviation note in section 4; `run_snapshot.legacyDeviations`
+      records the divergence from the recomputed 238.33 / 2993.92)
 - [ ] 2026-04 federal_withholding = 0.00, gross 3750.00 (W-4 exempt + raise)
 - [ ] 2025 and 2026 Jan–Mar snapshots have `inputs.w4 = null`; 2026-04+ have
       `federalExempt: true, effectiveFrom: '2026-04-01'`

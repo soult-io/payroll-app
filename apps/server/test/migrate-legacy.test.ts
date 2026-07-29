@@ -118,6 +118,45 @@ async function entriesFor(runId: number): Promise<Map<string, string>> {
   return new Map(rows.map((e) => [e.category, e.amount]));
 }
 
+const FIELD_BY_CATEGORY: Record<string, keyof RunSnapshot["result"]> = {
+  gross_pay: "grossPay",
+  federal_withholding: "federalWithholding",
+  social_security: "socialSecurity",
+  medicare: "medicare",
+  state_withholding: "stateWithholding",
+  net_pay: "netPay",
+  employer_social_security: "employerSocialSecurity",
+  employer_medicare: "employerMedicare",
+  employer_futa: "employerFUTA",
+};
+
+/**
+ * Entries must equal the recomputed snapshot result to the cent — EXCEPT
+ * 2026-03's owner-approved deviation categories (stored issued amounts are
+ * the truth there; the divergence lives in snapshot.legacyDeviations).
+ */
+async function assertEntriesMatchSnapshot(
+  run: typeof payrollRuns.$inferSelect,
+  snapshot: RunSnapshot,
+): Promise<void> {
+  const entries = await entriesFor(run.id);
+  expect(entries.size).toBe(ENTRIES_PER_RUN);
+  const isMarchTrueUp = run.periodStart === "2026-03-01";
+  const deviationCategories = new Set(isMarchTrueUp ? ["federal_withholding", "net_pay"] : []);
+  for (const [category, field] of Object.entries(FIELD_BY_CATEGORY)) {
+    if (deviationCategories.has(category)) continue;
+    expect(entries.get(category), `${run.periodStart} ${category}`).toBe(
+      (snapshot.result[field] as number).toFixed(2),
+    );
+  }
+  if (isMarchTrueUp) {
+    expect(entries.get("federal_withholding")).toBe("472.73");
+    expect(entries.get("net_pay")).toBe("2759.52");
+  } else {
+    expect(snapshot.legacyDeviations).toBeUndefined();
+  }
+}
+
 describe("legacy migration", () => {
   it("dry-run produces the full plan with ZERO writes", async () => {
     const report = await runMigration({ dryRun: true });
@@ -218,25 +257,7 @@ describe("legacy migration", () => {
       const snapshot = run.runSnapshot as RunSnapshot;
       expect(snapshot.engineVersion).toBe(LEGACY_ENGINE_VERSION);
       expect(run.snapshotHash).toBe(snapshotHash(snapshot));
-
-      const entries = await entriesFor(run.id);
-      expect(entries.size).toBe(ENTRIES_PER_RUN);
-      const fieldByCategory: Record<string, keyof RunSnapshot["result"]> = {
-        gross_pay: "grossPay",
-        federal_withholding: "federalWithholding",
-        social_security: "socialSecurity",
-        medicare: "medicare",
-        state_withholding: "stateWithholding",
-        net_pay: "netPay",
-        employer_social_security: "employerSocialSecurity",
-        employer_medicare: "employerMedicare",
-        employer_futa: "employerFUTA",
-      };
-      for (const [category, field] of Object.entries(fieldByCategory)) {
-        expect(entries.get(category), `${run.periodStart} ${category}`).toBe(
-          (snapshot.result[field] as number).toFixed(2),
-        );
-      }
+      await assertEntriesMatchSnapshot(run, snapshot);
     }
   });
 
@@ -249,13 +270,59 @@ describe("legacy migration", () => {
     expect(entries.get("gross_pay")).toBe("3500.00");
   });
 
+  it("owner-approved legacy deviations: Q1-2026 reconstructs with the 2025 tables + the 941 true-up", async () => {
+    await runMigration({ dryRun: false });
+    const runs = await runsByPeriod();
+
+    // 2026-01/02 were issued with the 2025 tables — snapshot must record the
+    // 2025 config + a legacy note, and the entries are the 2025-table values.
+    for (const period of ["2026-01", "2026-02"]) {
+      const run = runs.get(period)!;
+      const snapshot = run.runSnapshot as RunSnapshot;
+      expect(snapshot.inputs.taxConfig.taxYear, period).toBe(2025);
+      expect(snapshot.legacyNotes?.[0], period).toContain("2025 tax tables");
+      const entries = await entriesFor(run.id);
+      expect(entries.get("federal_withholding"), period).toBe("250.13");
+      expect(entries.get("net_pay"), period).toBe("2982.12");
+      expect(snapshot.legacyDeviations, period).toBeUndefined();
+    }
+
+    // 2026-03: stored issued amounts kept (941 true-up), divergence recorded.
+    const mar = runs.get("2026-03")!;
+    const marSnapshot = mar.runSnapshot as RunSnapshot;
+    expect(marSnapshot.inputs.taxConfig.taxYear).toBe(2026);
+    expect(marSnapshot.result.federalWithholding.toFixed(2)).toBe("238.33");
+    expect(marSnapshot.result.netPay.toFixed(2)).toBe("2993.92");
+    const deviations = marSnapshot.legacyDeviations;
+    expect(deviations).toHaveLength(2);
+    expect(deviations).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          category: "federal_withholding",
+          stored: "472.73",
+          recomputed: "238.33",
+        }),
+        expect.objectContaining({ category: "net_pay", stored: "2759.52", recomputed: "2993.92" }),
+      ]),
+    );
+    for (const d of deviations!) {
+      expect(d.reason).toContain("941");
+    }
+    const marEntries = await entriesFor(mar.id);
+    expect(marEntries.get("federal_withholding")).toBe("472.73");
+    expect(marEntries.get("net_pay")).toBe("2759.52");
+    // ...but the deviation does NOT spread to the other seven categories.
+    expect(marEntries.get("social_security")).toBe("217.00");
+    expect(marEntries.get("medicare")).toBe("50.75");
+  });
+
   it("month boundary: Jan–Mar 2026 withheld, Apr+ $0 (W-4 exempt cutover)", async () => {
     await runMigration({ dryRun: false });
     const runs = await runsByPeriod();
 
     const mar = await entriesFor(runs.get("2026-03")!.id);
     const apr = await entriesFor(runs.get("2026-04")!.id);
-    expect(Number(mar.get("federal_withholding"))).toBeGreaterThan(0);
+    expect(mar.get("federal_withholding")).toBe("472.73"); // 941 true-up, see deviation test
     expect(apr.get("federal_withholding")).toBe("0.00");
     // The raise lands the same month: $3,500 → $3,750.
     expect(mar.get("gross_pay")).toBe("3500.00");

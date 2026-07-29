@@ -65,6 +65,20 @@ export interface RunSnapshot {
   result: PayrollResult;
   engineVersion: string;
   templateVersion: string;
+  /**
+   * Migration-only (legacy import): categories where the ISSUED amount
+   * deliberately differs from the recomputed engine result, with the reason.
+   * Absent on app-generated runs. See apps/server/src/migrate/migrate.ts
+   * STORED_AMOUNT_OVERRIDES.
+   */
+  legacyDeviations?: {
+    category: string;
+    stored: string;
+    recomputed: string;
+    reason: string;
+  }[];
+  /** Migration-only annotation (e.g. prior-year tax tables applied). */
+  legacyNotes?: string[];
 }
 
 /** Canonical JSON: object keys sorted recursively, so hashing is stable. */

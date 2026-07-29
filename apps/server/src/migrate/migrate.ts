@@ -19,8 +19,11 @@
  *   - hire_date: the source has none; we use the earliest compensation
  *     effective_from (first paid period).
  *   - result in run_snapshot: the recomputed engine result. After validation
- *     it equals the stored entries to the cent on all nine stored categories;
- *     the derived fields (totalDeductions, totalEmployerCost, ytdGross) exist
+ *     it equals the stored entries to the cent on all nine stored categories,
+ *     EXCEPT for the owner-approved legacy deviations (STORED_AMOUNT_OVERRIDES
+ *     below — Q1-2026 941 true-up) where the stored ISSUED amount is the truth
+ *     and the divergence is recorded in the snapshot's legacyDeviations. The
+ *     derived fields (totalDeductions, totalEmployerCost, ytdGross) exist
  *     only in engine-land, so the recomputed result is the complete + honest
  *     value. engineVersion is recorded as 'legacy-import'.
  *   - Idempotency: legacy_migration_map (entity, source_id) → target_id.
@@ -65,6 +68,48 @@ export const LEGACY_ENGINE_VERSION = "legacy-import";
 export const LEGACY_CREATED_BY = "legacy-import";
 export const DEFAULT_FREQUENCY = "monthly";
 export const PERIODS_PER_YEAR_MONTHLY = 12;
+
+// ---------------------------------------------------------------------------
+// Owner-approved legacy deviations (confirmed 2026-07-29 against the issued
+// paystubs + the filed Q1-2026 Form 941; brain #2010, #2319).
+//
+// Q1-2026 was issued before the 2026 tables existed in the legacy routine and
+// before the exempt W-4 (filed 2026-03-17, effective April):
+//   - 2026-01 / 2026-02 were computed with the 2025 tables ($250.13/mo), so
+//     their snapshots are reconstructed against the 2025 tax config.
+//   - The Q1 941 was filed 2026-03-17 with federal $324.33/mo ($972.99 total).
+//   - At stub regeneration (2026-04-12) March absorbed the true-up so stub
+//     totals reconcile with the filed return: the stub itemizes $324.33 +
+//     $74.20 + $74.20 corrections = $472.73 federal, net $2,759.52 — which is
+//     exactly what the source DB stores. Validation therefore accepts the
+//     stored amounts for those two categories on 2026-03 only.
+//
+// This is the COMPLETE exception surface — validation stays to-the-cent on
+// every other run and category.
+// ---------------------------------------------------------------------------
+
+/** period → tax-config year to reconstruct with (instead of run.year). */
+const TAX_CONFIG_YEAR_OVERRIDES = new Map<string, number>([
+  ["2026-01", 2025],
+  ["2026-02", 2025],
+]);
+
+/** period → stored-entry categories whose stored amount is the issued truth. */
+const STORED_AMOUNT_OVERRIDES = new Map<
+  string,
+  { categories: ReadonlySet<string>; reason: string }
+>([
+  [
+    "2026-03",
+    {
+      categories: new Set(["federal_withholding", "net_pay"]),
+      reason:
+        "Q1-2026 Form 941 reconciliation true-up: 941 filed 2026-03-17 with federal $324.33/mo " +
+        "($972.99 total); Jan/Feb stubs issued at $250.13 (2025 tables); March stub itemizes " +
+        "$324.33 + $74.20 + $74.20 corrections = $472.73 (owner-confirmed 2026-07-29; brain #2010, #2319).",
+    },
+  ],
+]);
 
 // ---------------------------------------------------------------------------
 // Errors
@@ -293,17 +338,20 @@ function planAndValidate(
         }
       : null;
 
-    // Statutory config for the period's year.
-    const cfg = data.taxConfig.find((c) => c.tax_year === run.year);
+    // Statutory config for the period's year — with the owner-approved
+    // legacy overrides: 2026-01/02 were issued against the 2025 tables
+    // because the 2026 config did not yet exist in the legacy routine.
+    const cfgYear = TAX_CONFIG_YEAR_OVERRIDES.get(periodLabel) ?? run.year;
+    const cfg = data.taxConfig.find((c) => c.tax_year === cfgYear);
     if (!cfg) {
       throw new MigrationHaltError(
-        `run ${run.id} (${periodLabel}): no source tax_config for ${run.year}`,
+        `run ${run.id} (${periodLabel}): no source tax_config for ${cfgYear}`,
       );
     }
-    const bracketRows = data.taxBrackets.filter((b) => b.tax_year === run.year);
+    const bracketRows = data.taxBrackets.filter((b) => b.tax_year === cfgYear);
     if (bracketRows.length === 0) {
       throw new MigrationHaltError(
-        `run ${run.id} (${periodLabel}): no source tax_brackets for ${run.year}`,
+        `run ${run.id} (${periodLabel}): no source tax_brackets for ${cfgYear}`,
       );
     }
 
@@ -328,6 +376,8 @@ function planAndValidate(
         `run ${run.id} (${periodLabel}): source run has no payroll_entries`,
       );
     }
+    const storedOverride = STORED_AMOUNT_OVERRIDES.get(periodLabel);
+    const deviations: NonNullable<RunSnapshot["legacyDeviations"]> = [];
     for (const [category, field] of ENTRY_FIELDS) {
       const storedAmount = stored.get(category);
       if (storedAmount === undefined) {
@@ -337,6 +387,17 @@ function planAndValidate(
       }
       const recomputedAmount = cents(result[field] as number);
       if (Number(storedAmount).toFixed(2) !== recomputedAmount) {
+        if (storedOverride?.categories.has(category)) {
+          // Owner-approved deviation: the ISSUED amount is the truth; record
+          // it in the snapshot instead of failing validation.
+          deviations.push({
+            category,
+            stored: Number(storedAmount).toFixed(2),
+            recomputed: recomputedAmount,
+            reason: storedOverride.reason,
+          });
+          continue;
+        }
         failures.push({
           sourceRunId: run.id,
           year: run.year,
@@ -375,6 +436,15 @@ function planAndValidate(
       result,
       engineVersion: LEGACY_ENGINE_VERSION,
       templateVersion: SNAPSHOT_TEMPLATE_VERSION,
+      ...(deviations.length > 0 ? { legacyDeviations: deviations } : {}),
+      ...(cfgYear !== run.year
+        ? {
+            legacyNotes: [
+              `reconstructed with the ${cfgYear} tax tables — issued before the ${run.year} ` +
+                `config existed in the legacy routine (owner-approved override 2026-07-29)`,
+            ],
+          }
+        : {}),
     };
 
     planned.push({
@@ -392,7 +462,8 @@ function planAndValidate(
     if (verbose) {
       log(
         `  validated ${periodLabel}: gross ${cents(result.grossPay)} / net ${cents(result.netPay)}` +
-          (federalExempt ? " (W-4 exempt)" : ""),
+          (federalExempt ? " (W-4 exempt)" : "") +
+          (deviations.length > 0 ? " (legacy deviation: stored issued amounts kept)" : ""),
       );
     }
   }
