@@ -11,6 +11,7 @@ name: payroll
 
 services:
   app:
+    container_name: payroll-app
     image: ghcr.io/soult-io/payroll-app:sha-ff31c0fcaf215e65d7c017d49513c43e1814a16b
     build:
       context: .
@@ -69,6 +70,7 @@ services:
       - session-secret
 
   app-migrate:
+    container_name: payroll-app-migrate
     image: ghcr.io/soult-io/payroll-app:sha-ff31c0fcaf215e65d7c017d49513c43e1814a16b
     build:
       context: .
@@ -103,6 +105,7 @@ services:
       - db-password
 
   db:
+    container_name: payroll-db
     image: postgres:16-alpine
     restart: unless-stopped
     environment:
