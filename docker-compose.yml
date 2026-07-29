@@ -1,8 +1,11 @@
 # Self-contained deployment per plan/specs/deployment.md (spec 8).
 # Worst-case footprint ≈ 1 GB (app 512m + migrate 512m one-shot + db 512m).
 #
-# Deploy flow (anyone): clone, cp .env.example .env, place secrets, docker compose up -d.
-# Deploy flow (Portainer GitOps): CI rewrites the image tag; Portainer polls and redeploys.
+# Deploy flow (Portainer GitOps, the NUC): CI rewrites the image tag; Portainer
+# polls this repo and redeploys. Secrets live in $SECRETS_HOST_DIR (default
+# /srv/payroll/secrets) on the host, mounted read-only — never env values.
+# Deploy flow (anyone else): clone, set SECRETS_HOST_DIR (or place files at the
+# default), cp .env.example .env, docker compose up -d.
 
 name: payroll
 
@@ -21,12 +24,18 @@ services:
       DB_PORT: 5432
       DB_NAME: payroll
       DB_USER: payroll
+      # Public URL behind the NPM proxy (spec 8). Set in .env on the host.
+      BASE_URL: ${BASE_URL:-http://localhost:8989}
       # SMTP_HOST / SMTP_PORT / SMTP_USER / SMTP_FROM come from .env (spec 8:
       # nothing hardcoded to personal infrastructure).
       SMTP_HOST: ${SMTP_HOST:-}
       SMTP_PORT: ${SMTP_PORT:-587}
       SMTP_USER: ${SMTP_USER:-}
       SMTP_FROM: ${SMTP_FROM:-}
+      SMTP_SECURE: ${SMTP_SECURE:-false}
+    networks:
+      - default
+      - mcp_network  # NPM proxy (payroll.stabpablo.eu) resolves this container by name
     ports:
       # Loopback-only; NPM proxies the public hostname with TLS + HSTS.
       - "127.0.0.1:8989:8989"
@@ -53,26 +62,24 @@ services:
       timeout: 5s
       start_period: 10s
       retries: 3
-    # --- Production secrets (spec 8: files under /srv/payroll/secrets, mounted
-    # --- read-only; never env values). Host paths don't exist on a dev machine,
-    # --- so they are commented out here — uncomment on the deploy host:
-    # secrets:
-    #   - db-password
-    #   - smtp-password
-    #   - encryption-key
-    #   - session-secret
+    secrets:
+      - db-password
+      - smtp-password
+      - encryption-key
+      - session-secret
 
   app-migrate:
     image: ghcr.io/soult-io/payroll-app:sha-8c81fc102601f7aea952d445d79fa9ace19c1db3
     build:
       context: .
       dockerfile: Dockerfile
-    # One-shot: drizzle-kit migrate (+ seeds in a later step), then exits.
-    # The app service gates boot on this completing successfully.
+    # One-shot: drizzle-kit migrate, then exits (seeds run once by hand per
+    # docs/cutover.md). The app service gates boot on this completing successfully.
     command:
       - sh
       - -c
       - |
+        export DB_PASSWORD=$$(cat /run/secrets/db-password)
         export DATABASE_URL="postgres://$${DB_USER}:$${DB_PASSWORD}@$${DB_HOST}:$${DB_PORT}/$${DB_NAME}"
         cd /app/db && ./node_modules/.bin/drizzle-kit migrate --config drizzle.config.ts
     environment:
@@ -80,9 +87,6 @@ services:
       DB_PORT: 5432
       DB_NAME: payroll
       DB_USER: payroll
-      # Dev convenience; production reads the password from the mounted file:
-      #   DB_PASSWORD: $(cat /run/secrets/db-password) via an entrypoint wrapper.
-      DB_PASSWORD: ${POSTGRES_PASSWORD:-payroll}
     depends_on:
       db:
         condition: service_healthy
@@ -95,8 +99,8 @@ services:
       - no-new-privileges:true
     cap_drop:
       - ALL
-    # secrets:
-    #   - db-password
+    secrets:
+      - db-password
 
   db:
     image: postgres:16-alpine
@@ -104,10 +108,7 @@ services:
     environment:
       POSTGRES_DB: payroll
       POSTGRES_USER: payroll
-      # Dev default only — production uses POSTGRES_PASSWORD_FILE with the
-      # mounted secret (commented below).
-      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-payroll}
-      # POSTGRES_PASSWORD_FILE: /run/secrets/db-password
+      POSTGRES_PASSWORD_FILE: /run/secrets/db-password
     volumes:
       - pgdata:/var/lib/postgresql/data
     deploy:
@@ -124,20 +125,22 @@ services:
       interval: 10s
       timeout: 5s
       retries: 5
-    # secrets:
-    #   - db-password
+    secrets:
+      - db-password
 
 volumes:
   pgdata:
 
-# --- Production secrets (spec 8). Uncomment on the deploy host; the host paths
-# --- do not exist on a dev machine:
-# secrets:
-#   db-password:
-#     file: /srv/payroll/secrets/db-password
-#   smtp-password:
-#     file: /srv/payroll/secrets/smtp-password
-#   encryption-key:
-#     file: /srv/payroll/secrets/encryption-key
-#   session-secret:
-#     file: /srv/payroll/secrets/session-secret
+networks:
+  mcp_network:
+    external: true  # shared fleet network; NPM resolves containers by name here
+
+secrets:
+  db-password:
+    file: ${SECRETS_HOST_DIR:-/srv/payroll/secrets}/db-password
+  smtp-password:
+    file: ${SECRETS_HOST_DIR:-/srv/payroll/secrets}/smtp-password
+  encryption-key:
+    file: ${SECRETS_HOST_DIR:-/srv/payroll/secrets}/encryption-key
+  session-secret:
+    file: ${SECRETS_HOST_DIR:-/srv/payroll/secrets}/session-secret
