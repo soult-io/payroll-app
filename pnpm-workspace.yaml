@@ -18,3 +18,8 @@ allowBuilds:
   esbuild: true
   '@prisma/client': false
   better-sqlite3: false
+
+# Force the deprecated @esbuild-kit/esm-loader chain (via drizzle-kit) off
+# esbuild 0.18.20 — its Go binary carries CRITICAL stdlib CVEs (Trivy gate).
+overrides:
+  '@esbuild-kit/core-utils>esbuild': 0.25.12
