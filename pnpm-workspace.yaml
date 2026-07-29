@@ -11,3 +11,10 @@ onlyBuiltDependencies:
 ignoredBuiltDependencies:
   - "@prisma/client"
   - better-sqlite3
+
+# pnpm 11 format: explicit per-package build approval (the earlier failure
+# came from an interactive `approve-builds` artifact with placeholder values).
+allowBuilds:
+  esbuild: true
+  '@prisma/client': false
+  better-sqlite3: false
