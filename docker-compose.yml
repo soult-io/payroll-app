@@ -12,7 +12,7 @@ name: payroll
 services:
   app:
     container_name: payroll-app
-    image: ghcr.io/soult-io/payroll-app:sha-ff31c0fcaf215e65d7c017d49513c43e1814a16b
+    image: ghcr.io/soult-io/payroll-app:sha-39057645197c1922dabf1e54ea75175cee5cc22d
     build:
       context: .
       dockerfile: Dockerfile
@@ -71,7 +71,7 @@ services:
 
   app-migrate:
     container_name: payroll-app-migrate
-    image: ghcr.io/soult-io/payroll-app:sha-ff31c0fcaf215e65d7c017d49513c43e1814a16b
+    image: ghcr.io/soult-io/payroll-app:sha-39057645197c1922dabf1e54ea75175cee5cc22d
     build:
       context: .
       dockerfile: Dockerfile
