@@ -7,8 +7,9 @@ dist/
 build/
 *.tsbuildinfo
 
-# Env & secrets — never commit
-.env
+# Env & secrets — .env IS committed (non-secret deploy config, read by
+# compose interpolation). Only local overrides and secret material stay out.
+.env.local
 .env.*
 !.env.example
 secrets/

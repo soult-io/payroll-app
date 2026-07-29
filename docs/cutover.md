@@ -49,6 +49,14 @@ Create these four files (0600, owned root or the deploy user) **before** first b
 | `encryption-key` | 32 random bytes, hex or base64 | AES-256-GCM for SSN/bank/EIN at rest |
 | `session-secret` | ≥ 32 random chars | Better Auth session signing |
 
+The SMTP password belongs to the dedicated `payroll@stabpablo.eu` mailbox on
+the stack-ops docker-mailserver (`mail.stabpablo.eu`). Create it once (any
+strong password — then store the same value in `smtp-password`):
+
+```sh
+docker exec -it mailserver setup email add payroll@stabpablo.eu '<strong-password>'
+```
+
 ```sh
 sudo install -d -m 700 /srv/payroll/secrets
 openssl rand -hex 32 | sudo tee /srv/payroll/secrets/encryption-key
@@ -57,15 +65,18 @@ openssl rand -hex 32 | sudo tee /srv/payroll/secrets/session-secret
 # the app trims; keep one line each).
 ```
 
-Then uncomment the `secrets:` blocks in `docker-compose.yml` (three service
-blocks + the top-level `secrets:` section) and set `POSTGRES_PASSWORD_FILE` on
-the `db` service in place of the dev `POSTGRES_PASSWORD`.
+The `secrets:` blocks in `docker-compose.yml` are already wired (mounted from
+`SECRETS_HOST_DIR`, default `/srv/payroll/secrets`) — no compose edits needed.
 
 ## 3. Deploy (order matters)
 
+Non-secret deploy config (BASE_URL, SMTP_*, SECRETS_HOST_DIR) is committed in
+the repo's `.env` — the mail values point at the stack-ops mailserver
+(`mail.stabpablo.eu`). Portainer GitOps reads it from the repo; for a manual
+deploy just:
+
 ```sh
 cd /path/to/payroll
-cp .env.example .env      # set SMTP_HOST / SMTP_PORT / SMTP_USER / SMTP_FROM; NODE_ENV stays production
 docker compose up -d --build
 ```
 

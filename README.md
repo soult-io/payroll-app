@@ -73,15 +73,19 @@ is in [docs/cutover.md](docs/cutover.md).
 
 ## Full container deployment
 
+Non-secret deploy config (BASE_URL, SMTP_* against the stack-ops mailserver,
+SECRETS_HOST_DIR) is committed in [.env](.env); secrets are files under
+`/srv/payroll/secrets/` (see [docs/cutover.md](docs/cutover.md)). Then:
+
 ```sh
-cp .env.example .env   # fill in SMTP_*, set POSTGRES_PASSWORD
 docker compose up -d --build
 ```
 
+For local dev, copy `.env.example` instead — it documents every knob.
+
 Boots `db` (postgres:16-alpine) → `app-migrate` (one-shot `drizzle-kit
-migrate`) → `app` on `127.0.0.1:8989`. Production secrets wiring (mounted
-files under `/srv/payroll/secrets/`) is commented in
-[docker-compose.yml](docker-compose.yml).
+migrate`) → `app` on `127.0.0.1:8989`. Secrets wiring (mounted files under
+`/srv/payroll/secrets/`) is in [docker-compose.yml](docker-compose.yml).
 
 ## Repo layout
 
