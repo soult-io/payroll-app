@@ -78,8 +78,9 @@ jobs:
           cache-from: type=gha
           cache-to: type=gha,mode=max
 
-      # Image vulnerability gate: fail on CRITICAL (fixed) findings only;
-      # SARIF goes to code scanning for the full picture.
+      # Image vulnerability gate: fail on CRITICAL (fixed) findings, table output
+      # to the job log. SARIF upload to code scanning only works when GitHub
+      # Advanced Security is available (public repos or GHAS) — gated below.
       - name: Trivy image scan
         uses: aquasecurity/trivy-action@0.28.0
         with:
@@ -87,10 +88,21 @@ jobs:
           severity: CRITICAL
           ignore-unfixed: true
           exit-code: "1"
+          format: table
+
+      - name: Trivy image scan (SARIF for code scanning)
+        if: github.event.repository.visibility == 'public'
+        uses: aquasecurity/trivy-action@0.28.0
+        with:
+          image-ref: ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}:sha-${{ github.sha }}
+          severity: CRITICAL
+          ignore-unfixed: true
+          exit-code: "0"
           format: sarif
           output: trivy-results.sarif
 
       - name: Upload Trivy SARIF
+        if: github.event.repository.visibility == 'public'
         uses: github/codeql-action/upload-sarif@v3
         with:
           sarif_file: trivy-results.sarif
