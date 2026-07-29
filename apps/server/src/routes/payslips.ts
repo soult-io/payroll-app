@@ -72,7 +72,7 @@ export function registerPayslipRoutes(app: FastifyInstance, deps: PayslipDeps): 
   app.get("/api/payslips/:publicId", { preHandler: guards.requireAuth }, async (req, reply) => {
     const { publicId } = req.params as { publicId: string };
     const run = await getRunByPublicId(db, publicId);
-    if (!run || run.status !== "issued") return reply.code(404).send({ error: "not_found" });
+    if (run?.status !== "issued") return reply.code(404).send({ error: "not_found" });
     if (!(await canAccess(req, run))) return reply.code(404).send({ error: "not_found" });
     return { payslip: { ...publicView(run), snapshot: run.runSnapshot } };
   });
@@ -80,7 +80,7 @@ export function registerPayslipRoutes(app: FastifyInstance, deps: PayslipDeps): 
   app.get("/api/payslips/:publicId/pdf", { preHandler: guards.requireAuth }, async (req, reply) => {
     const { publicId } = req.params as { publicId: string };
     const run = await getRunByPublicId(db, publicId);
-    if (!run || run.status !== "issued") return reply.code(404).send({ error: "not_found" });
+    if (run?.status !== "issued") return reply.code(404).send({ error: "not_found" });
     if (!(await canAccess(req, run))) return reply.code(404).send({ error: "not_found" });
 
     const pdf = await renderPayslipPdf(run.runSnapshot as PayslipSnapshot);

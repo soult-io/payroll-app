@@ -118,8 +118,12 @@ export async function submitRequest(
           const bank = input.payload as unknown as BankDetailsPayload;
           return {
             ...bank,
-            routing: isEncrypted(bank.routing) ? bank.routing : encryptField(bank.routing, config.encryptionKey),
-            account: isEncrypted(bank.account) ? bank.account : encryptField(bank.account, config.encryptionKey),
+            routing: isEncrypted(bank.routing)
+              ? bank.routing
+              : encryptField(bank.routing, config.encryptionKey),
+            account: isEncrypted(bank.account)
+              ? bank.account
+              : encryptField(bank.account, config.encryptionKey),
           };
         })()
       : input.payload;
@@ -179,9 +183,15 @@ export async function addComment(
  */
 export async function approveRequest(
   deps: Deps,
-  input: { publicId: string; adminId: string; note?: string | undefined; effectiveFromOverride?: string | undefined },
+  input: {
+    publicId: string;
+    adminId: string;
+    note?: string | undefined;
+    effectiveFromOverride?: string | undefined;
+  },
 ): Promise<ChangeRequestRow> {
   const { db, config } = deps;
+  // biome-ignore lint/complexity/noExcessiveCognitiveComplexity: single atomic transaction body; extraction would fragment the flow
   return db.transaction(async (tx) => {
     const rows = await tx
       .select()
@@ -203,7 +213,11 @@ export async function approveRequest(
       );
     }
 
-    const employeeRows = await tx.select().from(employees).where(eq(employees.id, request.employeeId)).limit(1);
+    const employeeRows = await tx
+      .select()
+      .from(employees)
+      .where(eq(employees.id, request.employeeId))
+      .limit(1);
     const employee = employeeRows[0]!;
     const payload = request.payload as Record<string, unknown>;
     let before: unknown = null;
@@ -212,7 +226,10 @@ export async function approveRequest(
     switch (request.requestType) {
       case "address": {
         before = { address: employee.address };
-        await tx.update(employees).set({ address: payload, updatedAt: new Date() }).where(eq(employees.id, employee.id));
+        await tx
+          .update(employees)
+          .set({ address: payload, updatedAt: new Date() })
+          .where(eq(employees.id, employee.id));
         break;
       }
       case "bank_details": {
@@ -221,8 +238,12 @@ export async function approveRequest(
         // Payload was encrypted at submit; encrypt() is idempotent here so
         // legacy plaintext payloads still land encrypted on the target field.
         const encrypted = {
-          routing: isEncrypted(bank.routing) ? bank.routing : encryptField(bank.routing, config.encryptionKey),
-          account: isEncrypted(bank.account) ? bank.account : encryptField(bank.account, config.encryptionKey),
+          routing: isEncrypted(bank.routing)
+            ? bank.routing
+            : encryptField(bank.routing, config.encryptionKey),
+          account: isEncrypted(bank.account)
+            ? bank.account
+            : encryptField(bank.account, config.encryptionKey),
           type: bank.type,
         };
         after = encrypted;
@@ -288,7 +309,9 @@ export async function approveRequest(
       after: {
         applied: after,
         effectiveFrom,
-        ...(input.effectiveFromOverride ? { effectiveFromOverride: input.effectiveFromOverride } : {}),
+        ...(input.effectiveFromOverride
+          ? { effectiveFromOverride: input.effectiveFromOverride }
+          : {}),
       },
     });
 
@@ -359,7 +382,11 @@ export async function denyRequest(
       after: { status: "denied" },
     });
 
-    const employeeRows = await tx.select().from(employees).where(eq(employees.id, request.employeeId)).limit(1);
+    const employeeRows = await tx
+      .select()
+      .from(employees)
+      .where(eq(employees.id, request.employeeId))
+      .limit(1);
     const employee = employeeRows[0];
     if (employee?.userId) {
       const ctx = await templateCtx(tx as DbLike, config);

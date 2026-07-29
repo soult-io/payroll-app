@@ -11,7 +11,7 @@
 
 import { and, asc, eq } from "drizzle-orm";
 import { company, emailOutbox, notificationSettings } from "@payroll/db";
-import { WORKFLOW_EVENTS, type RenderedEmail } from "@payroll/notifications";
+import { WORKFLOW_EVENTS } from "@payroll/notifications";
 import type { Db } from "../db.js";
 import type { AppConfig } from "../config.js";
 
@@ -55,6 +55,7 @@ export interface DrainDeps {
  * Drain eligible outbox rows. Idempotent and safe to run on any cadence —
  * ineligible rows are left pending for a later tick.
  */
+// biome-ignore lint/complexity/noExcessiveCognitiveComplexity: outbox drain loop; per-row branches are the domain logic
 export async function drainOutbox(deps: DrainDeps): Promise<DrainResult> {
   const { db, config } = deps;
   const result: DrainResult = { sent: 0, suppressed: 0, failed: 0, retriedLater: 0, logged: 0 };
@@ -121,7 +122,12 @@ export async function drainOutbox(deps: DrainDeps): Promise<DrainResult> {
       });
       await db
         .update(emailOutbox)
-        .set({ status: "sent", sentAt: new Date(), attempts: row.attempts + 1, lastAttemptAt: new Date() })
+        .set({
+          status: "sent",
+          sentAt: new Date(),
+          attempts: row.attempts + 1,
+          lastAttemptAt: new Date(),
+        })
         .where(eq(emailOutbox.id, row.id));
       result.sent += 1;
     } catch (err) {

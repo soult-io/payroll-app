@@ -17,6 +17,7 @@ export function useNotify() {
   }
 
   /** Human message out of ApiError / Error / unknown. */
+  // biome-ignore lint/complexity/noExcessiveCognitiveComplexity: error-code mapping chain; a lookup table would hide ApiError precedence
   function errorMessage(err: unknown): string {
     if (err instanceof ApiError) {
       if (err.status === 401) return "Your session expired — sign in again.";

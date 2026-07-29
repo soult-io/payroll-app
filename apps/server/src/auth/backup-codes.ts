@@ -60,6 +60,7 @@ export const payrollBackupCodes = (deps: BackupCodePluginDeps) =>
       verifyBackupCode: createAuthEndpoint(
         "/backup-code/verify",
         { method: "POST" },
+        // biome-ignore lint/complexity/noExcessiveCognitiveComplexity: linear auth guard chain; splitting adds indirection without behavior gain
         async (ctx) => {
           const auditCtx = requestContext(ctx.headers ?? new Headers());
           const code = typeof ctx.body?.code === "string" ? ctx.body.code : "";

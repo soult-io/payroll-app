@@ -40,11 +40,7 @@ import {
   toSnapshotW4,
   type DbLike,
 } from "./resolve.js";
-import {
-  SNAPSHOT_TEMPLATE_VERSION,
-  snapshotHash,
-  type RunSnapshot,
-} from "./snapshot.js";
+import { SNAPSHOT_TEMPLATE_VERSION, snapshotHash, type RunSnapshot } from "./snapshot.js";
 
 export class PayrollServiceError extends Error {
   constructor(
@@ -114,7 +110,9 @@ async function notifyDraftReady(
   const admins = await tx
     .select({ id: authUser.id, email: authUser.email })
     .from(authUser)
-    .where(and(eq(authUser.role, "admin"), or(isNull(authUser.banned), eq(authUser.banned, false))));
+    .where(
+      and(eq(authUser.role, "admin"), or(isNull(authUser.banned), eq(authUser.banned, false))),
+    );
   for (const admin of admins) {
     await tx.insert(emailOutbox).values({
       userId: admin.id,
@@ -154,13 +152,20 @@ export async function generateDraft(
   if (existing[0]) return { run: existing[0], created: false };
 
   try {
+    // biome-ignore lint/complexity/noExcessiveCognitiveComplexity: draft-generation transaction; guard chain is the spec's resolution order
     return await db.transaction(async (tx) => {
-      const employeeRows = await tx.select().from(employees).where(eq(employees.id, input.employeeId)).limit(1);
+      const employeeRows = await tx
+        .select()
+        .from(employees)
+        .where(eq(employees.id, input.employeeId))
+        .limit(1);
       const employee = employeeRows[0];
-      if (!employee) throw new PayrollServiceError("run_not_found", `employee ${input.employeeId} not found`);
+      if (!employee)
+        throw new PayrollServiceError("run_not_found", `employee ${input.employeeId} not found`);
       const companyRows = await tx.select().from(company).limit(1);
       const companyRow = companyRows[0];
-      if (!companyRow) throw new PayrollServiceError("no_company", "company row missing — run seeds");
+      if (!companyRow)
+        throw new PayrollServiceError("no_company", "company row missing — run seeds");
 
       const comp = await resolveCompensation(tx, input.employeeId, period.periodStart);
       if (!comp) {
@@ -172,7 +177,10 @@ export async function generateDraft(
       const frequency = comp.frequency as PayFrequency;
       const periodsPerYear = PERIODS_PER_YEAR[frequency];
       if (!periodsPerYear) {
-        throw new PayrollServiceError("unsupported_frequency", `frequency ${comp.frequency} not supported`);
+        throw new PayrollServiceError(
+          "unsupported_frequency",
+          `frequency ${comp.frequency} not supported`,
+        );
       }
 
       const w4Row = await resolveW4(tx, input.employeeId, period.periodStart);
@@ -180,14 +188,21 @@ export async function generateDraft(
       const taxYear = Number(period.periodStart.slice(0, 4));
       const tax = await resolveTaxConfig(tx, taxYear, filingStatus);
       if (!tax) {
-        throw new PayrollServiceError("no_tax_config", `no federal tax config/brackets for ${taxYear}`);
+        throw new PayrollServiceError(
+          "no_tax_config",
+          `no federal tax config/brackets for ${taxYear}`,
+        );
       }
       const priorYtdGross = await resolvePriorYtdGross(tx, input.employeeId, period.periodStart);
 
       const engineConfig: TaxConfig = {
         year: tax.config.taxYear,
         standardDeduction: tax.config.standardDeduction,
-        federalBrackets: tax.brackets.map((b) => ({ min: b.min, max: b.max ?? Infinity, rate: b.rate })),
+        federalBrackets: tax.brackets.map((b) => ({
+          min: b.min,
+          max: b.max ?? Infinity,
+          rate: b.rate,
+        })),
         socialSecurityRate: tax.config.socialSecurityRate,
         socialSecurityWageCap: tax.config.socialSecurityWageCap,
         medicareRate: tax.config.medicareRate,
@@ -301,7 +316,12 @@ export async function resolveSchedule(
   const rows = await db
     .select()
     .from(paySchedules)
-    .where(and(eq(paySchedules.active, true), or(eq(paySchedules.employeeId, employeeId), isNull(paySchedules.employeeId))));
+    .where(
+      and(
+        eq(paySchedules.active, true),
+        or(eq(paySchedules.employeeId, employeeId), isNull(paySchedules.employeeId)),
+      ),
+    );
   const perEmployee = rows.find((r) => r.employeeId === employeeId);
   return perEmployee ?? rows.find((r) => r.employeeId === null) ?? null;
 }
@@ -313,7 +333,13 @@ export async function resolveSchedule(
  */
 export async function generateDraftsForPeriod(
   deps: GenerateDeps,
-  input: { year: number; month: number; employeeId?: number; autoDraftOnly: boolean; createdBy: string },
+  input: {
+    year: number;
+    month: number;
+    employeeId?: number;
+    autoDraftOnly: boolean;
+    createdBy: string;
+  },
 ): Promise<{ generated: RunRow[]; skipped: { employeeId: number; reason: string }[] }> {
   const { db } = deps;
   const employeeRows = input.employeeId
@@ -338,7 +364,11 @@ export async function generateDraftsForPeriod(
     }
     const period = monthlyPeriod(input.year, input.month, schedule.payDayOfMonth);
     try {
-      const { run } = await generateDraft(deps, { employeeId: employee.id, period, createdBy: input.createdBy });
+      const { run } = await generateDraft(deps, {
+        employeeId: employee.id,
+        period,
+        createdBy: input.createdBy,
+      });
       generated.push(run);
     } catch (err) {
       if (err instanceof PayrollServiceError) {
@@ -397,8 +427,13 @@ export async function transitionRun(
   const { db } = deps;
   const rule = TRANSITIONS[input.action];
   if (!rule) throw new PayrollServiceError("invalid_transition", `unknown action ${input.action}`);
+  // biome-ignore lint/complexity/noExcessiveCognitiveComplexity: state-machine transition transaction; kept linear with audit in the same tx
   return db.transaction(async (tx) => {
-    const rows = await tx.select().from(payrollRuns).where(eq(payrollRuns.publicId, input.publicId)).limit(1);
+    const rows = await tx
+      .select()
+      .from(payrollRuns)
+      .where(eq(payrollRuns.publicId, input.publicId))
+      .limit(1);
     const run = rows[0];
     if (!run) throw new PayrollServiceError("run_not_found", `run ${input.publicId} not found`);
     if (!rule.from.includes(run.status)) {
@@ -444,6 +479,10 @@ export async function transitionRun(
 }
 
 export async function getRunByPublicId(db: DbLike, publicId: string): Promise<RunRow | null> {
-  const rows = await db.select().from(payrollRuns).where(eq(payrollRuns.publicId, publicId)).limit(1);
+  const rows = await db
+    .select()
+    .from(payrollRuns)
+    .where(eq(payrollRuns.publicId, publicId))
+    .limit(1);
   return rows[0] ?? null;
 }

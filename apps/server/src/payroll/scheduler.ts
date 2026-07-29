@@ -58,18 +58,13 @@ export async function startScheduler(deps: {
 
   // Cron tick → enqueue per-employee generation jobs (singleton per period).
   await boss.work(TICK_QUEUE, async () => {
-    const schedules = await db
-      .select()
-      .from(paySchedules)
-      .where(isNull(paySchedules.employeeId));
+    const schedules = await db.select().from(paySchedules).where(isNull(paySchedules.employeeId));
     const schedule = schedules[0];
-    if (!schedule || !schedule.active || !schedule.autoDraft) return;
+    if (!schedule?.active || !schedule.autoDraft) return;
     const { year, month } = currentPeriod();
     const period = monthlyPeriod(year, month, schedule.payDayOfMonth);
 
-    const activeEmployees = await db
-      .select({ id: employees.id })
-      .from(employees);
+    const activeEmployees = await db.select({ id: employees.id }).from(employees);
     for (const employee of activeEmployees) {
       await boss.send(
         GENERATE_QUEUE,
@@ -135,10 +130,7 @@ export async function startScheduler(deps: {
   });
 
   async function syncSchedules(): Promise<void> {
-    const schedules = await db
-      .select()
-      .from(paySchedules)
-      .where(isNull(paySchedules.employeeId));
+    const schedules = await db.select().from(paySchedules).where(isNull(paySchedules.employeeId));
     const schedule = schedules[0];
     await boss.unschedule(TICK_QUEUE);
     await boss.unschedule(OUTBOX_QUEUE);

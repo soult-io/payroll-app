@@ -167,7 +167,10 @@ function lastDayOfMonth(year: number, month: number): number {
   return new Date(Date.UTC(year, month, 0)).getUTCDate();
 }
 
-function toEngineConfig(cfg: SourceData["taxConfig"][number], brackets: SourceData["taxBrackets"]): TaxConfig {
+function toEngineConfig(
+  cfg: SourceData["taxConfig"][number],
+  brackets: SourceData["taxBrackets"],
+): TaxConfig {
   return {
     year: cfg.tax_year,
     standardDeduction: Number(cfg.standard_deduction),
@@ -211,6 +214,7 @@ function toSnapshotTaxConfig(cfg: SourceData["taxConfig"][number]): SnapshotTaxC
 // Phase A — plan + validate
 // ---------------------------------------------------------------------------
 
+// biome-ignore lint/complexity/noExcessiveCognitiveComplexity: phase-A validate pipeline — linear by design (spec 9 halt semantics)
 function planAndValidate(
   data: SourceData,
   log: (line: string) => void,
@@ -219,7 +223,9 @@ function planAndValidate(
   const employee = data.employees[0];
   if (!employee) throw new MigrationHaltError("source has no employees row");
   if (data.employees.length > 1) {
-    log(`note: source has ${data.employees.length} employees; migrating all runs against employee id ${employee.id} (sole-employee deployment)`);
+    log(
+      `note: source has ${data.employees.length} employees; migrating all runs against employee id ${employee.id} (sole-employee deployment)`,
+    );
   }
   const companyName = employee.entity;
 
@@ -227,7 +233,10 @@ function planAndValidate(
   const entriesByRun = new Map<number, Map<string, string>>();
   for (const e of data.entries) {
     let m = entriesByRun.get(e.run_id);
-    if (!m) entriesByRun.set(e.run_id, (m = new Map()));
+    if (!m) {
+      m = new Map();
+      entriesByRun.set(e.run_id, m);
+    }
     m.set(e.category, e.amount);
   }
 
@@ -287,11 +296,15 @@ function planAndValidate(
     // Statutory config for the period's year.
     const cfg = data.taxConfig.find((c) => c.tax_year === run.year);
     if (!cfg) {
-      throw new MigrationHaltError(`run ${run.id} (${periodLabel}): no source tax_config for ${run.year}`);
+      throw new MigrationHaltError(
+        `run ${run.id} (${periodLabel}): no source tax_config for ${run.year}`,
+      );
     }
     const bracketRows = data.taxBrackets.filter((b) => b.tax_year === run.year);
     if (bracketRows.length === 0) {
-      throw new MigrationHaltError(`run ${run.id} (${periodLabel}): no source tax_brackets for ${run.year}`);
+      throw new MigrationHaltError(
+        `run ${run.id} (${periodLabel}): no source tax_brackets for ${run.year}`,
+      );
     }
 
     // Prior-YTD from previously validated STORED entries, in order.
@@ -311,12 +324,16 @@ function planAndValidate(
     // Validate: recomputed == stored, to the cent, all nine categories.
     const stored = entriesByRun.get(run.id);
     if (!stored) {
-      throw new MigrationHaltError(`run ${run.id} (${periodLabel}): source run has no payroll_entries`);
+      throw new MigrationHaltError(
+        `run ${run.id} (${periodLabel}): source run has no payroll_entries`,
+      );
     }
     for (const [category, field] of ENTRY_FIELDS) {
       const storedAmount = stored.get(category);
       if (storedAmount === undefined) {
-        throw new MigrationHaltError(`run ${run.id} (${periodLabel}): missing entry category '${category}'`);
+        throw new MigrationHaltError(
+          `run ${run.id} (${periodLabel}): missing entry category '${category}'`,
+        );
       }
       const recomputedAmount = cents(result[field] as number);
       if (Number(storedAmount).toFixed(2) !== recomputedAmount) {
@@ -389,6 +406,7 @@ function planAndValidate(
 // Phase B — write
 // ---------------------------------------------------------------------------
 
+// biome-ignore lint/complexity/noExcessiveCognitiveComplexity: migration orchestrator — the two-phase flow reads top-to-bottom deliberately
 export async function migrateLegacy(
   deps: { source: SourceDb; db: Db },
   options: MigrateOptions = {},
@@ -407,10 +425,14 @@ export async function migrateLegacy(
       }`,
   );
   for (const s of data.skippedCounts) {
-    log(`NOT migrated (spec 9): accounting.${s.table} (${s.rows < 0 ? "absent" : `${s.rows} row(s)`})`);
+    log(
+      `NOT migrated (spec 9): accounting.${s.table} (${s.rows < 0 ? "absent" : `${s.rows} row(s)`})`,
+    );
   }
   if (data.runsWithStubPath > 0) {
-    log(`NOT migrated (spec 9/D5): pay_stub_path on ${data.runsWithStubPath} run(s) — files stay in Nextcloud`);
+    log(
+      `NOT migrated (spec 9/D5): pay_stub_path on ${data.runsWithStubPath} run(s) — files stay in Nextcloud`,
+    );
   }
 
   const { planned } = planAndValidate(data, log, verbose);
@@ -418,12 +440,19 @@ export async function migrateLegacy(
   // Existing migration ledger (drives idempotency; empty on first run).
   const existingMap = await deps.db.select().from(legacyMigrationMap);
   const mapped = new Map(existingMap.map((m) => [`${m.entity}:${m.sourceId}`, m.targetId]));
-  if (mapped.size > 0) log(`ledger: ${mapped.size} row(s) already migrated — re-run will skip them`);
+  if (mapped.size > 0)
+    log(`ledger: ${mapped.size} row(s) already migrated — re-run will skip them`);
 
   // Rows already present by NATURAL key (e.g. `pnpm seed` ran at deploy) —
   // the write phase adopts them into the ledger instead of inserting.
   const companyPresent =
-    (await deps.db.select({ id: company.id }).from(company).where(eq(company.legalName, data.employees[0]?.entity ?? "")).limit(1)).length > 0;
+    (
+      await deps.db
+        .select({ id: company.id })
+        .from(company)
+        .where(eq(company.legalName, data.employees[0]?.entity ?? ""))
+        .limit(1)
+    ).length > 0;
   const taxConfigPresent = new Set(
     (
       await deps.db
@@ -489,14 +518,24 @@ export async function migrateLegacy(
     {
       entity: "tax_config",
       sourceRows: src.taxConfig.length,
-      inserted: src.taxConfig.filter((c) => !mapped.has(`tax_config:${c.tax_year}`) && !taxConfigPresent.has(c.tax_year)).length,
-      existing: src.taxConfig.filter((c) => mapped.has(`tax_config:${c.tax_year}`) || taxConfigPresent.has(c.tax_year)).length,
+      inserted: src.taxConfig.filter(
+        (c) => !mapped.has(`tax_config:${c.tax_year}`) && !taxConfigPresent.has(c.tax_year),
+      ).length,
+      existing: src.taxConfig.filter(
+        (c) => mapped.has(`tax_config:${c.tax_year}`) || taxConfigPresent.has(c.tax_year),
+      ).length,
     },
     {
       entity: "tax_brackets",
       sourceRows: src.taxBrackets.length,
-      inserted: src.taxBrackets.filter((b) => !mapped.has(`tax_brackets:${b.id}`) && !bracketsPresent.has(`${b.tax_year}:${b.ordinal}`)).length,
-      existing: src.taxBrackets.filter((b) => mapped.has(`tax_brackets:${b.id}`) || bracketsPresent.has(`${b.tax_year}:${b.ordinal}`)).length,
+      inserted: src.taxBrackets.filter(
+        (b) =>
+          !mapped.has(`tax_brackets:${b.id}`) && !bracketsPresent.has(`${b.tax_year}:${b.ordinal}`),
+      ).length,
+      existing: src.taxBrackets.filter(
+        (b) =>
+          mapped.has(`tax_brackets:${b.id}`) || bracketsPresent.has(`${b.tax_year}:${b.ordinal}`),
+      ).length,
     },
     {
       entity: "payroll_runs",
@@ -510,13 +549,16 @@ export async function migrateLegacy(
   if (dryRun) {
     log(`dry-run plan (zero writes):`);
     for (const e of entityPlan) {
-      log(`  ${e.entity}: ${e.sourceRows} source row(s) — ${e.inserted} to insert, ${e.existing} already migrated`);
+      log(
+        `  ${e.entity}: ${e.sourceRows} source row(s) — ${e.inserted} to insert, ${e.existing} already migrated`,
+      );
     }
     log(`re-run with --write to perform the migration`);
     return report;
   }
 
   // ------------------------------------------------------------- writes
+  // biome-ignore lint/complexity/noExcessiveCognitiveComplexity: phase-B write transaction — single atomic flow, spec 9
   await deps.db.transaction(async (tx) => {
     const record = async (entity: string, sourceId: string | number, targetId: string | number) => {
       await tx.insert(legacyMigrationMap).values({
@@ -533,12 +575,19 @@ export async function migrateLegacy(
     if (mappedCompany) {
       companyId = Number(mappedCompany);
     } else {
-      const found = await tx.select().from(company).where(eq(company.legalName, employee.entity)).limit(1);
+      const found = await tx
+        .select()
+        .from(company)
+        .where(eq(company.legalName, employee.entity))
+        .limit(1);
       if (found[0]) {
         companyId = found[0].id;
         log(`company '${employee.entity}' already present (id ${companyId}) — adopting`);
       } else {
-        const inserted = await tx.insert(company).values({ legalName: employee.entity }).returning();
+        const inserted = await tx
+          .insert(company)
+          .values({ legalName: employee.entity })
+          .returning();
         companyId = inserted[0]!.id;
         log(`company '${employee.entity}' created (id ${companyId})`);
       }
@@ -556,7 +605,8 @@ export async function migrateLegacy(
         .filter((c) => c.employee_id === employee.id)
         .map((c) => isoDate(c.effective_from))
         .sort()[0];
-      if (!hireDate) throw new MigrationHaltError("cannot derive hire_date: employee has no compensation rows");
+      if (!hireDate)
+        throw new MigrationHaltError("cannot derive hire_date: employee has no compensation rows");
       const inserted = await tx
         .insert(employees)
         .values({
@@ -570,7 +620,9 @@ export async function migrateLegacy(
         .returning();
       targetEmployeeId = inserted[0]!.id;
       await record("employee", employee.id, targetEmployeeId);
-      log(`employee '${employee.full_name}' created (id ${targetEmployeeId}, hire_date ${hireDate})`);
+      log(
+        `employee '${employee.full_name}' created (id ${targetEmployeeId}, hire_date ${hireDate})`,
+      );
     }
 
     // compensation — natural key (employee, effective_from).
@@ -581,7 +633,9 @@ export async function migrateLegacy(
       const found = await tx
         .select()
         .from(compensation)
-        .where(and(eq(compensation.employeeId, targetEmployeeId), eq(compensation.effectiveFrom, from)))
+        .where(
+          and(eq(compensation.employeeId, targetEmployeeId), eq(compensation.effectiveFrom, from)),
+        )
         .limit(1);
       if (found[0]) {
         await record("compensation", c.id, found[0].id);
@@ -756,14 +810,19 @@ export async function migrateLegacy(
         })
         .returning();
       const runId = inserted[0]!.id;
-      await tx.insert(payrollEntries).values(
-        p.entries.map((e) => ({ runId, category: e.category, amount: e.amount })),
-      );
+      await tx
+        .insert(payrollEntries)
+        .values(p.entries.map((e) => ({ runId, category: e.category, amount: e.amount })));
       await record("run", p.source.id, runId);
       insertedRuns += 1;
-      if (verbose) log(`  imported run ${p.periodStart.slice(0, 7)} (source id ${p.source.id} → run id ${runId})`);
+      if (verbose)
+        log(
+          `  imported run ${p.periodStart.slice(0, 7)} (source id ${p.source.id} → run id ${runId})`,
+        );
     }
-    log(`phase B: ${insertedRuns} run(s) imported, ${planned.length - insertedRuns} skipped (already migrated)`);
+    log(
+      `phase B: ${insertedRuns} run(s) imported, ${planned.length - insertedRuns} skipped (already migrated)`,
+    );
   });
 
   log(`--write complete:`);

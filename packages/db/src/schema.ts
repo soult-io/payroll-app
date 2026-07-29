@@ -18,7 +18,6 @@
 
 import { sql } from "drizzle-orm";
 import {
-  bigint,
   bigserial,
   boolean,
   check,
@@ -191,11 +190,7 @@ export const taxBrackets = pgTable(
     rate: rate("rate").notNull(),
   },
   (t) => [
-    unique("tax_brackets_jurisdiction_year_ordinal_uniq").on(
-      t.jurisdiction,
-      t.taxYear,
-      t.ordinal,
-    ),
+    unique("tax_brackets_jurisdiction_year_ordinal_uniq").on(t.jurisdiction, t.taxYear, t.ordinal),
   ],
 );
 
@@ -218,10 +213,7 @@ export const paySchedules = pgTable(
       "pay_schedules_frequency_check",
       sql`${t.frequency} IN ('weekly','biweekly','semimonthly','monthly')`,
     ),
-    check(
-      "pay_schedules_draft_day_check",
-      sql`${t.draftDayOfMonth} BETWEEN 1 AND 28`,
-    ),
+    check("pay_schedules_draft_day_check", sql`${t.draftDayOfMonth} BETWEEN 1 AND 28`),
     check("pay_schedules_pay_day_check", sql`${t.payDayOfMonth} BETWEEN 1 AND 28`),
   ],
 );

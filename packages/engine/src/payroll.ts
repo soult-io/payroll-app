@@ -199,6 +199,7 @@ export type PayFrequency = keyof typeof PERIODS_PER_YEAR;
  */
 export const ENGINE_VERSION = "0.2.0";
 
+// biome-ignore lint/complexity/noExcessiveCognitiveComplexity: vendored engine — must stay structurally identical to mcp-accounting's payroll.ts
 export function calculatePayroll(input: PayrollInput): PayrollResult {
   const { monthlySalary, priorYtdGross, taxConfig, federalExempt } = input;
   const periodsPerYear = input.periodsPerYear ?? 12;
@@ -231,9 +232,7 @@ export function calculatePayroll(input: PayrollInput): PayrollResult {
   const afterCredits = Math.max(0, annualFederalTax - dependentsAmount);
   // An exempt W-4 zeroes federal income-tax withholding only; FICA still
   // applies. Extra withholding is a flat per-period add-on.
-  const federalWithholding = federalExempt
-    ? 0
-    : afterCredits / periodsPerYear + extraWithholding;
+  const federalWithholding = federalExempt ? 0 : afterCredits / periodsPerYear + extraWithholding;
 
   const ssThisMonth =
     priorYtdGross < taxConfig.socialSecurityWageCap

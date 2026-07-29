@@ -39,11 +39,11 @@ export interface PayslipSnapshot {
   templateVersion: string;
 }
 
-// eslint-disable-next-line @typescript-eslint/no-explicit-any
+// biome-ignore lint/suspicious/noExplicitAny: pdfmake content types are not installed; runtime accepts these shapes
 type Content = any;
-// eslint-disable-next-line @typescript-eslint/no-explicit-any
+// biome-ignore lint/suspicious/noExplicitAny: pdfmake cell types are not installed; runtime accepts these shapes
 type TableCell = any;
-// eslint-disable-next-line @typescript-eslint/no-explicit-any
+// biome-ignore lint/suspicious/noExplicitAny: pdfmake doc-definition types are not installed; runtime accepts these shapes
 type DocDefinition = any;
 
 type LayoutNode = { table: { body: unknown[] } };
@@ -58,8 +58,18 @@ function usd(amount: number): string {
 }
 
 const MONTHS = [
-  "January", "February", "March", "April", "May", "June",
-  "July", "August", "September", "October", "November", "December",
+  "January",
+  "February",
+  "March",
+  "April",
+  "May",
+  "June",
+  "July",
+  "August",
+  "September",
+  "October",
+  "November",
+  "December",
 ];
 
 /** "April 2026" for monthly periods; "2026-04-01 → 2026-04-30" otherwise. */
@@ -163,7 +173,12 @@ function buildPayslipDoc(snapshot: PayslipSnapshot): DocDefinition {
           ...deductionRows,
           [
             { text: "Total Deductions", fontSize: 9, bold: true },
-            { text: `-${usd(result.totalDeductions)}`, fontSize: 9, alignment: "right", bold: true },
+            {
+              text: `-${usd(result.totalDeductions)}`,
+              fontSize: 9,
+              alignment: "right",
+              bold: true,
+            },
           ],
         ],
       },
@@ -209,7 +224,12 @@ function buildPayslipDoc(snapshot: PayslipSnapshot): DocDefinition {
     },
 
     // Employer costs (informational)
-    { text: "Employer Costs (not deducted from pay)", bold: true, fontSize: 11, margin: [0, 0, 0, 5] },
+    {
+      text: "Employer Costs (not deducted from pay)",
+      bold: true,
+      fontSize: 11,
+      margin: [0, 0, 0, 5],
+    },
     {
       table: {
         widths: ["*", "auto"],

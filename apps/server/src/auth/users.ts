@@ -9,7 +9,11 @@ import { EVENT_TYPE, securityInvite, securityPasswordReset } from "@payroll/noti
 import type { Auth } from "./auth.js";
 import type { Db } from "../db.js";
 import { smtpConfigured, type AppConfig } from "../config.js";
-import { createSetupToken, revokeOutstandingSetupTokens, type SetupTokenPurpose } from "./tokens.js";
+import {
+  createSetupToken,
+  revokeOutstandingSetupTokens,
+  type SetupTokenPurpose,
+} from "./tokens.js";
 import { writeAuthEvent, AUTH_EVENT, type AuthEventContext } from "./audit.js";
 import { companyName } from "../notify/outbox.js";
 
@@ -42,7 +46,9 @@ async function queueSetupEmail(
 ): Promise<void> {
   const ctx = { companyName: await companyName(db), appUrl: config.baseUrl };
   const rendered =
-    purpose === "invite" ? securityInvite(ctx, { setupLink: link }) : securityPasswordReset(ctx, { setupLink: link });
+    purpose === "invite"
+      ? securityInvite(ctx, { setupLink: link })
+      : securityPasswordReset(ctx, { setupLink: link });
   await db.insert(emailOutbox).values({
     userId,
     eventType: purpose === "invite" ? EVENT_TYPE.securityInvite : EVENT_TYPE.securityPasswordReset,
@@ -66,7 +72,11 @@ export async function inviteUser(
 ): Promise<InviteResult> {
   const { auth, db, config } = deps;
   const email = input.email.trim().toLowerCase();
-  const existing = await db.select({ id: authUser.id }).from(authUser).where(eq(authUser.email, email)).limit(1);
+  const existing = await db
+    .select({ id: authUser.id })
+    .from(authUser)
+    .where(eq(authUser.email, email))
+    .limit(1);
   if (existing.length > 0) {
     throw new UserServiceError("email_exists", `a user with email ${email} already exists`);
   }
@@ -108,7 +118,9 @@ export async function initiateReset(
   deps: UserServiceDeps,
   userId: string,
   actorId: string | null,
-  auditCtx: AuthEventContext = {},
+  // Reserved for parity with inviteUser (which audits invite_created); a reset
+  // currently writes no auth event. Kept so both call sites share one shape.
+  _auditCtx: AuthEventContext = {},
 ): Promise<InviteResult> {
   const { auth, db, config } = deps;
   const ctx = await auth.$context;
@@ -181,9 +193,12 @@ export async function resendInvite(
 ): Promise<InviteResult> {
   const { auth, db, config } = deps;
   const ctx = await auth.$context;
-  const user = (await ctx.internalAdapter.findUserById(userId)) as
-    | { id: string; email: string; banned?: boolean | null; banReason?: string | null }
-    | null;
+  const user = (await ctx.internalAdapter.findUserById(userId)) as {
+    id: string;
+    email: string;
+    banned?: boolean | null;
+    banReason?: string | null;
+  } | null;
   if (!user) throw new UserServiceError("not_found", "user not found");
   if (!user.banned || user.banReason !== "pending_enrollment") {
     throw new UserServiceError("not_pending_enrollment", "user is not pending enrollment");

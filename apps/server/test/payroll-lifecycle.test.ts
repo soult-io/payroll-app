@@ -19,7 +19,7 @@ import {
   w4Elections,
   type SeedDb,
 } from "@payroll/db";
-import { createTestApp, ORIGIN, type TestContext } from "./helpers.js";
+import { createTestApp, type TestContext } from "./helpers.js";
 import { inviteAndOnboard, login, sessionHeader, TEST_PASSWORD } from "./flow-helpers.js";
 import { snapshotHash, type RunSnapshot } from "../src/payroll/snapshot.js";
 
@@ -78,7 +78,10 @@ async function generate(employeeId: number, year: number, month: number) {
     payload: { year, month, employeeId },
   });
   expect(res.statusCode).toBe(201);
-  return res.json() as { generated: (typeof payrollRuns.$inferSelect)[]; skipped: { employeeId: number; reason: string }[] };
+  return res.json() as {
+    generated: (typeof payrollRuns.$inferSelect)[];
+    skipped: { employeeId: number; reason: string }[];
+  };
 }
 
 async function act(publicId: string, action: "approve" | "issue" | "void", reason?: string) {
@@ -161,16 +164,24 @@ describe("config resolution + generation", () => {
     const runs = await t.db
       .select()
       .from(payrollRuns)
-      .where(and(eq(payrollRuns.employeeId, employeeId), eq(payrollRuns.periodStart, "2025-04-01")));
+      .where(
+        and(eq(payrollRuns.employeeId, employeeId), eq(payrollRuns.periodStart, "2025-04-01")),
+      );
     expect(runs.length).toBe(1);
   });
 
   it("notifies admins on draft generation (email_outbox, payroll_draft_ready)", async () => {
     const employeeId = await createEmployee();
     await addCompensation(employeeId, 5000, "2025-01-01");
-    const before = await t.db.select().from(emailOutbox).where(eq(emailOutbox.eventType, "payroll_draft_ready"));
+    const before = await t.db
+      .select()
+      .from(emailOutbox)
+      .where(eq(emailOutbox.eventType, "payroll_draft_ready"));
     await generate(employeeId, 2025, 6);
-    const after = await t.db.select().from(emailOutbox).where(eq(emailOutbox.eventType, "payroll_draft_ready"));
+    const after = await t.db
+      .select()
+      .from(emailOutbox)
+      .where(eq(emailOutbox.eventType, "payroll_draft_ready"));
     expect(after.length).toBeGreaterThan(before.length);
   });
 });
@@ -381,7 +392,9 @@ describe("employee payslip endpoints + PDF", () => {
     expect(foreignPdf.statusCode).toBe(404);
 
     // Unauthenticated → 401.
-    expect((await t.app.inject({ method: "GET", url: `/api/payslips/${run.publicId}` })).statusCode).toBe(401);
+    expect(
+      (await t.app.inject({ method: "GET", url: `/api/payslips/${run.publicId}` })).statusCode,
+    ).toBe(401);
 
     // PDF: valid bytes, deterministic filename.
     const pdf = await t.app.inject({

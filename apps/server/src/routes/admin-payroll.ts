@@ -35,10 +35,17 @@ interface AdminPayrollDeps {
   onScheduleChange?: () => Promise<void>;
 }
 
-const serviceError = (err: unknown, reply: { code: (n: number) => { send: (b: unknown) => unknown } }) => {
+const serviceError = (
+  err: unknown,
+  reply: { code: (n: number) => { send: (b: unknown) => unknown } },
+) => {
   if (err instanceof PayrollServiceError) {
     const status =
-      err.code === "run_not_found" ? 404 : err.code === "invalid_transition" || err.code === "void_reason_required" ? 409 : 400;
+      err.code === "run_not_found"
+        ? 404
+        : err.code === "invalid_transition" || err.code === "void_reason_required"
+          ? 409
+          : 400;
     return reply.code(status).send({ error: err.code, message: err.message });
   }
   throw err;
@@ -48,7 +55,14 @@ export function registerAdminPayrollRoutes(app: FastifyInstance, deps: AdminPayr
   const { db, config, guards } = deps;
   const admin = guards.requireRole("admin");
 
-  async function audit(actorId: string, action: string, entity: string, entityId: string, before: unknown, after: unknown) {
+  async function audit(
+    actorId: string,
+    action: string,
+    entity: string,
+    entityId: string,
+    before: unknown,
+    after: unknown,
+  ) {
     await db.insert(auditEvents).values({ actorId, action, entity, entityId, before, after });
   }
 
@@ -104,7 +118,8 @@ export function registerAdminPayrollRoutes(app: FastifyInstance, deps: AdminPayr
         employeeId: z.number().int().optional(),
       })
       .safeParse(req.body);
-    if (!body.success) return reply.code(400).send({ error: "invalid_body", details: body.error.issues });
+    if (!body.success)
+      return reply.code(400).send({ error: "invalid_body", details: body.error.issues });
     const result = await generateDraftsForPeriod(
       { db, config },
       {
@@ -128,25 +143,29 @@ export function registerAdminPayrollRoutes(app: FastifyInstance, deps: AdminPayr
   });
 
   for (const action of ["approve", "issue", "void"] as const satisfies RunAction[]) {
-    app.post(`/api/admin/payroll-runs/:publicId/${action}`, { preHandler: admin }, async (req, reply) => {
-      const { publicId } = req.params as { publicId: string };
-      const body = z.object({ reason: z.string().max(500).optional() }).safeParse(req.body ?? {});
-      if (!body.success) return reply.code(400).send({ error: "invalid_body" });
-      try {
-        const run = await transitionRun(
-          { db, config },
-          {
-            publicId,
-            action,
-            actorId: req.authUser!.id,
-            ...(body.data.reason !== undefined ? { reason: body.data.reason } : {}),
-          },
-        );
-        return { run };
-      } catch (err) {
-        return serviceError(err, reply);
-      }
-    });
+    app.post(
+      `/api/admin/payroll-runs/:publicId/${action}`,
+      { preHandler: admin },
+      async (req, reply) => {
+        const { publicId } = req.params as { publicId: string };
+        const body = z.object({ reason: z.string().max(500).optional() }).safeParse(req.body ?? {});
+        if (!body.success) return reply.code(400).send({ error: "invalid_body" });
+        try {
+          const run = await transitionRun(
+            { db, config },
+            {
+              publicId,
+              action,
+              actorId: req.authUser!.id,
+              ...(body.data.reason !== undefined ? { reason: body.data.reason } : {}),
+            },
+          );
+          return { run };
+        } catch (err) {
+          return serviceError(err, reply);
+        }
+      },
+    );
   }
 
   // ------------------------------------------------------------ pay schedules
@@ -165,12 +184,17 @@ export function registerAdminPayrollRoutes(app: FastifyInstance, deps: AdminPayr
         active: z.boolean().default(true),
       })
       .safeParse(req.body);
-    if (!body.success) return reply.code(400).send({ error: "invalid_body", details: body.error.issues });
+    if (!body.success)
+      return reply.code(400).send({ error: "invalid_body", details: body.error.issues });
 
     // Upsert the company-wide default row (employee_id NULL).
-    const existing = await db.select().from(paySchedules).where(isNull(paySchedules.employeeId)).limit(1);
+    const existing = await db
+      .select()
+      .from(paySchedules)
+      .where(isNull(paySchedules.employeeId))
+      .limit(1);
     const before = existing[0] ?? null;
-    let row;
+    let row: typeof paySchedules.$inferSelect;
     if (before) {
       const updated = await db
         .update(paySchedules)
@@ -185,7 +209,14 @@ export function registerAdminPayrollRoutes(app: FastifyInstance, deps: AdminPayr
         .returning();
       row = inserted[0]!;
     }
-    await audit(req.authUser!.id, "pay_schedule.update", "pay_schedules", String(row.id), before, row);
+    await audit(
+      req.authUser!.id,
+      "pay_schedule.update",
+      "pay_schedules",
+      String(row.id),
+      before,
+      row,
+    );
     await deps.onScheduleChange?.();
     return { schedule: row };
   });
@@ -202,30 +233,46 @@ export function registerAdminPayrollRoutes(app: FastifyInstance, deps: AdminPayr
     return { compensation: rows };
   });
 
-  app.post("/api/admin/employees/:employeeId/compensation", { preHandler: admin }, async (req, reply) => {
-    const employeeId = Number((req.params as { employeeId: string }).employeeId);
-    const body = z
-      .object({
-        periodAmount: z.number().positive(),
-        frequency: z.enum(["weekly", "biweekly", "semimonthly", "monthly"]).default("monthly"),
-        effectiveFrom: z.string().regex(/^\d{4}-\d{2}-\d{2}$/),
-        effectiveTo: z.string().regex(/^\d{4}-\d{2}-\d{2}$/).nullable().optional(),
-      })
-      .safeParse(req.body);
-    if (!body.success) return reply.code(400).send({ error: "invalid_body", details: body.error.issues });
-    const inserted = await db
-      .insert(compensation)
-      .values({
-        employeeId,
-        periodAmount: String(body.data.periodAmount),
-        frequency: body.data.frequency,
-        effectiveFrom: body.data.effectiveFrom,
-        effectiveTo: body.data.effectiveTo ?? null,
-      })
-      .returning();
-    await audit(req.authUser!.id, "compensation.create", "compensation", String(inserted[0]!.id), null, inserted[0]);
-    return reply.code(201).send({ compensation: inserted[0] });
-  });
+  app.post(
+    "/api/admin/employees/:employeeId/compensation",
+    { preHandler: admin },
+    async (req, reply) => {
+      const employeeId = Number((req.params as { employeeId: string }).employeeId);
+      const body = z
+        .object({
+          periodAmount: z.number().positive(),
+          frequency: z.enum(["weekly", "biweekly", "semimonthly", "monthly"]).default("monthly"),
+          effectiveFrom: z.string().regex(/^\d{4}-\d{2}-\d{2}$/),
+          effectiveTo: z
+            .string()
+            .regex(/^\d{4}-\d{2}-\d{2}$/)
+            .nullable()
+            .optional(),
+        })
+        .safeParse(req.body);
+      if (!body.success)
+        return reply.code(400).send({ error: "invalid_body", details: body.error.issues });
+      const inserted = await db
+        .insert(compensation)
+        .values({
+          employeeId,
+          periodAmount: String(body.data.periodAmount),
+          frequency: body.data.frequency,
+          effectiveFrom: body.data.effectiveFrom,
+          effectiveTo: body.data.effectiveTo ?? null,
+        })
+        .returning();
+      await audit(
+        req.authUser!.id,
+        "compensation.create",
+        "compensation",
+        String(inserted[0]!.id),
+        null,
+        inserted[0],
+      );
+      return reply.code(201).send({ compensation: inserted[0] });
+    },
+  );
 
   // ------------------------------------------------------------------- W-4
 
@@ -245,7 +292,9 @@ export function registerAdminPayrollRoutes(app: FastifyInstance, deps: AdminPayr
     const body = z
       .object({
         taxYear: z.number().int().min(2020).max(2100),
-        filingStatus: z.enum(["single", "married_joint", "married_separate", "head_of_household"]).default("single"),
+        filingStatus: z
+          .enum(["single", "married_joint", "married_separate", "head_of_household"])
+          .default("single"),
         federalExempt: z.boolean().default(false),
         multipleJobs: z.boolean().default(false),
         dependentsAmount: z.number().min(0).default(0),
@@ -254,11 +303,16 @@ export function registerAdminPayrollRoutes(app: FastifyInstance, deps: AdminPayr
         extraWithholding: z.number().min(0).default(0),
         effectiveFrom: z.string().regex(/^\d{4}-\d{2}-\d{2}$/),
         filedDate: z.string().regex(/^\d{4}-\d{2}-\d{2}$/),
-        renewalDeadline: z.string().regex(/^\d{4}-\d{2}-\d{2}$/).nullable().optional(),
+        renewalDeadline: z
+          .string()
+          .regex(/^\d{4}-\d{2}-\d{2}$/)
+          .nullable()
+          .optional(),
         note: z.string().max(500).default(""),
       })
       .safeParse(req.body);
-    if (!body.success) return reply.code(400).send({ error: "invalid_body", details: body.error.issues });
+    if (!body.success)
+      return reply.code(400).send({ error: "invalid_body", details: body.error.issues });
     const inserted = await db
       .insert(w4Elections)
       .values({
@@ -277,7 +331,14 @@ export function registerAdminPayrollRoutes(app: FastifyInstance, deps: AdminPayr
         note: body.data.note,
       })
       .returning();
-    await audit(req.authUser!.id, "w4.create", "w4_elections", String(inserted[0]!.id), null, inserted[0]);
+    await audit(
+      req.authUser!.id,
+      "w4.create",
+      "w4_elections",
+      String(inserted[0]!.id),
+      null,
+      inserted[0],
+    );
     return reply.code(201).send({ w4: inserted[0] });
   });
 
@@ -340,7 +401,8 @@ export function registerAdminPayrollRoutes(app: FastifyInstance, deps: AdminPayr
           .min(1),
       })
       .safeParse(req.body);
-    if (!body.success) return reply.code(400).send({ error: "invalid_body", details: body.error.issues });
+    if (!body.success)
+      return reply.code(400).send({ error: "invalid_body", details: body.error.issues });
 
     const { jurisdiction, taxYear } = body.data;
     const beforeConfig = await db

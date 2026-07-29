@@ -17,8 +17,8 @@ const email = process.argv[2];
 const nameFlag = process.argv.indexOf("--name");
 const name = nameFlag !== -1 ? process.argv[nameFlag + 1] : undefined;
 
-if (!email || !email.includes("@")) {
-  console.error("usage: pnpm create-admin <email> [--name \"Admin Name\"]");
+if (!email?.includes("@")) {
+  console.error('usage: pnpm create-admin <email> [--name "Admin Name"]');
   process.exit(1);
 }
 

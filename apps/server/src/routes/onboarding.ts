@@ -18,16 +18,8 @@ import type { Db } from "../db.js";
 import type { AppConfig } from "../config.js";
 import { notificationSettings } from "@payroll/db";
 import { WORKFLOW_EVENTS } from "@payroll/notifications";
-import {
-  consumeSetupToken,
-  findValidSetupToken,
-  type ValidSetupToken,
-} from "../auth/tokens.js";
-import {
-  PASSWORD_MIN_LENGTH,
-  PASSWORD_MIN_ZXCVBN_SCORE,
-  hashPassword,
-} from "../auth/password.js";
+import { consumeSetupToken, findValidSetupToken } from "../auth/tokens.js";
+import { PASSWORD_MIN_LENGTH, PASSWORD_MIN_ZXCVBN_SCORE, hashPassword } from "../auth/password.js";
 import { encodeCodeHashes, generateBackupCodes } from "../auth/backup-codes.js";
 import { writeAuthEvent, AUTH_EVENT, requestContext } from "../auth/audit.js";
 import { toHeaders, type Guards } from "../plugins/guards.js";
@@ -75,7 +67,10 @@ export function registerOnboardingRoutes(app: FastifyInstance, deps: OnboardingD
 
     const { password } = body.data;
     if (password.length < PASSWORD_MIN_LENGTH) {
-      return reply.code(400).send({ error: "weak_password", message: `password must be at least ${PASSWORD_MIN_LENGTH} characters` });
+      return reply.code(400).send({
+        error: "weak_password",
+        message: `password must be at least ${PASSWORD_MIN_LENGTH} characters`,
+      });
     }
     const strength = zxcvbn(password);
     if (strength.score < PASSWORD_MIN_ZXCVBN_SCORE) {
@@ -168,7 +163,9 @@ export function registerOnboardingRoutes(app: FastifyInstance, deps: OnboardingD
   });
 
   app.post("/api/onboarding/totp-verify", { config: { rateLimit } }, async (req, reply) => {
-    const body = z.object({ token: z.string().min(1), code: z.string().min(1) }).safeParse(req.body);
+    const body = z
+      .object({ token: z.string().min(1), code: z.string().min(1) })
+      .safeParse(req.body);
     if (!body.success) return reply.code(400).send({ error: "invalid_token" });
     const resolved = await resolveToken(body.data.token);
     if (!resolved) return reply.code(400).send({ error: "invalid_token" });
@@ -206,8 +203,16 @@ export function registerOnboardingRoutes(app: FastifyInstance, deps: OnboardingD
     // onConflictDoNothing — a password reset must not clobber existing toggles.
     await db
       .insert(notificationSettings)
-      .values(WORKFLOW_EVENTS.map((eventType) => ({ userId: resolved.user.id, eventType, enabled: true })))
-      .onConflictDoNothing({ target: [notificationSettings.userId, notificationSettings.eventType] });
+      .values(
+        WORKFLOW_EVENTS.map((eventType) => ({
+          userId: resolved.user.id,
+          eventType,
+          enabled: true,
+        })),
+      )
+      .onConflictDoNothing({
+        target: [notificationSettings.userId, notificationSettings.eventType],
+      });
 
     const auditCtx = requestContext(toHeaders(req));
     await writeAuthEvent(

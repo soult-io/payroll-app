@@ -55,12 +55,18 @@ async function findUserIdByEmail(db: Db, email: string): Promise<string | null> 
 export function createAuditHook(deps: {
   db: Db;
   config: AppConfig;
-  lockout: (userId: string, auditCtx: { ip?: string | null; userAgent?: string | null }) => Promise<void>;
+  lockout: (
+    userId: string,
+    auditCtx: { ip?: string | null; userAgent?: string | null },
+  ) => Promise<void>;
 }) {
   const { db } = deps;
 
   /** security_login_new_device on a completed 2FA challenge (spec 6, always on). */
-  async function trackNewDevice(userId: string | null, auditCtx: { ip?: string | null; userAgent?: string | null }) {
+  async function trackNewDevice(
+    userId: string | null,
+    auditCtx: { ip?: string | null; userAgent?: string | null },
+  ) {
     if (!userId) return;
     try {
       await trackDevice(
@@ -72,11 +78,15 @@ export function createAuditHook(deps: {
       console.error("[device-track] failed:", err);
     }
   }
+  // biome-ignore lint/complexity/noExcessiveCognitiveComplexity: auth middleware guard chain; kept linear intentionally
   return createAuthMiddleware(async (ctx) => {
     const auditCtx = requestContext(ctx.headers ?? new Headers());
     const returned = ctx.context.returned;
     const isFailure = returned instanceof APIError;
-    const sessionUser = (ctx.context.session?.user ?? null) as { id?: string; email?: string } | null;
+    const sessionUser = (ctx.context.session?.user ?? null) as {
+      id?: string;
+      email?: string;
+    } | null;
     const body = (ctx.body ?? {}) as Record<string, unknown>;
 
     switch (ctx.path) {
@@ -100,7 +110,12 @@ export function createAuditHook(deps: {
       case "/two-factor/verify-totp": {
         const returnedUser = (returned as { user?: { id?: string } } | undefined)?.user;
         const userId = sessionUser?.id ?? returnedUser?.id ?? null;
-        await writeAuthEvent(db, isFailure ? AUTH_EVENT.mfaFail : AUTH_EVENT.mfaPass, userId, auditCtx);
+        await writeAuthEvent(
+          db,
+          isFailure ? AUTH_EVENT.mfaFail : AUTH_EVENT.mfaPass,
+          userId,
+          auditCtx,
+        );
         if (!isFailure) await trackNewDevice(userId, auditCtx);
         break;
       }

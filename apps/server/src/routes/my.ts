@@ -11,7 +11,7 @@
 import type { FastifyInstance } from "fastify";
 import { desc, eq } from "drizzle-orm";
 import { z } from "zod";
-import { authTwoFactor, employees, notificationSettings, w4Elections } from "@payroll/db";
+import { authTwoFactor, notificationSettings, w4Elections } from "@payroll/db";
 import { WORKFLOW_EVENTS } from "@payroll/notifications";
 import type { Db } from "../db.js";
 import type { AppConfig } from "../config.js";
@@ -137,30 +137,34 @@ export function registerMyRoutes(app: FastifyInstance, deps: Deps): void {
     };
   });
 
-  app.put("/api/my/notification-settings", { preHandler: guards.requireAuth }, async (req, reply) => {
-    const body = z
-      .object({
-        settings: z.array(z.object({ eventType: z.string(), enabled: z.boolean() })).max(50),
-      })
-      .safeParse(req.body);
-    if (!body.success) return reply.code(400).send({ error: "invalid_body" });
+  app.put(
+    "/api/my/notification-settings",
+    { preHandler: guards.requireAuth },
+    async (req, reply) => {
+      const body = z
+        .object({
+          settings: z.array(z.object({ eventType: z.string(), enabled: z.boolean() })).max(50),
+        })
+        .safeParse(req.body);
+      if (!body.success) return reply.code(400).send({ error: "invalid_body" });
 
-    const toggleable = new Set<string>(WORKFLOW_EVENTS);
-    for (const item of body.data.settings) {
-      // Security events are always on — not settable (spec notifications).
-      if (!toggleable.has(item.eventType)) {
-        return reply.code(400).send({ error: "not_toggleable", eventType: item.eventType });
+      const toggleable = new Set<string>(WORKFLOW_EVENTS);
+      for (const item of body.data.settings) {
+        // Security events are always on — not settable (spec notifications).
+        if (!toggleable.has(item.eventType)) {
+          return reply.code(400).send({ error: "not_toggleable", eventType: item.eventType });
+        }
       }
-    }
-    for (const item of body.data.settings) {
-      await db
-        .insert(notificationSettings)
-        .values({ userId: req.authUser!.id, eventType: item.eventType, enabled: item.enabled })
-        .onConflictDoUpdate({
-          target: [notificationSettings.userId, notificationSettings.eventType],
-          set: { enabled: item.enabled },
-        });
-    }
-    return { ok: true };
-  });
+      for (const item of body.data.settings) {
+        await db
+          .insert(notificationSettings)
+          .values({ userId: req.authUser!.id, eventType: item.eventType, enabled: item.enabled })
+          .onConflictDoUpdate({
+            target: [notificationSettings.userId, notificationSettings.eventType],
+            set: { enabled: item.enabled },
+          });
+      }
+      return { ok: true };
+    },
+  );
 }

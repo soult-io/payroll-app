@@ -10,7 +10,7 @@
  */
 
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
-import { and, eq, sql } from "drizzle-orm";
+import { and, eq } from "drizzle-orm";
 import {
   authUser,
   emailOutbox,
@@ -42,7 +42,13 @@ const CTX = { companyName: "Test Co", appUrl: "http://localhost" };
 class StubTransport implements MailTransport {
   messages: { from: string; to: string; subject: string; html: string; text: string }[] = [];
   failWith: string | null = null;
-  async sendMail(message: { from: string; to: string; subject: string; html: string; text: string }) {
+  async sendMail(message: {
+    from: string;
+    to: string;
+    subject: string;
+    html: string;
+    text: string;
+  }) {
     if (this.failWith) throw new Error(this.failWith);
     this.messages.push(message);
     return { messageId: `stub-${this.messages.length}` };
@@ -50,7 +56,11 @@ class StubTransport implements MailTransport {
 }
 
 async function resolveRecipientEmail(userId: string): Promise<string | null> {
-  const rows = await t.db.select({ email: authUser.email }).from(authUser).where(eq(authUser.id, userId)).limit(1);
+  const rows = await t.db
+    .select({ email: authUser.email })
+    .from(authUser)
+    .where(eq(authUser.id, userId))
+    .limit(1);
   return rows[0]?.email ?? null;
 }
 
@@ -124,7 +134,12 @@ describe("outbox drain", () => {
     transport.failWith = "SMTP connection refused";
     const id = await insertOutbox(userA.userId, EVENT_TYPE.payslipIssued, "drain-fail");
 
-    const first = await drainOutbox({ db: t.db, config: t.config, transport, resolveRecipientEmail });
+    const first = await drainOutbox({
+      db: t.db,
+      config: t.config,
+      transport,
+      resolveRecipientEmail,
+    });
     expect(first.failed).toBe(1);
     let row = await outboxRow(id);
     expect(row.status).toBe("pending"); // attempts 1 < 5: still retryable
@@ -133,7 +148,12 @@ describe("outbox drain", () => {
     expect(row.lastAttemptAt).not.toBeNull();
 
     // Exponential backoff: an immediate second drain skips the row.
-    const second = await drainOutbox({ db: t.db, config: t.config, transport, resolveRecipientEmail });
+    const second = await drainOutbox({
+      db: t.db,
+      config: t.config,
+      transport,
+      resolveRecipientEmail,
+    });
     expect(second.retriedLater).toBe(1);
     expect(second.failed).toBe(0);
     expect((await outboxRow(id)).attempts).toBe(1);
@@ -141,9 +161,17 @@ describe("outbox drain", () => {
     // Simulate the 5th attempt being due (attempts=4, last attempt long ago).
     await t.db
       .update(emailOutbox)
-      .set({ attempts: MAX_ATTEMPTS - 1, lastAttemptAt: new Date(Date.now() - 24 * 60 * 60 * 1000) })
+      .set({
+        attempts: MAX_ATTEMPTS - 1,
+        lastAttemptAt: new Date(Date.now() - 24 * 60 * 60 * 1000),
+      })
       .where(eq(emailOutbox.id, id));
-    const final = await drainOutbox({ db: t.db, config: t.config, transport, resolveRecipientEmail });
+    const final = await drainOutbox({
+      db: t.db,
+      config: t.config,
+      transport,
+      resolveRecipientEmail,
+    });
     expect(final.failed).toBe(1);
     row = await outboxRow(id);
     expect(row.status).toBe("failed");
@@ -163,7 +191,12 @@ describe("outbox drain", () => {
       });
 
     const id = await insertOutbox(userA.userId, EVENT_TYPE.payslipIssued, "drain-suppress");
-    const result = await drainOutbox({ db: t.db, config: t.config, transport, resolveRecipientEmail });
+    const result = await drainOutbox({
+      db: t.db,
+      config: t.config,
+      transport,
+      resolveRecipientEmail,
+    });
     expect(result.suppressed).toBe(1);
     expect((await outboxRow(id)).status).toBe("suppressed");
     expect(transport.messages).toHaveLength(0);
@@ -186,11 +219,24 @@ describe("outbox drain", () => {
     // Even a (hypothetical) disabled row must not stop a security email.
     await t.db
       .insert(notificationSettings)
-      .values({ userId: userA.userId, eventType: EVENT_TYPE.securityLoginNewDevice, enabled: false })
+      .values({
+        userId: userA.userId,
+        eventType: EVENT_TYPE.securityLoginNewDevice,
+        enabled: false,
+      })
       .onConflictDoNothing();
 
-    const id = await insertOutbox(userA.userId, EVENT_TYPE.securityLoginNewDevice, "drain-security");
-    const result = await drainOutbox({ db: t.db, config: t.config, transport, resolveRecipientEmail });
+    const id = await insertOutbox(
+      userA.userId,
+      EVENT_TYPE.securityLoginNewDevice,
+      "drain-security",
+    );
+    const result = await drainOutbox({
+      db: t.db,
+      config: t.config,
+      transport,
+      resolveRecipientEmail,
+    });
     expect(result.sent).toBe(1);
     expect((await outboxRow(id)).status).toBe("sent");
     expect(transport.messages).toHaveLength(1);
@@ -211,7 +257,10 @@ describe("outbox drain", () => {
 
 describe("template content rules", () => {
   it("payslip_issued states the period and never net pay", () => {
-    const rendered = payslipIssued(CTX, { periodLabel: "2025-06-01 → 2025-06-30", payDate: "2025-06-15" });
+    const rendered = payslipIssued(CTX, {
+      periodLabel: "2025-06-01 → 2025-06-30",
+      payDate: "2025-06-15",
+    });
     expect(rendered.text).toContain("2025-06-01");
     expect(rendered.text).toContain("2025-06-15");
     expect(rendered.html).not.toMatch(/net pay/i);
@@ -220,7 +269,10 @@ describe("template content rules", () => {
   });
 
   it("change_request_* emails never include amounts", () => {
-    const submitted = changeRequestSubmitted(CTX, { employeeName: "Jane Doe", requestType: "bank_details" });
+    const submitted = changeRequestSubmitted(CTX, {
+      employeeName: "Jane Doe",
+      requestType: "bank_details",
+    });
     const approved = changeRequestApproved(CTX, { requestType: "w4", effectiveFrom: "2025-08-01" });
     const denied = changeRequestDenied(CTX, { requestType: "address" });
     for (const r of [submitted, approved, denied]) {
@@ -253,7 +305,9 @@ describe("per-user settings", () => {
       .where(eq(notificationSettings.userId, userA.userId));
     // (The security-bypass drain test added a security_event row for this user
     // directly in the DB — assert on the workflow rows only.)
-    const workflow = rows.filter((r) => (WORKFLOW_EVENTS as readonly string[]).includes(r.eventType));
+    const workflow = rows.filter((r) =>
+      (WORKFLOW_EVENTS as readonly string[]).includes(r.eventType),
+    );
     expect(workflow.map((r) => r.eventType).sort()).toEqual([...WORKFLOW_EVENTS].sort());
     expect(workflow.every((r) => r.enabled)).toBe(true);
   });
@@ -282,7 +336,9 @@ describe("per-user settings", () => {
       headers: sessionHeader(cookieA),
     });
     const after = get2.json() as { settings: { eventType: string; enabled: boolean }[] };
-    expect(after.settings.find((s) => s.eventType === EVENT_TYPE.changeRequestApproved)?.enabled).toBe(false);
+    expect(
+      after.settings.find((s) => s.eventType === EVENT_TYPE.changeRequestApproved)?.enabled,
+    ).toBe(false);
 
     // Security events are not toggleable through the API.
     const reject = await t.app.inject({
@@ -297,12 +353,18 @@ describe("per-user settings", () => {
 
 describe("new-device detection", () => {
   it("first login from a fingerprint queues the security email; repeat does not", async () => {
-    const fresh = await inviteAndOnboard(t, { email: "notif-device@example.com", role: "employee" });
+    const fresh = await inviteAndOnboard(t, {
+      email: "notif-device@example.com",
+      role: "employee",
+    });
 
     await clearOutbox();
     await login(t, fresh.email, TEST_PASSWORD, { remoteAddress: "203.0.113.10" });
 
-    const devices = await t.db.select().from(userDevices).where(eq(userDevices.userId, fresh.userId));
+    const devices = await t.db
+      .select()
+      .from(userDevices)
+      .where(eq(userDevices.userId, fresh.userId));
     expect(devices).toHaveLength(1);
 
     const mails = await t.db
@@ -319,7 +381,10 @@ describe("new-device detection", () => {
 
     // Same fingerprint again → no new row, no new email.
     await login(t, fresh.email, TEST_PASSWORD, { remoteAddress: "203.0.113.10" });
-    const devices2 = await t.db.select().from(userDevices).where(eq(userDevices.userId, fresh.userId));
+    const devices2 = await t.db
+      .select()
+      .from(userDevices)
+      .where(eq(userDevices.userId, fresh.userId));
     expect(devices2).toHaveLength(1);
     const mails2 = await t.db
       .select()
@@ -382,7 +447,10 @@ describe("admin observability", () => {
       .select()
       .from(emailOutbox)
       .where(
-        and(eq(emailOutbox.userId, admin.userId), eq(emailOutbox.eventType, EVENT_TYPE.adminTestEmail)),
+        and(
+          eq(emailOutbox.userId, admin.userId),
+          eq(emailOutbox.eventType, EVENT_TYPE.adminTestEmail),
+        ),
       );
     expect(rows).toHaveLength(1);
     expect(rows[0]!.status).toBe("pending");

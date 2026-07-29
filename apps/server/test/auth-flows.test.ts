@@ -12,7 +12,6 @@ import {
   login,
   sessionHeader,
   tokenFromLink,
-  currentTotp,
   TEST_PASSWORD,
 } from "./flow-helpers.js";
 import { inviteUser } from "../src/auth/users.js";
@@ -41,7 +40,10 @@ describe("invite-only onboarding", () => {
     expect(user!.banReason).toBe("pending_enrollment");
     expect(user!.twoFactorEnabled).toBe(false);
 
-    const outbox = await t.db.select().from(emailOutbox).where(eq(emailOutbox.userId, invite.userId));
+    const outbox = await t.db
+      .select()
+      .from(emailOutbox)
+      .where(eq(emailOutbox.userId, invite.userId));
     expect(outbox).toHaveLength(1);
     // Spec 6 catalog name (step 4: invite email uses the security_invite template).
     expect(outbox[0]!.eventType).toBe("security_invite");
@@ -60,7 +62,10 @@ describe("invite-only onboarding", () => {
       payload: { email: "intruder@example.com", password: "whatever-password-1", name: "X" },
     });
     expect([403, 404]).toContain(res.statusCode);
-    const users = await t.db.select().from(authUser).where(eq(authUser.email, "intruder@example.com"));
+    const users = await t.db
+      .select()
+      .from(authUser)
+      .where(eq(authUser.email, "intruder@example.com"));
     expect(users).toHaveLength(0);
   });
 
@@ -105,11 +110,17 @@ describe("invite-only onboarding", () => {
       method: "POST",
       url: "/api/onboarding/verify-token",
       headers: ORIGIN,
-      payload: { token: tokenFromLink((await inviteUser(
-        { auth: t.auth, db: t.db, config: t.config },
-        { name: "x", email: "flow2@example.com", role: "employee" },
-        null,
-      )).setupLink) },
+      payload: {
+        token: tokenFromLink(
+          (
+            await inviteUser(
+              { auth: t.auth, db: t.db, config: t.config },
+              { name: "x", email: "flow2@example.com", role: "employee" },
+              null,
+            )
+          ).setupLink,
+        ),
+      },
     });
     expect(reuse.statusCode).toBe(200); // fresh token works
     const events = await t.db
@@ -185,7 +196,11 @@ describe("invite-only onboarding", () => {
     expect(wrong.statusCode).not.toBe(200);
 
     const { sessionCookie } = await login(t, email, TEST_PASSWORD);
-    const me = await t.app.inject({ method: "GET", url: "/api/me", headers: sessionHeader(sessionCookie) });
+    const me = await t.app.inject({
+      method: "GET",
+      url: "/api/me",
+      headers: sessionHeader(sessionCookie),
+    });
     expect(me.statusCode).toBe(200);
     expect(me.json().user.email).toBe(email);
     expect(me.json().user.twoFactorEnabled).toBe(true);
@@ -295,7 +310,10 @@ describe("CSRF + rate limiting", () => {
       null,
     );
     const token = tokenFromLink(invite.setupLink);
-    const [row] = await t.db.select().from(setupTokens).where(eq(setupTokens.userId, invite.userId));
+    const [row] = await t.db
+      .select()
+      .from(setupTokens)
+      .where(eq(setupTokens.userId, invite.userId));
     expect(row!.tokenHash).toMatch(/^[a-f0-9]{64}$/);
     expect(row!.tokenHash).not.toBe(token);
     expect(row!.expiresAt.getTime() - Date.now()).toBeLessThanOrEqual(24 * 60 * 60 * 1000 + 1000);

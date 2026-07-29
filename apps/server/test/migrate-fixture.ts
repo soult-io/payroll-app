@@ -200,6 +200,7 @@ export interface SourceFixture {
   close: () => Promise<void>;
 }
 
+// biome-ignore lint/complexity/noExcessiveCognitiveComplexity: test fixture builder; sequential DDL/seed script by nature
 export async function createSourceFixture(
   opts: { withRuns?: boolean; corrupt?: { year: number; month: number; category?: string } } = {},
 ): Promise<SourceFixture> {
@@ -215,10 +216,10 @@ export async function createSourceFixture(
   };
 
   // ---- reference data (the real seed values) ----
-  await pglite.query(
-    `INSERT INTO accounting.employees (full_name, entity) VALUES ($1, $2)`,
-    [LEGACY_EMPLOYEE.fullName, LEGACY_EMPLOYEE.entity],
-  );
+  await pglite.query(`INSERT INTO accounting.employees (full_name, entity) VALUES ($1, $2)`, [
+    LEGACY_EMPLOYEE.fullName,
+    LEGACY_EMPLOYEE.entity,
+  ]);
   for (const c of LEGACY_COMPENSATION) {
     await pglite.query(
       `INSERT INTO accounting.compensation (employee_id, monthly_salary, effective_from, effective_to)
@@ -272,7 +273,9 @@ export async function createSourceFixture(
   }
 
   // Rows in the NOT-migrated tables, so the skipped-report has something to say.
-  await pglite.query(`INSERT INTO accounting.time_off (date, type, note) VALUES ('2026-08-03', 'vacation', 'summer')`);
+  await pglite.query(
+    `INSERT INTO accounting.time_off (date, type, note) VALUES ('2026-08-03', 'vacation', 'summer')`,
+  );
   await pglite.query(
     `INSERT INTO accounting.compliance_filings (name, tax_year, filed_date) VALUES ('941 Q1', 2026, '2026-04-30')`,
   );
