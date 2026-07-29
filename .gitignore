@@ -30,5 +30,10 @@ pnpm-debug.log*
 coverage/
 .vitest/
 
+# E2E (hardening B) — Playwright artifacts + boot-fixture state
+e2e/.state/
+e2e/test-results/
+e2e/playwright-report/
+
 # Local data (dev postgres etc.)
 pgdata/

@@ -13,6 +13,7 @@
     "test": "pnpm -r run test",
     "typecheck": "pnpm -r run typecheck",
     "lint": "biome check",
+    "e2e": "pnpm -r run build && pnpm --filter @payroll/e2e e2e",
     "format": "biome format --write",
     "db:generate": "pnpm --filter @payroll/db run generate",
     "db:migrate": "pnpm --filter @payroll/db run migrate",
