@@ -11,7 +11,7 @@ name: payroll
 
 services:
   app:
-    image: ghcr.io/soult-io/payroll-app:sha-8c81fc102601f7aea952d445d79fa9ace19c1db3
+    image: ghcr.io/soult-io/payroll-app:sha-6daf5e16fb21c15a5f27b3d1e66e443b3344c7e5
     build:
       context: .
       dockerfile: Dockerfile
@@ -69,7 +69,7 @@ services:
       - session-secret
 
   app-migrate:
-    image: ghcr.io/soult-io/payroll-app:sha-8c81fc102601f7aea952d445d79fa9ace19c1db3
+    image: ghcr.io/soult-io/payroll-app:sha-6daf5e16fb21c15a5f27b3d1e66e443b3344c7e5
     build:
       context: .
       dockerfile: Dockerfile
