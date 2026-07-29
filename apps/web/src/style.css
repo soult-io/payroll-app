@@ -87,6 +87,18 @@ body {
   font-size: 0.8rem;
 }
 
+/* PrimeVue Password: fill the row like InputText so the toggle-mask (eye)
+   icon docks INSIDE the field's right edge. Without this the inner input
+   keeps its intrinsic width while the wrapper stretches, leaving the icon
+   floating outside the box. */
+.p-password {
+  width: 100%;
+}
+
+.p-password .p-password-input {
+  width: 100%;
+}
+
 .form-grid {
   display: grid;
   grid-template-columns: 1fr 1fr;
