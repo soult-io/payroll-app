@@ -117,10 +117,17 @@ export async function backfillLegacyYtd(
     m.set(e.category, round2((m.get(e.category) ?? 0) + Number(e.amount)));
   }
 
-  // Chronological walk: accumulate per-category; expected YTD through each run.
+  // Chronological walk: accumulate per-category, resetting each calendar year
+  // (YTD is a per-year figure); expected YTD through each run.
   const acc = new Map<string, number>();
+  let accYear: string | null = null;
   const expectedByRun = new Map<number, RunSnapshotYtd>();
   for (const run of runs) {
+    const year = run.periodStart.slice(0, 4);
+    if (year !== accYear) {
+      acc.clear();
+      accYear = year;
+    }
     const own = byRun.get(run.id) ?? new Map<string, number>();
     for (const cat of YTD_CATEGORIES) {
       acc.set(cat, round2((acc.get(cat) ?? 0) + (own.get(cat) ?? 0)));

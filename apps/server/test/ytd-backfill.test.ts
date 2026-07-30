@@ -126,13 +126,21 @@ afterEach(async () => {
 
 describe("backfillLegacyYtd", () => {
   it("accumulates YTD from stored entries — deviation run counts at issued amounts", async () => {
-    // 2026-03 is the legacy true-up month: stored federal 472.73 ≠ engine 238.33.
-    await insertRun({
+    // A 2025 run first: 2026 YTD must RESET at the calendar-year boundary
+    // (regression: the first backfill version accumulated across years).
+    const dec25Id = await insertRun({
+      month: "2025-12",
+      federal: 250.13,
+      net: 2982.12,
+      createdBy: LEGACY_CREATED_BY,
+    });
+    const janId = await insertRun({
       month: "2026-01",
       federal: 250.13,
       net: 2982.12,
       createdBy: LEGACY_CREATED_BY,
     });
+    // 2026-03 is the legacy true-up month: stored federal 472.73 ≠ engine 238.33.
     await insertRun({
       month: "2026-02",
       federal: 250.13,
@@ -147,7 +155,22 @@ describe("backfillLegacyYtd", () => {
     });
 
     const report = await backfillLegacyYtd(db);
-    expect(report).toEqual({ scanned: 3, backfilled: 3, alreadyCurrent: 0 });
+    expect(report).toEqual({ scanned: 4, backfilled: 4, alreadyCurrent: 0 });
+
+    const [dec25] = await db.select().from(payrollRuns).where(eq(payrollRuns.id, dec25Id));
+    expect((dec25!.runSnapshot as RunSnapshot).ytd?.gross).toBe(3500);
+
+    // Year boundary: January's YTD is January alone, NOT Dec + Jan.
+    const [jan] = await db.select().from(payrollRuns).where(eq(payrollRuns.id, janId));
+    expect((jan!.runSnapshot as RunSnapshot).ytd).toEqual({
+      gross: 3500,
+      federalWithholding: 250.13,
+      socialSecurity: 217,
+      medicare: 50.75,
+      stateWithholding: 0,
+      totalDeductions: 517.88,
+      netPay: 2982.12,
+    });
 
     const [march] = await db.select().from(payrollRuns).where(eq(payrollRuns.id, marchId));
     const snapshot = march!.runSnapshot as RunSnapshot;
@@ -164,8 +187,8 @@ describe("backfillLegacyYtd", () => {
     expect(march!.snapshotHash).toBe(snapshotHash(snapshot));
 
     const audit = await db.select().from(auditEvents);
-    expect(audit).toHaveLength(3);
-    expect(audit[2]).toMatchObject({
+    expect(audit).toHaveLength(4);
+    expect(audit[3]).toMatchObject({
       actorId: YTD_BACKFILL_ACTOR,
       action: "run.ytd_backfilled",
       entity: "payroll_run",
