@@ -23,6 +23,12 @@ export interface AppConfig {
   sessionSecret: string;
   /** AES-256-GCM key for field-level encryption (bank_details, tax_id, ein). */
   encryptionKey: string;
+  /**
+   * Read-only export API bearer token (from $SECRETS_DIR/export-token).
+   * Absent = export endpoint disabled (503). No dev fallback: an export
+   * credential is always an explicit deployment decision.
+   */
+  exportToken?: string | undefined;
   /** 'smtp' = real sending; 'log' = dev mode: log emails, mark sent (spec 6 dev flag). */
   emailMode: "smtp" | "log";
   db: {
@@ -87,6 +93,7 @@ export function loadConfig(overrides: Partial<AppConfig> = {}): AppConfig {
             throw new Error("encryption-key missing from SECRETS_DIR in production");
           })()
         : "dev-only-insecure-encryption-key-0123456789abcdef"),
+    exportToken: readSecret({ secretsDir }, "export-token"),
     db: {
       host: env("DB_HOST", "localhost"),
       port: Number(env("DB_PORT", "5432")),

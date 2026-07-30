@@ -1,0 +1,223 @@
+/**
+ * Read-only payroll export (D10 activation) — requested by the Accountant
+ * agent (2026-07-30) for downstream compliance: 941 federal deposits, the
+ * quarterly/annual tax package (941/940/W-2/W-3), compliance tracking.
+ *
+ * Contract (docs/export-api.md):
+ * - READ-ONLY. Never mutates payroll data; the D4 sole-writer rule is
+ *   untouched (this endpoint only SELECTs, plus its own audit_events row).
+ * - Auth: scoped service credential — `Authorization: Bearer <token>` against
+ *   $SECRETS_DIR/export-token. Never interactive TOTP, so unattended agents
+ *   can call it. No token configured → 503 (explicit deployment decision).
+ * - ISSUED runs only — draft/void figures are not authoritative.
+ * - Deterministic: figures come from stored payroll_entries (the validated,
+ *   frozen truth), ordered canonically; identical request → identical bytes.
+ * - No surplus PII: the payload carries company legal_name + ein (required
+ *   for filings) but never employee tax_id/bank_details/address.
+ * - Range filter keys on pay_date — deposits and filings are keyed on when
+ *   wages were PAID, not the period worked.
+ * - Every successful call writes an audit_events row (who/when/how many runs).
+ */
+
+import { createHash, timingSafeEqual } from "node:crypto";
+import type { FastifyInstance, FastifyReply, FastifyRequest } from "fastify";
+import { and, asc, eq, gte, inArray, lte } from "drizzle-orm";
+import { auditEvents, company, payrollEntries, payrollRuns } from "@payroll/db";
+import type { AppConfig } from "../config.js";
+import { decryptField } from "../crypto/field-encryption.js";
+import type { Db } from "../db.js";
+
+export const EXPORT_ACTOR = "service:export";
+
+/** Canonical category order — the 9 payroll_entries categories, fixed for byte-determinism. */
+const ENTRY_CATEGORIES = [
+  "gross_pay",
+  "federal_withholding",
+  "social_security",
+  "medicare",
+  "state_withholding",
+  "net_pay",
+  "employer_social_security",
+  "employer_medicare",
+  "employer_futa",
+] as const;
+
+const DATE_RE = /^\d{4}-\d{2}-\d{2}$/;
+
+interface ExportDeps {
+  db: Db;
+  config: AppConfig;
+}
+
+interface ExportQuery {
+  from?: string;
+  to?: string;
+  status?: string;
+  format?: string;
+}
+
+/** Constant-time token comparison (hashed first so length never leaks). */
+function tokenOk(provided: string, expected: string): boolean {
+  const a = createHash("sha256").update(provided).digest();
+  const b = createHash("sha256").update(expected).digest();
+  return timingSafeEqual(a, b);
+}
+
+function bearerToken(req: FastifyRequest): string {
+  const header = req.headers.authorization;
+  return header?.startsWith("Bearer ") ? header.slice(7).trim() : "";
+}
+
+function badRequest(reply: FastifyReply, error: string, message: string) {
+  return reply.code(400).send({ error, message });
+}
+
+export function registerExportRoutes(app: FastifyInstance, deps: ExportDeps): void {
+  const { db, config } = deps;
+
+  app.get("/api/export/payroll-runs", async (req, reply) => {
+    if (!config.exportToken) {
+      return reply.code(503).send({
+        error: "export_disabled",
+        message: "no export-token in SECRETS_DIR — the export endpoint is disabled",
+      });
+    }
+    const provided = bearerToken(req);
+    if (!provided || !tokenOk(provided, config.exportToken)) {
+      return reply.code(401).send({ error: "unauthorized" });
+    }
+
+    const q = req.query as ExportQuery;
+    const status = q.status ?? "issued";
+    if (status !== "issued") {
+      return badRequest(
+        reply,
+        "unsupported_status",
+        "only status=issued is exportable — draft/void figures are not authoritative",
+      );
+    }
+    const from = q.from;
+    const to = q.to;
+    if (from && !DATE_RE.test(from)) {
+      return badRequest(reply, "invalid_date", "from must be YYYY-MM-DD");
+    }
+    if (to && !DATE_RE.test(to)) {
+      return badRequest(reply, "invalid_date", "to must be YYYY-MM-DD");
+    }
+    if (from && to && from > to) {
+      return badRequest(reply, "invalid_range", "from must be on or before to");
+    }
+    const format = q.format ?? "json";
+    if (format !== "json" && format !== "csv") {
+      return badRequest(reply, "unsupported_format", "format must be json or csv");
+    }
+
+    const conditions = [eq(payrollRuns.status, "issued")];
+    if (from) conditions.push(gte(payrollRuns.payDate, from));
+    if (to) conditions.push(lte(payrollRuns.payDate, to));
+
+    const runs = await db
+      .select({
+        id: payrollRuns.id,
+        employeeId: payrollRuns.employeeId,
+        periodStart: payrollRuns.periodStart,
+        periodEnd: payrollRuns.periodEnd,
+        payDate: payrollRuns.payDate,
+        status: payrollRuns.status,
+        snapshotHash: payrollRuns.snapshotHash,
+      })
+      .from(payrollRuns)
+      .where(and(...conditions))
+      .orderBy(asc(payrollRuns.payDate), asc(payrollRuns.employeeId));
+
+    const entryRows =
+      runs.length === 0
+        ? []
+        : await db
+            .select({
+              runId: payrollEntries.runId,
+              category: payrollEntries.category,
+              amount: payrollEntries.amount,
+            })
+            .from(payrollEntries)
+            .where(
+              inArray(
+                payrollEntries.runId,
+                runs.map((r) => r.id),
+              ),
+            );
+    const byRun = new Map<number, Map<string, string>>();
+    for (const e of entryRows) {
+      let m = byRun.get(e.runId);
+      if (!m) {
+        m = new Map();
+        byRun.set(e.runId, m);
+      }
+      m.set(e.category, e.amount);
+    }
+
+    const runsPayload = runs.map((r) => ({
+      employeeId: r.employeeId,
+      periodStart: r.periodStart,
+      periodEnd: r.periodEnd,
+      payDate: r.payDate,
+      status: r.status,
+      snapshotHash: r.snapshotHash,
+      // Canonical order; null (not "0.00") if a category is missing — a
+      // corrupted run must be visible, never silently zeroed.
+      entries: Object.fromEntries(
+        ENTRY_CATEGORIES.map((c) => [c, byRun.get(r.id)?.get(c) ?? null]),
+      ),
+    }));
+
+    const [companyRow] = await db.select().from(company).limit(1);
+    const companyPayload = {
+      legalName: companyRow?.legalName ?? null,
+      // Filings need the full EIN (decrypted at read); absent until configured.
+      ein: companyRow?.ein ? decryptField(companyRow.ein, config.encryptionKey) : null,
+    };
+
+    // Auditable access trail — one row per successful call.
+    await db.insert(auditEvents).values({
+      actorId: EXPORT_ACTOR,
+      action: "export.payroll_runs",
+      entity: "export",
+      entityId: `${from ?? ""}..${to ?? ""}`,
+      after: { format, status, runCount: runsPayload.length },
+    });
+
+    if (format === "csv") {
+      const header = [
+        "employee_id",
+        "period_start",
+        "period_end",
+        "pay_date",
+        "status",
+        "snapshot_hash",
+        ...ENTRY_CATEGORIES,
+      ].join(",");
+      const lines = runsPayload.map((r) =>
+        [
+          r.employeeId,
+          r.periodStart,
+          r.periodEnd,
+          r.payDate,
+          r.status,
+          r.snapshotHash,
+          ...ENTRY_CATEGORIES.map((c) => r.entries[c] ?? ""),
+        ].join(","),
+      );
+      // Company header is JSON-only — CSV consumers key on one known company.
+      return reply
+        .header("content-type", "text/csv; charset=utf-8")
+        .send(`${[header, ...lines].join("\n")}\n`);
+    }
+
+    return {
+      company: companyPayload,
+      status,
+      range: { from: from ?? null, to: to ?? null },
+      runs: runsPayload,
+    };
+  });
+}
