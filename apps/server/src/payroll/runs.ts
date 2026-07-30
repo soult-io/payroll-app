@@ -23,6 +23,7 @@ import {
   type PayFrequency,
   type TaxConfig,
 } from "@payroll/engine";
+import { round2 } from "@payroll/engine/money";
 import {
   EVENT_TYPE,
   payrollDraftReady as tplPayrollDraftReady,
@@ -34,6 +35,7 @@ import { isUniqueViolation } from "../db.js";
 import type { AppConfig } from "../config.js";
 import {
   resolveCompensation,
+  resolvePriorYtdByCategory,
   resolvePriorYtdGross,
   resolveTaxConfig,
   resolveW4,
@@ -194,6 +196,7 @@ export async function generateDraft(
         );
       }
       const priorYtdGross = await resolvePriorYtdGross(tx, input.employeeId, period.periodStart);
+      const priorYtd = await resolvePriorYtdByCategory(tx, input.employeeId, period.periodStart);
 
       const engineConfig: TaxConfig = {
         year: tax.config.taxYear,
@@ -248,6 +251,23 @@ export async function generateDraft(
         result,
         engineVersion: ENGINE_VERSION,
         templateVersion: SNAPSHOT_TEMPLATE_VERSION,
+        ytd: {
+          gross: round2((priorYtd.get("gross_pay") ?? 0) + result.grossPay),
+          federalWithholding: round2(
+            (priorYtd.get("federal_withholding") ?? 0) + result.federalWithholding,
+          ),
+          socialSecurity: round2((priorYtd.get("social_security") ?? 0) + result.socialSecurity),
+          medicare: round2((priorYtd.get("medicare") ?? 0) + result.medicare),
+          stateWithholding: round2(
+            (priorYtd.get("state_withholding") ?? 0) + result.stateWithholding,
+          ),
+          totalDeductions: round2(
+            (priorYtd.get("gross_pay") ?? 0) -
+              (priorYtd.get("net_pay") ?? 0) +
+              result.totalDeductions,
+          ),
+          netPay: round2((priorYtd.get("net_pay") ?? 0) + result.netPay),
+        },
       };
 
       const inserted = await tx

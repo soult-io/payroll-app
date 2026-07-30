@@ -68,7 +68,17 @@ export interface RunSnapshot {
     [key: string]: number;
   };
   engineVersion: string;
-  templateVersion: number;
+  templateVersion: string;
+  /** YTD accumulations through this run (snapshot template ≥1.1.0). */
+  ytd?: {
+    gross: number;
+    federalWithholding: number;
+    socialSecurity: number;
+    medicare: number;
+    stateWithholding: number;
+    totalDeductions: number;
+    netPay: number;
+  };
 }
 
 export interface ChangeRequest {

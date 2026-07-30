@@ -287,8 +287,8 @@ function planAndValidate(
 
   const planned: PlannedRun[] = [];
   const failures: ValidationFailure[] = [];
-  /** employeeId → taxYear → accumulated stored gross (the historical truth). */
-  const priorYtd = new Map<string, number>();
+  /** employeeId:taxYear → entry category → accumulated STORED sums (the historical truth). */
+  const priorYtd = new Map<string, Map<string, number>>();
 
   for (const run of data.runs) {
     const mm = String(run.month).padStart(2, "0");
@@ -358,7 +358,8 @@ function planAndValidate(
 
     // Prior-YTD from previously validated STORED entries, in order.
     const ytdKey = `${run.employee_id}:${run.year}`;
-    const ytdSoFar = priorYtd.get(ytdKey) ?? 0;
+    const ytdSoFarByCat = priorYtd.get(ytdKey) ?? new Map<string, number>();
+    const ytdSoFar = ytdSoFarByCat.get("gross_pay") ?? 0;
 
     // Recompute through the vendored engine (the same math that produced the
     // legacy rows; the engine is vendored verbatim from mcp-accounting).
@@ -409,9 +410,15 @@ function planAndValidate(
         });
       }
     }
-    // Accumulate YTD from stored gross regardless — the halt report then
+    // Accumulate YTD from stored amounts regardless — the halt report then
     // covers ALL divergent runs, not just the first.
-    priorYtd.set(ytdKey, round2(ytdSoFar + Number(stored.get("gross_pay"))));
+    for (const [category] of ENTRY_FIELDS) {
+      ytdSoFarByCat.set(
+        category,
+        round2((ytdSoFarByCat.get(category) ?? 0) + Number(stored.get(category))),
+      );
+    }
+    priorYtd.set(ytdKey, ytdSoFarByCat);
 
     const snapshot: RunSnapshot = {
       inputs: {
@@ -437,6 +444,20 @@ function planAndValidate(
       result,
       engineVersion: LEGACY_ENGINE_VERSION,
       templateVersion: SNAPSHOT_TEMPLATE_VERSION,
+      // YTD through this run, from STORED (validated) amounts — includes
+      // owner-approved deviation runs (e.g. 2026-03 true-up) at their issued
+      // values, which is exactly what an employee's YTD must reflect.
+      ytd: {
+        gross: ytdSoFarByCat.get("gross_pay") ?? 0,
+        federalWithholding: ytdSoFarByCat.get("federal_withholding") ?? 0,
+        socialSecurity: ytdSoFarByCat.get("social_security") ?? 0,
+        medicare: ytdSoFarByCat.get("medicare") ?? 0,
+        stateWithholding: ytdSoFarByCat.get("state_withholding") ?? 0,
+        totalDeductions: round2(
+          (ytdSoFarByCat.get("gross_pay") ?? 0) - (ytdSoFarByCat.get("net_pay") ?? 0),
+        ),
+        netPay: ytdSoFarByCat.get("net_pay") ?? 0,
+      },
       ...(deviations.length > 0 ? { legacyDeviations: deviations } : {}),
       ...(cfgYear !== run.year
         ? {

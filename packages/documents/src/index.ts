@@ -6,6 +6,11 @@
  * results, and display fields copied in at issuance. Live config is never
  * consulted. Output is an in-memory Buffer; nothing is stored.
  *
+ * Employee-facing by design: employer-side costs (employer FICA/FUTA) are
+ * intentionally NOT shown — they are not relevant to the employee (owner
+ * decision 2026-07-30). They remain in the snapshot/DB for admin views.
+ * The YTD block (template ≥1.1.0) shows gross, total withholdings, and net.
+ *
  * No company logo: the original renderer fetched logo-black.png from
  * Nextcloud at runtime; no logo asset exists in the stack-finance repo, so
  * the payslip renders the company name as text (spec allows proceeding
@@ -37,6 +42,16 @@ export interface PayslipSnapshot {
   result: PayrollResult;
   engineVersion: string;
   templateVersion: string;
+  /** YTD accumulations through this run (template ≥1.1.0); pre-1.1.0 snapshots render gross-only. */
+  ytd?: {
+    gross: number;
+    federalWithholding: number;
+    socialSecurity: number;
+    medicare: number;
+    stateWithholding: number;
+    totalDeductions: number;
+    netPay: number;
+  };
 }
 
 // biome-ignore lint/suspicious/noExplicitAny: pdfmake content types are not installed; runtime accepts these shapes
@@ -223,68 +238,35 @@ function buildPayslipDoc(snapshot: PayslipSnapshot): DocDefinition {
       margin: [0, 0, 0, 20],
     },
 
-    // Employer costs (informational)
-    {
-      text: "Employer Costs (not deducted from pay)",
-      bold: true,
-      fontSize: 11,
-      margin: [0, 0, 0, 5],
-    },
+    // YTD — employee-side totals through this run (template ≥1.1.0).
+    // Pre-1.1.0 snapshots (never shipped) fall back to gross-only.
     {
       table: {
         widths: ["*", "auto"],
-        body: [
-          [
-            { text: "Social Security (employer)", fontSize: 9 },
-            { text: usd(result.employerSocialSecurity), fontSize: 9, alignment: "right" },
-          ],
-          [
-            { text: "Medicare (employer)", fontSize: 9 },
-            { text: usd(result.employerMedicare), fontSize: 9, alignment: "right" },
-          ],
-          [
-            { text: "Federal Unemployment (FUTA)", fontSize: 9 },
-            { text: usd(result.employerFUTA), fontSize: 9, alignment: "right" },
-          ],
-          [
-            { text: "Total Employer Cost", fontSize: 9, bold: true },
-            { text: usd(result.totalEmployerCost), fontSize: 9, alignment: "right", bold: true },
-          ],
-        ],
-      },
-      layout: {
-        hLineWidth: (i: number, node: LayoutNode) =>
-          i === 0 || i === node.table.body.length ? 1 : 0,
-        vLineWidth: () => 0,
-        hLineColor: () => GRAY_LINE,
-        paddingTop: () => 4,
-        paddingBottom: () => 4,
-      },
-      margin: [0, 0, 0, 15],
-    },
-
-    // YTD
-    {
-      table: {
-        widths: ["*", "auto"],
-        body: [
-          [
-            {
-              text: "Year-to-Date Gross",
-              fontSize: 10,
-              bold: true,
-              fillColor: LIGHT_BG,
-              margin: [4, 4, 4, 4],
-            },
-            {
-              text: usd(result.ytdGross),
-              fontSize: 10,
-              alignment: "right",
-              fillColor: LIGHT_BG,
-              margin: [4, 4, 4, 4],
-            },
-          ],
-        ],
+        body: (
+          (snapshot.ytd
+            ? [
+                ["Year-to-Date Gross", usd(snapshot.ytd.gross)],
+                ["Year-to-Date Withholdings", `-${usd(snapshot.ytd.totalDeductions)}`],
+                ["Year-to-Date Net Pay", usd(snapshot.ytd.netPay)],
+              ]
+            : [["Year-to-Date Gross", usd(result.ytdGross)]]) as [string, string][]
+        ).map(([label, value]) => [
+          {
+            text: label,
+            fontSize: 10,
+            bold: true,
+            fillColor: LIGHT_BG,
+            margin: [4, 4, 4, 4],
+          },
+          {
+            text: value,
+            fontSize: 10,
+            alignment: "right",
+            fillColor: LIGHT_BG,
+            margin: [4, 4, 4, 4],
+          },
+        ]),
       },
       layout: { hLineWidth: () => 0, vLineWidth: () => 0 },
     },

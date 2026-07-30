@@ -271,6 +271,43 @@ describe("legacy migration", () => {
     expect(entries.get("gross_pay")).toBe("3500.00");
   });
 
+  it("snapshot.ytd (template 1.1.0) accumulates from STORED amounts, deviation months included", async () => {
+    await runMigration({ dryRun: false });
+    const runs = await runsByPeriod();
+
+    // First month of a year: YTD == the run itself.
+    const jan25 = runs.get("2025-01")!.runSnapshot as RunSnapshot;
+    expect(jan25.templateVersion).toBe("1.1.0");
+    expect(jan25.ytd).toEqual({
+      gross: 3500,
+      federalWithholding: 250.13,
+      socialSecurity: 217,
+      medicare: 50.75,
+      stateWithholding: 0,
+      totalDeductions: 517.88,
+      netPay: 2982.12,
+    });
+
+    // Accumulation across months.
+    const feb25 = runs.get("2025-02")!.runSnapshot as RunSnapshot;
+    expect(feb25.ytd?.gross).toBe(7000);
+    expect(feb25.ytd?.netPay).toBe(5964.24);
+
+    // 2026-03 deviation run: YTD federal uses the ISSUED 472.73, not the
+    // recomputed 238.33 — stored is the truth an employee's YTD must reflect.
+    const mar26 = runs.get("2026-03")!.runSnapshot as RunSnapshot;
+    expect(mar26.ytd?.gross).toBe(10500);
+    expect(mar26.ytd?.federalWithholding).toBe(972.99); // 250.13 × 2 + 472.73
+    expect(mar26.ytd?.netPay).toBe(8723.76);
+    expect(mar26.ytd?.totalDeductions).toBe(1776.24);
+
+    // W-4-exempt April: federal YTD flat, gross/net keep accumulating ($3,750 raise).
+    const apr26 = runs.get("2026-04")!.runSnapshot as RunSnapshot;
+    expect(apr26.ytd?.gross).toBe(14250);
+    expect(apr26.ytd?.federalWithholding).toBe(972.99);
+    expect(apr26.ytd?.netPay).toBe(12186.88);
+  });
+
   it("owner-approved legacy deviations: Q1-2026 reconstructs with the 2025 tables + the 941 true-up", async () => {
     await runMigration({ dryRun: false });
     const runs = await runsByPeriod();

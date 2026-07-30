@@ -1,7 +1,9 @@
 <script setup lang="ts">
 /**
- * Payslip detail (frontend spec): earnings/deductions/employer-cost
- * breakdown from the frozen snapshot + Download PDF button.
+ * Payslip detail (frontend spec): earnings/deductions breakdown and the
+ * year-to-date block, all from the frozen snapshot + Download PDF button.
+ * Employer-side costs are deliberately not shown to the employee (owner
+ * decision 2026-07-30) — they remain visible in the admin run view.
  */
 import { onMounted, ref } from "vue";
 import { useRoute } from "vue-router";
@@ -75,18 +77,18 @@ onMounted(async () => {
         </dl>
       </section>
 
-      <section class="card">
-        <h3>Employer contributions</h3>
+      <section v-if="payslip.snapshot.ytd" class="card">
+        <h3>Year to date</h3>
         <dl class="kv">
-          <dt>Social Security</dt>
-          <dd>{{ money(payslip.snapshot.result.employerSocialSecurity) }}</dd>
-          <dt>Medicare</dt>
-          <dd>{{ money(payslip.snapshot.result.employerMedicare) }}</dd>
-          <dt>FUTA</dt>
-          <dd>{{ money(payslip.snapshot.result.employerFUTA) }}</dd>
+          <dt>YTD gross</dt>
+          <dd>{{ money(payslip.snapshot.ytd.gross) }}</dd>
+          <dt>YTD withholdings</dt>
+          <dd>−{{ money(payslip.snapshot.ytd.totalDeductions) }}</dd>
+          <dt><strong>YTD net pay</strong></dt>
+          <dd><strong>{{ money(payslip.snapshot.ytd.netPay) }}</strong></dd>
         </dl>
         <p class="muted small" style="margin-top: 1rem">
-          Employer contributions are paid by the company on top of your gross pay.
+          Totals include this payslip and all earlier payslips this calendar year.
         </p>
       </section>
 

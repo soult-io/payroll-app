@@ -8,7 +8,23 @@
 import { createHash } from "node:crypto";
 import type { PayrollResult } from "@payroll/engine";
 
-export const SNAPSHOT_TEMPLATE_VERSION = "1.0.0";
+export const SNAPSHOT_TEMPLATE_VERSION = "1.1.0";
+
+/**
+ * Year-to-date accumulations THROUGH this run (inclusive), employee-side.
+ * Frozen at issuance so the payslip's YTD block renders from the snapshot
+ * alone. Added in template 1.1.0 — optional so pre-1.1.0 snapshots (the
+ * initial legacy import) still typecheck; the backfill CLI patches them.
+ */
+export interface RunSnapshotYtd {
+  gross: number;
+  federalWithholding: number;
+  socialSecurity: number;
+  medicare: number;
+  stateWithholding: number;
+  totalDeductions: number;
+  netPay: number;
+}
 
 export interface SnapshotW4 {
   filingStatus: "single" | "married_joint" | "married_separate" | "head_of_household";
@@ -65,6 +81,8 @@ export interface RunSnapshot {
   result: PayrollResult;
   engineVersion: string;
   templateVersion: string;
+  /** YTD accumulations through this run (template ≥1.1.0). */
+  ytd?: RunSnapshotYtd;
   /**
    * Migration-only (legacy import): categories where the ISSUED amount
    * deliberately differs from the recomputed engine result, with the reason.

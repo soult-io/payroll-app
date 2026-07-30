@@ -157,6 +157,36 @@ export async function resolvePriorYtdGross(
   return Number(rows[0]?.total ?? 0);
 }
 
+/**
+ * Prior-YTD sums per entry category (issued runs, same calendar year, before
+ * period_start) — the basis for the snapshot's frozen YTD block (template
+ * 1.1.0). Keys are payroll_entries categories.
+ */
+export async function resolvePriorYtdByCategory(
+  db: DbLike,
+  employeeId: number,
+  periodStart: string,
+): Promise<Map<string, number>> {
+  const year = periodStart.slice(0, 4);
+  const rows = await db
+    .select({
+      category: payrollEntries.category,
+      total: sql<string>`coalesce(sum(${payrollEntries.amount}), 0)`,
+    })
+    .from(payrollEntries)
+    .innerJoin(payrollRuns, eq(payrollEntries.runId, payrollRuns.id))
+    .where(
+      and(
+        eq(payrollRuns.employeeId, employeeId),
+        eq(payrollRuns.status, "issued"),
+        gte(payrollRuns.periodStart, `${year}-01-01`),
+        lt(payrollRuns.periodStart, periodStart),
+      ),
+    )
+    .groupBy(payrollEntries.category);
+  return new Map(rows.map((r) => [r.category, Number(r.total)]));
+}
+
 export function toSnapshotW4(row: W4Row): SnapshotW4 {
   return {
     filingStatus: row.filingStatus as SnapshotW4["filingStatus"],

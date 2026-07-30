@@ -22,6 +22,7 @@ import {
 import { createTestApp, type TestContext } from "./helpers.js";
 import { inviteAndOnboard, login, sessionHeader, TEST_PASSWORD } from "./flow-helpers.js";
 import { snapshotHash, type RunSnapshot } from "../src/payroll/snapshot.js";
+import { round2 } from "@payroll/engine/money";
 
 let t: TestContext;
 let adminCookie: string;
@@ -153,6 +154,20 @@ describe("config resolution + generation", () => {
     const febSnapshot = feb.runSnapshot as RunSnapshot;
     expect(febSnapshot.inputs.priorYtdGross).toBe(3500);
     expect(febSnapshot.result.ytdGross).toBe(7000);
+
+    // Template ≥1.1.0: the frozen YTD block accumulates through this run —
+    // Jan's issued amounts + Feb's own.
+    const janResult = (jan.runSnapshot as RunSnapshot).result;
+    const febYtd = febSnapshot.ytd;
+    expect(febYtd).toBeDefined();
+    expect(febYtd!.gross).toBe(7000);
+    expect(febYtd!.netPay).toBe(round2(janResult.netPay + febSnapshot.result.netPay));
+    expect(febYtd!.totalDeductions).toBe(round2(7000 - febYtd!.netPay));
+    expect(febYtd!.federalWithholding).toBe(
+      round2(janResult.federalWithholding + febSnapshot.result.federalWithholding),
+    );
+    // The Feb DRAFT generated before Jan was issued chains nothing.
+    expect((febDraft.runSnapshot as RunSnapshot).ytd!.gross).toBe(febSnapshot.result.grossPay);
   });
 
   it("is idempotent: double-generate yields exactly one run", async () => {
