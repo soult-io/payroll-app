@@ -251,10 +251,7 @@ describe("export API payload", () => {
   });
 
   it("every successful call is audited (actor, action, run count)", async () => {
-    const rows = await t.db
-      .select()
-      .from(auditEvents)
-      .where(eq(auditEvents.actorId, EXPORT_ACTOR));
+    const rows = await t.db.select().from(auditEvents).where(eq(auditEvents.actorId, EXPORT_ACTOR));
     expect(rows.length).toBeGreaterThanOrEqual(4); // the calls above
     const csvCall = rows.find((r) => (r.after as { format: string }).format === "csv");
     expect(csvCall).toMatchObject({ action: "export.payroll_runs", entity: "export" });

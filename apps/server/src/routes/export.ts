@@ -49,11 +49,20 @@ interface ExportDeps {
   config: AppConfig;
 }
 
-interface ExportQuery {
-  from?: string;
-  to?: string;
-  status?: string;
-  format?: string;
+interface ExportParams {
+  from?: string | undefined;
+  to?: string | undefined;
+  format: "json" | "csv";
+}
+
+interface RunPayload {
+  employeeId: number;
+  periodStart: string;
+  periodEnd: string;
+  payDate: string;
+  status: string;
+  snapshotHash: string | null;
+  entries: Record<string, string | null>;
 }
 
 /** Constant-time token comparison (hashed first so length never leaks). */
@@ -63,13 +72,125 @@ function tokenOk(provided: string, expected: string): boolean {
   return timingSafeEqual(a, b);
 }
 
-function bearerToken(req: FastifyRequest): string {
-  const header = req.headers.authorization;
-  return header?.startsWith("Bearer ") ? header.slice(7).trim() : "";
-}
-
 function badRequest(reply: FastifyReply, error: string, message: string) {
   return reply.code(400).send({ error, message });
+}
+
+/**
+ * Validate the query string. Returns null after sending the error reply —
+ * callers just `if (!params) return;`.
+ */
+function parseParams(req: FastifyRequest, reply: FastifyReply): ExportParams | null {
+  const q = req.query as { from?: string; to?: string; status?: string; format?: string };
+  if ((q.status ?? "issued") !== "issued") {
+    badRequest(
+      reply,
+      "unsupported_status",
+      "only status=issued is exportable — draft/void figures are not authoritative",
+    );
+    return null;
+  }
+  if (q.from && !DATE_RE.test(q.from)) {
+    badRequest(reply, "invalid_date", "from must be YYYY-MM-DD");
+    return null;
+  }
+  if (q.to && !DATE_RE.test(q.to)) {
+    badRequest(reply, "invalid_date", "to must be YYYY-MM-DD");
+    return null;
+  }
+  if (q.from && q.to && q.from > q.to) {
+    badRequest(reply, "invalid_range", "from must be on or before to");
+    return null;
+  }
+  const format = q.format ?? "json";
+  if (format !== "json" && format !== "csv") {
+    badRequest(reply, "unsupported_format", "format must be json or csv");
+    return null;
+  }
+  return { from: q.from, to: q.to, format };
+}
+
+/** Issued runs in range (pay_date-keyed) with their stored entries, canonical order. */
+async function fetchRuns(db: Db, params: ExportParams): Promise<RunPayload[]> {
+  const conditions = [eq(payrollRuns.status, "issued")];
+  if (params.from) conditions.push(gte(payrollRuns.payDate, params.from));
+  if (params.to) conditions.push(lte(payrollRuns.payDate, params.to));
+
+  const runs = await db
+    .select({
+      id: payrollRuns.id,
+      employeeId: payrollRuns.employeeId,
+      periodStart: payrollRuns.periodStart,
+      periodEnd: payrollRuns.periodEnd,
+      payDate: payrollRuns.payDate,
+      status: payrollRuns.status,
+      snapshotHash: payrollRuns.snapshotHash,
+    })
+    .from(payrollRuns)
+    .where(and(...conditions))
+    .orderBy(asc(payrollRuns.payDate), asc(payrollRuns.employeeId));
+
+  const entryRows =
+    runs.length === 0
+      ? []
+      : await db
+          .select({
+            runId: payrollEntries.runId,
+            category: payrollEntries.category,
+            amount: payrollEntries.amount,
+          })
+          .from(payrollEntries)
+          .where(
+            inArray(
+              payrollEntries.runId,
+              runs.map((r) => r.id),
+            ),
+          );
+  const byRun = new Map<number, Map<string, string>>();
+  for (const e of entryRows) {
+    let m = byRun.get(e.runId);
+    if (!m) {
+      m = new Map();
+      byRun.set(e.runId, m);
+    }
+    m.set(e.category, e.amount);
+  }
+
+  return runs.map((r) => ({
+    employeeId: r.employeeId,
+    periodStart: r.periodStart,
+    periodEnd: r.periodEnd,
+    payDate: r.payDate,
+    status: r.status,
+    snapshotHash: r.snapshotHash,
+    // Canonical order; null (not "0.00") if a category is missing — a
+    // corrupted run must be visible, never silently zeroed.
+    entries: Object.fromEntries(ENTRY_CATEGORIES.map((c) => [c, byRun.get(r.id)?.get(c) ?? null])),
+  }));
+}
+
+function toCsv(runs: RunPayload[]): string {
+  const header = [
+    "employee_id",
+    "period_start",
+    "period_end",
+    "pay_date",
+    "status",
+    "snapshot_hash",
+    ...ENTRY_CATEGORIES,
+  ].join(",");
+  const lines = runs.map((r) =>
+    [
+      r.employeeId,
+      r.periodStart,
+      r.periodEnd,
+      r.payDate,
+      r.status,
+      r.snapshotHash,
+      ...ENTRY_CATEGORIES.map((c) => r.entries[c] ?? ""),
+    ].join(","),
+  );
+  return `${[header, ...lines].join("\n")}\n`;
 }
 
 export function registerExportRoutes(app: FastifyInstance, deps: ExportDeps): void {
@@ -82,93 +203,16 @@ export function registerExportRoutes(app: FastifyInstance, deps: ExportDeps): vo
         message: "no export-token in SECRETS_DIR — the export endpoint is disabled",
       });
     }
-    const provided = bearerToken(req);
+    const header = req.headers.authorization;
+    const provided = header?.startsWith("Bearer ") ? header.slice(7).trim() : "";
     if (!provided || !tokenOk(provided, config.exportToken)) {
       return reply.code(401).send({ error: "unauthorized" });
     }
 
-    const q = req.query as ExportQuery;
-    const status = q.status ?? "issued";
-    if (status !== "issued") {
-      return badRequest(
-        reply,
-        "unsupported_status",
-        "only status=issued is exportable — draft/void figures are not authoritative",
-      );
-    }
-    const from = q.from;
-    const to = q.to;
-    if (from && !DATE_RE.test(from)) {
-      return badRequest(reply, "invalid_date", "from must be YYYY-MM-DD");
-    }
-    if (to && !DATE_RE.test(to)) {
-      return badRequest(reply, "invalid_date", "to must be YYYY-MM-DD");
-    }
-    if (from && to && from > to) {
-      return badRequest(reply, "invalid_range", "from must be on or before to");
-    }
-    const format = q.format ?? "json";
-    if (format !== "json" && format !== "csv") {
-      return badRequest(reply, "unsupported_format", "format must be json or csv");
-    }
+    const params = parseParams(req, reply);
+    if (!params) return;
 
-    const conditions = [eq(payrollRuns.status, "issued")];
-    if (from) conditions.push(gte(payrollRuns.payDate, from));
-    if (to) conditions.push(lte(payrollRuns.payDate, to));
-
-    const runs = await db
-      .select({
-        id: payrollRuns.id,
-        employeeId: payrollRuns.employeeId,
-        periodStart: payrollRuns.periodStart,
-        periodEnd: payrollRuns.periodEnd,
-        payDate: payrollRuns.payDate,
-        status: payrollRuns.status,
-        snapshotHash: payrollRuns.snapshotHash,
-      })
-      .from(payrollRuns)
-      .where(and(...conditions))
-      .orderBy(asc(payrollRuns.payDate), asc(payrollRuns.employeeId));
-
-    const entryRows =
-      runs.length === 0
-        ? []
-        : await db
-            .select({
-              runId: payrollEntries.runId,
-              category: payrollEntries.category,
-              amount: payrollEntries.amount,
-            })
-            .from(payrollEntries)
-            .where(
-              inArray(
-                payrollEntries.runId,
-                runs.map((r) => r.id),
-              ),
-            );
-    const byRun = new Map<number, Map<string, string>>();
-    for (const e of entryRows) {
-      let m = byRun.get(e.runId);
-      if (!m) {
-        m = new Map();
-        byRun.set(e.runId, m);
-      }
-      m.set(e.category, e.amount);
-    }
-
-    const runsPayload = runs.map((r) => ({
-      employeeId: r.employeeId,
-      periodStart: r.periodStart,
-      periodEnd: r.periodEnd,
-      payDate: r.payDate,
-      status: r.status,
-      snapshotHash: r.snapshotHash,
-      // Canonical order; null (not "0.00") if a category is missing — a
-      // corrupted run must be visible, never silently zeroed.
-      entries: Object.fromEntries(
-        ENTRY_CATEGORIES.map((c) => [c, byRun.get(r.id)?.get(c) ?? null]),
-      ),
-    }));
+    const runsPayload = await fetchRuns(db, params);
 
     const [companyRow] = await db.select().from(company).limit(1);
     const companyPayload = {
@@ -182,41 +226,19 @@ export function registerExportRoutes(app: FastifyInstance, deps: ExportDeps): vo
       actorId: EXPORT_ACTOR,
       action: "export.payroll_runs",
       entity: "export",
-      entityId: `${from ?? ""}..${to ?? ""}`,
-      after: { format, status, runCount: runsPayload.length },
+      entityId: `${params.from ?? ""}..${params.to ?? ""}`,
+      after: { format: params.format, status: "issued", runCount: runsPayload.length },
     });
 
-    if (format === "csv") {
-      const header = [
-        "employee_id",
-        "period_start",
-        "period_end",
-        "pay_date",
-        "status",
-        "snapshot_hash",
-        ...ENTRY_CATEGORIES,
-      ].join(",");
-      const lines = runsPayload.map((r) =>
-        [
-          r.employeeId,
-          r.periodStart,
-          r.periodEnd,
-          r.payDate,
-          r.status,
-          r.snapshotHash,
-          ...ENTRY_CATEGORIES.map((c) => r.entries[c] ?? ""),
-        ].join(","),
-      );
+    if (params.format === "csv") {
       // Company header is JSON-only — CSV consumers key on one known company.
-      return reply
-        .header("content-type", "text/csv; charset=utf-8")
-        .send(`${[header, ...lines].join("\n")}\n`);
+      return reply.header("content-type", "text/csv; charset=utf-8").send(toCsv(runsPayload));
     }
 
     return {
       company: companyPayload,
-      status,
-      range: { from: from ?? null, to: to ?? null },
+      status: "issued",
+      range: { from: params.from ?? null, to: params.to ?? null },
       runs: runsPayload,
     };
   });
