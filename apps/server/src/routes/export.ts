@@ -193,21 +193,36 @@ function toCsv(runs: RunPayload[]): string {
   return `${[header, ...lines].join("\n")}\n`;
 }
 
+/**
+ * Bearer-token gate. Returns true when authorized; otherwise the error reply
+ * is already sent (503 when unconfigured, 401 on missing/wrong token).
+ */
+async function authorize(
+  req: FastifyRequest,
+  reply: FastifyReply,
+  config: AppConfig,
+): Promise<boolean> {
+  if (!config.exportToken) {
+    await reply.code(503).send({
+      error: "export_disabled",
+      message: "no export-token in SECRETS_DIR — the export endpoint is disabled",
+    });
+    return false;
+  }
+  const header = req.headers.authorization;
+  const provided = header?.startsWith("Bearer ") ? header.slice(7).trim() : "";
+  if (!provided || !tokenOk(provided, config.exportToken)) {
+    await reply.code(401).send({ error: "unauthorized" });
+    return false;
+  }
+  return true;
+}
+
 export function registerExportRoutes(app: FastifyInstance, deps: ExportDeps): void {
   const { db, config } = deps;
 
   app.get("/api/export/payroll-runs", async (req, reply) => {
-    if (!config.exportToken) {
-      return reply.code(503).send({
-        error: "export_disabled",
-        message: "no export-token in SECRETS_DIR — the export endpoint is disabled",
-      });
-    }
-    const header = req.headers.authorization;
-    const provided = header?.startsWith("Bearer ") ? header.slice(7).trim() : "";
-    if (!provided || !tokenOk(provided, config.exportToken)) {
-      return reply.code(401).send({ error: "unauthorized" });
-    }
+    if (!(await authorize(req, reply, config))) return;
 
     const params = parseParams(req, reply);
     if (!params) return;
