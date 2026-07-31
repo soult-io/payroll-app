@@ -94,8 +94,16 @@ const eff = computed(() =>
         <dl class="kv">
           <dt>YTD gross</dt>
           <dd>{{ money(payslip.snapshot.ytd.gross) }}</dd>
-          <dt>YTD withholdings</dt>
-          <dd>−{{ money(payslip.snapshot.ytd.totalDeductions) }}</dd>
+          <dt>YTD federal tax</dt>
+          <dd>−{{ money(payslip.snapshot.ytd.federalWithholding) }}</dd>
+          <dt>YTD Social Security</dt>
+          <dd>−{{ money(payslip.snapshot.ytd.socialSecurity) }}</dd>
+          <dt>YTD Medicare</dt>
+          <dd>−{{ money(payslip.snapshot.ytd.medicare) }}</dd>
+          <template v-if="payslip.snapshot.ytd.stateWithholding > 0">
+            <dt>YTD state tax</dt>
+            <dd>−{{ money(payslip.snapshot.ytd.stateWithholding) }}</dd>
+          </template>
           <dt><strong>YTD net pay</strong></dt>
           <dd><strong>{{ money(payslip.snapshot.ytd.netPay) }}</strong></dd>
         </dl>

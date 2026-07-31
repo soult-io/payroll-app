@@ -358,6 +358,7 @@ function buildPayslipDoc(snapshot: PayslipSnapshot): DocDefinition {
     },
 
     // YTD — employee-side totals through this run (template ≥1.1.0).
+    // Withholdings itemized per tax (owner request 2026-08-01), not bundled.
     // Pre-1.1.0 snapshots (never shipped) fall back to gross-only.
     {
       table: {
@@ -366,7 +367,12 @@ function buildPayslipDoc(snapshot: PayslipSnapshot): DocDefinition {
           (snapshot.ytd
             ? [
                 ["Year-to-Date Gross", usd(snapshot.ytd.gross)],
-                ["Year-to-Date Withholdings", `-${usd(snapshot.ytd.totalDeductions)}`],
+                ["Year-to-Date Federal Tax", `-${usd(snapshot.ytd.federalWithholding)}`],
+                ["Year-to-Date Social Security", `-${usd(snapshot.ytd.socialSecurity)}`],
+                ["Year-to-Date Medicare", `-${usd(snapshot.ytd.medicare)}`],
+                ...(snapshot.ytd.stateWithholding > 0
+                  ? [["Year-to-Date State Tax", `-${usd(snapshot.ytd.stateWithholding)}`]]
+                  : []),
                 ["Year-to-Date Net Pay", usd(snapshot.ytd.netPay)],
               ]
             : [["Year-to-Date Gross", usd(result.ytdGross)]]) as [string, string][]
