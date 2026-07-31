@@ -30,12 +30,21 @@ The token lives at `$SECRETS_DIR/export-token` on the app container
 endpoint is **disabled** and returns `503 export_disabled` — deploying the
 credential is an explicit decision. Wrong/missing token → `401`.
 
-Generate and deploy (on the NUC):
+Generate and deploy (on the NUC) — ownership matters: compose bind-mounts
+preserve host ownership and the app runs as uid/gid **10001**, so the file
+must be `0600 10001:10001` like the other secrets:
 
 ```
-openssl rand -hex 32 | sudo tee /srv/payroll/secrets/export-token
-# stack redeploy picks it up (secrets dir is already mounted)
+sudo sh -c 'openssl rand -hex 32 > /srv/payroll/secrets/export-token'
+sudo chown --reference=/srv/payroll/secrets/db-password /srv/payroll/secrets/export-token
+sudo chmod --reference=/srv/payroll/secrets/db-password /srv/payroll/secrets/export-token
+# stack redeploy picks it up (declared in docker-compose.yml `secrets:`)
 ```
+
+Note: compose requires the file to exist at deploy time once the secret is
+declared — to deploy WITHOUT the export API, comment out the `export-token`
+entries in `docker-compose.yml` (top-level `secrets:` + the `app` service
+list); the endpoint answers `503 export_disabled` when unconfigured.
 
 ## Endpoint
 

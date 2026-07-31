@@ -61,6 +61,7 @@ service reads its copy as root, so it works either way):
 | `smtp-password` | SMTP account password | notification email delivery |
 | `encryption-key` | 32 random bytes, hex or base64 | AES-256-GCM for SSN/bank/EIN at rest |
 | `session-secret` | ≥ 32 random chars | Better Auth session signing |
+| `export-token` | 32 random bytes, hex | read-only export API (optional — see [export-api.md](export-api.md); without it the endpoint 503s but compose must not reference it) |
 
 The SMTP password belongs to the dedicated `payroll@stabpablo.eu` mailbox on
 the stack-ops docker-mailserver (`mail.stabpablo.eu`). Create it once (any
