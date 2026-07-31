@@ -5,13 +5,13 @@
  * Employer-side costs are deliberately not shown to the employee (owner
  * decision 2026-07-30) — they remain visible in the admin run view.
  */
-import { onMounted, ref } from "vue";
+import { computed, onMounted, ref } from "vue";
 import { useRoute } from "vue-router";
 import Button from "primevue/button";
 import Skeleton from "primevue/skeleton";
 import PageHeader from "../../components/PageHeader.vue";
 import EmptyState from "../../components/EmptyState.vue";
-import { payslipsApi, type PayslipDetail } from "../../lib/api";
+import { payslipsApi, effectivePayslipAmounts, type PayslipDetail } from "../../lib/api";
 import { useMoney } from "../../composables/useMoney";
 import { useDates } from "../../composables/useDates";
 import { useNotify } from "../../composables/useNotify";
@@ -36,6 +36,12 @@ onMounted(async () => {
     loading.value = false;
   }
 });
+
+// Amounts SHOWN are the issued ones: result with documented legacy
+// deviations (e.g. the 2026-03 941 true-up) overridden to what was paid.
+const eff = computed(() =>
+  payslip.value ? effectivePayslipAmounts(payslip.value.snapshot) : null,
+);
 </script>
 
 <template>
@@ -65,7 +71,7 @@ onMounted(async () => {
           <dt>Gross pay</dt>
           <dd>{{ money(payslip.snapshot.result.grossPay) }}</dd>
           <dt>Federal withholding</dt>
-          <dd>−{{ money(payslip.snapshot.result.federalWithholding) }}</dd>
+          <dd>−{{ money(eff!.federalWithholding) }}</dd>
           <dt>Social Security</dt>
           <dd>−{{ money(payslip.snapshot.result.socialSecurity) }}</dd>
           <dt>Medicare</dt>
@@ -73,8 +79,14 @@ onMounted(async () => {
           <dt>State withholding</dt>
           <dd>−{{ money(payslip.snapshot.result.stateWithholding) }}</dd>
           <dt><strong>Net pay</strong></dt>
-          <dd><strong>{{ money(payslip.snapshot.result.netPay) }}</strong></dd>
+          <dd><strong>{{ money(eff!.netPay) }}</strong></dd>
         </dl>
+        <p v-if="eff!.deviations.length > 0" class="muted small" style="margin-top: 1rem">
+          Amounts shown as issued — documented adjustment:
+          <span v-for="(d, i) in eff!.deviations" :key="d.label">
+            {{ i > 0 ? "; " : "" }}{{ d.label }} {{ money(d.stored) }} (standard tables {{ money(d.recomputed) }})
+          </span>.
+        </p>
       </section>
 
       <section v-if="payslip.snapshot.ytd" class="card">

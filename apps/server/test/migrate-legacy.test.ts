@@ -23,6 +23,7 @@ import {
   w4Elections,
 } from "@payroll/db";
 import type { Db } from "../src/db.js";
+import { effectivePayslipAmounts } from "@payroll/documents";
 import {
   LEGACY_ENGINE_VERSION,
   migrateLegacy,
@@ -352,6 +353,14 @@ describe("legacy migration", () => {
     // ...but the deviation does NOT spread to the other seven categories.
     expect(marEntries.get("social_security")).toBe("217.00");
     expect(marEntries.get("medicare")).toBe("50.75");
+
+    // The payslip renders the ISSUED amounts, not the recomputed ones
+    // (payslip deviation fix 2026-07-31 — the stub must match what was paid).
+    const eff = effectivePayslipAmounts(marSnapshot);
+    expect(eff.federalWithholding).toBe(472.73);
+    expect(eff.netPay).toBe(2759.52);
+    expect(eff.totalDeductions).toBe(740.48); // 3500 − 2759.52
+    expect(eff.deviations).toHaveLength(2);
   });
 
   it("month boundary: Jan–Mar 2026 withheld, Apr+ $0 (W-4 exempt cutover)", async () => {

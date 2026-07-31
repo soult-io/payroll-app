@@ -61,6 +61,7 @@ export interface RunSnapshot {
     socialSecurity: number;
     medicare: number;
     stateWithholding: number;
+    totalDeductions: number;
     netPay: number;
     employerSocialSecurity: number;
     employerMedicare: number;
@@ -79,6 +80,50 @@ export interface RunSnapshot {
     totalDeductions: number;
     netPay: number;
   };
+  /** Legacy-import only: categories where the ISSUED amount differs from the recomputed result. */
+  legacyDeviations?: {
+    category: string;
+    stored: string;
+    recomputed: string;
+    reason: string;
+  }[];
+}
+
+/**
+ * Amounts to SHOW on a payslip: engine result with documented legacy
+ * deviations overridden to the issued (stored) figures. Mirrors
+ * effectivePayslipAmounts() in @payroll/documents — keep in sync.
+ */
+export function effectivePayslipAmounts(snapshot: RunSnapshot): {
+  federalWithholding: number;
+  totalDeductions: number;
+  netPay: number;
+  deviations: { label: string; stored: number; recomputed: number }[];
+} {
+  const LABELS: Record<string, string> = {
+    gross_pay: "Gross Pay",
+    federal_withholding: "Federal Income Tax",
+    social_security: "Social Security",
+    medicare: "Medicare",
+    state_withholding: "State Income Tax",
+    net_pay: "Net Pay",
+  };
+  let federal = snapshot.result.federalWithholding;
+  let net = snapshot.result.netPay;
+  const deviations = (snapshot.legacyDeviations ?? []).map((d) => {
+    if (d.category === "federal_withholding") federal = Number(d.stored);
+    if (d.category === "net_pay") net = Number(d.stored);
+    return {
+      label: LABELS[d.category] ?? d.category,
+      stored: Number(d.stored),
+      recomputed: Number(d.recomputed),
+    };
+  });
+  const totalDeductions =
+    deviations.length > 0
+      ? Math.round((snapshot.result.grossPay - net) * 100) / 100
+      : snapshot.result.totalDeductions;
+  return { federalWithholding: federal, totalDeductions, netPay: net, deviations };
 }
 
 export interface ChangeRequest {

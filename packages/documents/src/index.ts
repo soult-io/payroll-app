@@ -18,6 +18,7 @@
  */
 
 import type { PayrollResult } from "@payroll/engine";
+import { round2 } from "@payroll/engine/money";
 
 // pdfmake 0.3.x — no TypeScript declarations, use the untyped import idiom
 // from the original renderer.
@@ -52,6 +53,100 @@ export interface PayslipSnapshot {
     totalDeductions: number;
     netPay: number;
   };
+  /**
+   * Legacy-import only: categories where the ISSUED amount deliberately
+   * differs from the recomputed engine result (e.g. the 2026-03 Form 941
+   * true-up). The payslip must render the ISSUED (stored) amounts — the
+   * employee was actually paid those — via effectivePayslipAmounts().
+   */
+  legacyDeviations?: {
+    category: string;
+    stored: string;
+    recomputed: string;
+    reason: string;
+  }[];
+}
+
+/** Display labels for deviation categories (payslip "as issued" note). */
+const CATEGORY_LABELS: Record<string, string> = {
+  gross_pay: "Gross Pay",
+  federal_withholding: "Federal Income Tax",
+  social_security: "Social Security",
+  medicare: "Medicare",
+  state_withholding: "State Income Tax",
+  net_pay: "Net Pay",
+};
+
+type AdjustableField =
+  | "grossPay"
+  | "federalWithholding"
+  | "socialSecurity"
+  | "medicare"
+  | "stateWithholding"
+  | "netPay";
+
+const CATEGORY_TO_FIELD: Record<string, AdjustableField> = {
+  gross_pay: "grossPay",
+  federal_withholding: "federalWithholding",
+  social_security: "socialSecurity",
+  medicare: "medicare",
+  state_withholding: "stateWithholding",
+  net_pay: "netPay",
+};
+
+export interface PayslipDeviationDisplay {
+  label: string;
+  stored: number;
+  recomputed: number;
+}
+
+/**
+ * The amounts a payslip must SHOW: the engine result, with any documented
+ * legacy deviation overridden to the ISSUED (stored) amount. Without
+ * deviations this is the result verbatim, totalDeductions untouched; with
+ * deviations totalDeductions is derived as gross − net so the stub stays
+ * internally consistent. Pure: same snapshot → same amounts.
+ */
+export interface EffectivePayslipAmounts {
+  grossPay: number;
+  federalWithholding: number;
+  socialSecurity: number;
+  medicare: number;
+  stateWithholding: number;
+  totalDeductions: number;
+  netPay: number;
+  deviations: PayslipDeviationDisplay[];
+}
+
+export function effectivePayslipAmounts(snapshot: PayslipSnapshot): EffectivePayslipAmounts {
+  const r = snapshot.result;
+  const amounts = {
+    grossPay: r.grossPay,
+    federalWithholding: r.federalWithholding,
+    socialSecurity: r.socialSecurity,
+    medicare: r.medicare,
+    stateWithholding: r.stateWithholding,
+    totalDeductions: r.totalDeductions,
+    netPay: r.netPay,
+  };
+  const deviations = snapshot.legacyDeviations ?? [];
+  const display: PayslipDeviationDisplay[] = [];
+  for (const d of deviations) {
+    const field = CATEGORY_TO_FIELD[d.category];
+    if (field) {
+      amounts[field] = Number(d.stored);
+    }
+    display.push({
+      label: CATEGORY_LABELS[d.category] ?? d.category,
+      stored: Number(d.stored),
+      recomputed: Number(d.recomputed),
+    });
+  }
+  if (deviations.length > 0) {
+    // Internal consistency: what was withheld is gross minus what was paid.
+    amounts.totalDeductions = round2(amounts.grossPay - amounts.netPay);
+  }
+  return { ...amounts, deviations: display };
 }
 
 // biome-ignore lint/suspicious/noExplicitAny: pdfmake content types are not installed; runtime accepts these shapes
@@ -106,13 +201,16 @@ function payDateLabel(payDate: string): string {
 function buildPayslipDoc(snapshot: PayslipSnapshot): DocDefinition {
   const { inputs, result } = snapshot;
   const employeeName = inputs.employee.preferredName ?? inputs.employee.legalName;
+  // Amounts SHOWN are the issued ones: engine result with any documented
+  // legacy deviation overridden to the stored (actually-paid) figure.
+  const eff = effectivePayslipAmounts(snapshot);
 
   const deductions = [
-    { label: "Federal Income Tax", amount: result.federalWithholding },
-    { label: "Social Security", amount: result.socialSecurity },
-    { label: "Medicare", amount: result.medicare },
-    ...(result.stateWithholding > 0
-      ? [{ label: "State Income Tax", amount: result.stateWithholding }]
+    { label: "Federal Income Tax", amount: eff.federalWithholding },
+    { label: "Social Security", amount: eff.socialSecurity },
+    { label: "Medicare", amount: eff.medicare },
+    ...(eff.stateWithholding > 0
+      ? [{ label: "State Income Tax", amount: eff.stateWithholding }]
       : []),
   ];
   const deductionRows: TableCell[][] = deductions.map((d) => [
@@ -165,7 +263,7 @@ function buildPayslipDoc(snapshot: PayslipSnapshot): DocDefinition {
         body: [
           [
             { text: "Gross Pay", fontSize: 9, bold: true },
-            { text: usd(result.grossPay), fontSize: 9, alignment: "right", bold: true },
+            { text: usd(eff.grossPay), fontSize: 9, alignment: "right", bold: true },
           ],
         ],
       },
@@ -189,7 +287,7 @@ function buildPayslipDoc(snapshot: PayslipSnapshot): DocDefinition {
           [
             { text: "Total Deductions", fontSize: 9, bold: true },
             {
-              text: `-${usd(result.totalDeductions)}`,
+              text: `-${usd(eff.totalDeductions)}`,
               fontSize: 9,
               alignment: "right",
               bold: true,
@@ -208,6 +306,27 @@ function buildPayslipDoc(snapshot: PayslipSnapshot): DocDefinition {
       margin: [0, 0, 0, 15],
     },
 
+    // "As issued" note — only when the snapshot documents legacy deviations
+    // (e.g. the 2026-03 Form 941 true-up): the stub shows what was actually
+    // withheld/paid, with the standard-tables figure for transparency.
+    ...(eff.deviations.length > 0
+      ? [
+          {
+            text: [
+              { text: "Amounts shown as issued — documented adjustment: ", bold: true },
+              ...eff.deviations.flatMap((d, i) => [
+                { text: i > 0 ? "; " : "" },
+                { text: `${d.label} ${usd(d.stored)} (standard tables ${usd(d.recomputed)})` },
+              ]),
+              { text: "." },
+            ],
+            fontSize: 8,
+            color: "#6B7280",
+            margin: [0, 0, 0, 15],
+          },
+        ]
+      : []),
+
     // Net pay banner
     {
       table: {
@@ -223,7 +342,7 @@ function buildPayslipDoc(snapshot: PayslipSnapshot): DocDefinition {
               margin: [8, 8, 8, 8],
             },
             {
-              text: usd(result.netPay),
+              text: usd(eff.netPay),
               fontSize: 14,
               bold: true,
               alignment: "right",
