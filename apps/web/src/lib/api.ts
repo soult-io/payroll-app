@@ -556,3 +556,203 @@ export const adminSettingsApi = {
   auditEvents: (input: { limit?: number; offset?: number } = {}) =>
     get<Paged<AuditEventRow>>(`/api/admin/audit/audit-events${qs(input)}`),
 };
+
+// ---------------------------------------------------------------------------
+// Spec 10 — contractors
+// ---------------------------------------------------------------------------
+
+export type TaxStatus = "us_person" | "nonresident";
+export type ContractorEntityType = "individual" | "entity";
+export type TaxForm = "w9" | "w8ben" | "w8ben_e" | "w8eci";
+export type ServicesLocation = "foreign" | "us" | "mixed";
+export type PaymentMethod = "ach" | "check" | "wire" | "card" | "third_party_network";
+export type InvoiceStatus = "submitted" | "approved" | "rejected" | "paid" | "void";
+
+export interface UsDayEntry {
+  year: number;
+  days: number;
+  note?: string;
+}
+
+export interface ContractorListRow {
+  employeeId: number;
+  legalName: string;
+  preferredName: string | null;
+  hireDate: string;
+  status: string;
+  taxStatus: TaxStatus;
+  entityType: ContractorEntityType;
+  residenceCountry: string | null;
+  taxForm: TaxForm;
+  formCollectedAt: string | null;
+  formExpiresAt: string | null;
+  backupWithholding: boolean;
+  servicesLocation: ServicesLocation;
+}
+
+export interface ContractorDetails extends ContractorListRow {
+  usDaysLog: UsDayEntry[];
+  tinMasked: string | null;
+}
+
+export interface ContractorPaymentRow {
+  id: number;
+  invoiceId: number;
+  payDate: string;
+  amount: string;
+  exchangeRate: string | null;
+  method: PaymentMethod;
+  backupWithheld: string;
+  reference: string | null;
+  createdAt: string | null;
+}
+
+export interface ContractorInvoiceRow {
+  id: number;
+  employeeId: number;
+  invoiceRef: string | null;
+  description: string;
+  amount: string;
+  currency: string;
+  invoiceDate: string;
+  status: InvoiceStatus;
+  submittedBy: string | null;
+  reviewedBy: string | null;
+  reviewedAt: string | null;
+  reviewNote: string | null;
+  createdAt: string | null;
+  payment: ContractorPaymentRow | null;
+}
+
+export interface ContractorDetail {
+  contractor: {
+    id: number;
+    userId: string | null;
+    legalName: string;
+    preferredName: string | null;
+    hireDate: string;
+    status: string;
+    details: {
+      taxStatus: TaxStatus;
+      entityType: ContractorEntityType;
+      residenceCountry: string | null;
+      taxForm: TaxForm;
+      formCollectedAt: string | null;
+      formExpiresAt: string | null;
+      backupWithholding: boolean;
+      servicesLocation: ServicesLocation;
+      usDaysLog: UsDayEntry[];
+      tinMasked: string | null;
+    };
+  };
+  invoices: ContractorInvoiceRow[];
+}
+
+export interface YearEndRow {
+  employeeId: number;
+  legalName: string;
+  taxStatus: TaxStatus;
+  entityType: ContractorEntityType;
+  taxForm: TaxForm;
+  formCollectedAt: string | null;
+  formExpiresAt: string | null;
+  formExpired: boolean;
+  servicesLocation: ServicesLocation;
+  review1042: boolean;
+  payments: {
+    payDate: string;
+    amount: string;
+    method: string;
+    backupWithheld: string;
+    reference: string | null;
+  }[];
+  reportableTotal: number;
+  grossTotal: number;
+  backupWithheldTotal: number;
+  threshold: number;
+  formRequired: boolean;
+}
+
+export interface ReportingConfigRow {
+  id: number;
+  taxYear: number;
+  necThreshold: string;
+  note: string;
+}
+
+export interface ContractorCreateInput {
+  legalName: string;
+  preferredName?: string;
+  hireDate: string;
+  taxStatus: TaxStatus;
+  entityType: ContractorEntityType;
+  residenceCountry?: string;
+  tin?: string;
+  taxForm: TaxForm;
+  formCollectedAt?: string;
+  backupWithholding?: boolean;
+  servicesLocation?: ServicesLocation;
+  usDaysLog?: UsDayEntry[];
+}
+
+/** Update payload — nullable fields clear the stored value server-side. */
+export interface ContractorUpdateInput {
+  legalName?: string;
+  preferredName?: string | null;
+  taxStatus?: TaxStatus;
+  entityType?: ContractorEntityType;
+  residenceCountry?: string | null;
+  tin?: string | null;
+  taxForm?: TaxForm;
+  formCollectedAt?: string | null;
+  backupWithholding?: boolean;
+  servicesLocation?: ServicesLocation;
+  usDaysLog?: UsDayEntry[];
+}
+
+export const adminContractorsApi = {
+  list: () => get<{ contractors: ContractorListRow[] }>("/api/admin/contractors"),
+  create: (input: ContractorCreateInput) =>
+    post<{ employeeId: number }>("/api/admin/contractors", input),
+  detail: (employeeId: number) => get<ContractorDetail>(`/api/admin/contractors/${employeeId}`),
+  update: (employeeId: number, input: ContractorUpdateInput) =>
+    request<{ ok: true }>("PATCH", `/api/admin/contractors/${employeeId}`, input),
+  addInvoice: (
+    employeeId: number,
+    input: { invoiceRef?: string; description: string; amount: number; invoiceDate: string },
+  ) =>
+    post<{ invoice: ContractorInvoiceRow }>(`/api/admin/contractors/${employeeId}/invoices`, input),
+  approve: (invoiceId: number, note?: string) =>
+    post<{ invoice: ContractorInvoiceRow }>(
+      `/api/admin/invoices/${invoiceId}/approve`,
+      note ? { note } : {},
+    ),
+  reject: (invoiceId: number, note: string) =>
+    post<{ invoice: ContractorInvoiceRow }>(`/api/admin/invoices/${invoiceId}/reject`, { note }),
+  pay: (
+    invoiceId: number,
+    input: {
+      payDate: string;
+      amount: number;
+      exchangeRate?: number | null;
+      method: PaymentMethod;
+      reference?: string;
+    },
+  ) =>
+    post<{ invoice: ContractorInvoiceRow; payment: ContractorPaymentRow }>(
+      `/api/admin/invoices/${invoiceId}/pay`,
+      input,
+    ),
+  void: (invoiceId: number, note: string) =>
+    post<{ invoice: ContractorInvoiceRow }>(`/api/admin/invoices/${invoiceId}/void`, { note }),
+  yearEnd: (year: number) =>
+    get<{ taxYear: number; threshold: string; rows: YearEndRow[] }>(
+      `/api/admin/contractors/year-end${qs({ year })}`,
+    ),
+  nec1099Url: (employeeId: number, year: number) =>
+    `/api/admin/contractors/${employeeId}/1099-nec?year=${year}`,
+  reportingConfig: () =>
+    get<{ config: ReportingConfigRow[] }>("/api/admin/contractor-reporting-config"),
+  putReportingConfig: (input: { taxYear: number; necThreshold: number; note?: string }) =>
+    put<{ config: ReportingConfigRow }>("/api/admin/contractor-reporting-config", input),
+};

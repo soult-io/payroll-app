@@ -7,7 +7,7 @@
 import { computed } from "vue";
 import Tag from "primevue/tag";
 
-const props = defineProps<{ status: string }>();
+const props = defineProps<{ status: string; label?: string }>();
 
 const LABELS: Record<string, string> = {
   draft: "Draft",
@@ -44,10 +44,12 @@ const SEVERITIES: Record<
   suppressed: "secondary",
 };
 
-const label = computed(() => LABELS[props.status] ?? props.status.replaceAll("_", " "));
+const chipLabel = computed(
+  () => props.label ?? LABELS[props.status] ?? props.status.replaceAll("_", " "),
+);
 const severity = computed(() => SEVERITIES[props.status] ?? "info");
 </script>
 
 <template>
-  <Tag :value="label" :severity="severity" />
+  <Tag :value="chipLabel" :severity="severity" />
 </template>

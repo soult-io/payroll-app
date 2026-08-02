@@ -41,6 +41,7 @@ const adminNav = [
   { label: "Dashboard", name: "admin-dashboard" },
   { label: "Payroll", name: "admin-payroll" },
   { label: "Employees", name: "admin-employees" },
+  { label: "Contractors", name: "admin-contractors" },
   { label: "Requests", name: "admin-requests", badge: true },
   { label: "Config", name: "admin-config" },
   { label: "Settings", name: "admin-settings" },
