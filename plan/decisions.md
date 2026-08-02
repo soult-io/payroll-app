@@ -100,6 +100,22 @@ RBAC + server-side enforcement is the standard pattern.)
 Payments · bookkeeping · mobile app · third-party API · multi-currency · time-off UI ·
 invoicing · self-registration · payroll PDF file storage · Nextcloud integration of any kind
 
+## D13–D18 — 1099 contractors  `CONFIRMED by owner 2026-08-02 ("approved as written")`
+
+Activates the D10 1099 future per `specs/contractors.md` (Spec 10) with research basis
+`research/contractors.md`:
+
+- **D13** — Worker model: reuse `employees` (`employment_type='1099'`) + 1:1
+  `contractor_details` (tax_status/entity/form/expiry/backup-withholding/services-location)
+- **D14** — Money flow: `contractor_invoices` + 1:1 `contractor_payments`, separate from
+  `payroll_runs`; payment method tracked for the 1099-K carve-out
+- **D15** — Year-end: on-demand 1099-NEC PDF at dated threshold config ($2,000/2026,
+  indexed; $600 through 2025); 1042-S detection-only, generation out of scope
+- **D16** — Contractor self-service portal deferred; admin enters invoices in V1
+- **D17** — Hard server block on paying a contractor without a valid form on file
+- **D18** — Export API extended: `GET /api/export/contractor-payments?year=YYYY` behind
+  the existing read-only export token
+
 ---
 
 ## After sign-off
