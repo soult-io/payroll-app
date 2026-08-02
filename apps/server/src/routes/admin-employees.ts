@@ -16,7 +16,7 @@ import type { Guards } from "../plugins/guards.js";
 import { inviteUser, resendInvite, UserServiceError } from "../auth/users.js";
 import { requestContext } from "../auth/audit.js";
 import { toHeaders } from "../plugins/guards.js";
-import { encryptField } from "../crypto/field-encryption.js";
+import { encryptField, maskLast4 } from "../crypto/field-encryption.js";
 
 interface Deps {
   auth: Auth;
@@ -69,6 +69,8 @@ export function registerAdminEmployeeRoutes(app: FastifyInstance, deps: Deps): v
     const { taxId: _taxId, bankDetails: _bankDetails, ...safeEmployee } = employee;
     return {
       ...safeEmployee,
+      // Presence flag only (spec 11 D20a) — the masked value stays server-side.
+      hasTaxId: Boolean(employee.taxId),
       user: employee.userId
         ? { id: employee.userId, email: userEmail, banned: userBanned, banReason: userBanReason }
         : null,
@@ -146,6 +148,41 @@ export function registerAdminEmployeeRoutes(app: FastifyInstance, deps: Deps): v
       hireDate: row.hireDate,
     });
     return reply.code(201).send({ employee: await employeeWithUser(row.id) });
+  });
+
+  /**
+   * Spec 11 (D20a): admin direct-set of the employee TIN — backfill and
+   * corrections. Same validation + encryption as the create path; write-only
+   * (the directory API never returns the value, masked or otherwise) and the
+   * audit event carries masked before/after only.
+   */
+  app.patch("/api/admin/employees/:employeeId", { preHandler: admin }, async (req, reply) => {
+    const employeeId = Number((req.params as { employeeId: string }).employeeId);
+    const body = z
+      .object({
+        taxId: z.string().regex(/^\d{9}$/, "tax id must be 9 digits"),
+      })
+      .safeParse(req.body);
+    if (!body.success)
+      return reply.code(400).send({ error: "invalid_body", details: body.error.issues });
+
+    const rows = await db.select().from(employees).where(eq(employees.id, employeeId)).limit(1);
+    const employee = rows[0];
+    if (!employee) return reply.code(404).send({ error: "not_found" });
+
+    const encrypted = encryptField(body.data.taxId, config.encryptionKey);
+    await db
+      .update(employees)
+      .set({ taxId: encrypted, updatedAt: new Date() })
+      .where(eq(employees.id, employeeId));
+    await audit(
+      req.authUser!.id,
+      "employee.set_tax_id",
+      String(employeeId),
+      { taxIdMasked: maskLast4(employee.taxId, config.encryptionKey) },
+      { taxIdMasked: maskLast4(encrypted, config.encryptionKey) },
+    );
+    return { employee: await employeeWithUser(employeeId) };
   });
 
   /**

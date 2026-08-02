@@ -319,7 +319,7 @@ export const changeRequests = pgTable(
   (t) => [
     check(
       "change_requests_type_check",
-      sql`${t.requestType} IN ('address','w4','bank_details','legal_name')`,
+      sql`${t.requestType} IN ('address','w4','bank_details','legal_name','tax_id')`,
     ),
     check(
       "change_requests_status_check",

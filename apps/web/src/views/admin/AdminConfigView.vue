@@ -263,6 +263,9 @@ const companyForm = ref({
   state: "",
   zip: "",
   country: "ES",
+  // Write-only: blank means "leave unchanged"; the current value is only ever
+  // shown masked (spec 11 D19).
+  ein: "",
 });
 
 async function loadCompany() {
@@ -278,6 +281,7 @@ async function loadCompany() {
       state: c.address?.state ?? "",
       zip: c.address?.zip ?? "",
       country: c.address?.country ?? "ES",
+      ein: "",
     };
   } catch (err) {
     notify.error(err, "Could not load company profile");
@@ -289,6 +293,11 @@ async function loadCompany() {
 async function saveCompany() {
   if (!companyForm.value.legalName.trim()) {
     notify.info("Legal name required");
+    return;
+  }
+  const ein = companyForm.value.ein.trim();
+  if (ein && !/^\d{2}-?\d{7}$/.test(ein)) {
+    notify.info("Invalid EIN", "Use the IRS format XX-XXXXXXX.");
     return;
   }
   companySaving.value = true;
@@ -304,8 +313,10 @@ async function saveCompany() {
     const { company: saved } = await adminSettingsApi.putCompany({
       legalName: companyForm.value.legalName.trim(),
       address,
+      ...(ein ? { ein } : {}),
     });
     company.value = saved;
+    companyForm.value.ein = "";
     notify.success("Company profile saved");
   } catch (err) {
     notify.error(err, "Could not save company profile");
@@ -460,14 +471,18 @@ onMounted(() => {
             <h3>Company profile</h3>
             <Skeleton v-if="companyLoading" height="10rem" />
             <template v-else>
-              <dl class="kv">
-                <dt>EIN</dt>
-                <dd>{{ company?.einMasked ?? "—" }} <span class="muted small">(change requires a config update, not the UI)</span></dd>
-              </dl>
               <div class="form-grid">
                 <div class="field">
                   <label for="legalName">Legal name</label>
                   <InputText id="legalName" v-model="companyForm.legalName" />
+                </div>
+                <div class="field">
+                  <label for="ein">EIN</label>
+                  <InputText id="ein" v-model="companyForm.ein" placeholder="XX-XXXXXXX" autocomplete="off" />
+                  <small class="muted">
+                    Current: {{ company?.einMasked ?? "not set" }} — leave blank to keep it. Encrypted at rest;
+                    the change is audit-logged with masked values only.
+                  </small>
                 </div>
                 <div class="field">
                   <label for="cLine1">Address line 1</label>

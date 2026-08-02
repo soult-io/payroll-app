@@ -11,7 +11,7 @@ import { auditEvents, authEvents, company } from "@payroll/db";
 import type { Db } from "../db.js";
 import type { AppConfig } from "../config.js";
 import type { Guards } from "../plugins/guards.js";
-import { maskLast4 } from "../crypto/field-encryption.js";
+import { encryptField, maskLast4 } from "../crypto/field-encryption.js";
 
 interface Deps {
   db: Db;
@@ -23,6 +23,14 @@ const pagination = z.object({
   limit: z.coerce.number().int().min(1).max(200).default(50),
   offset: z.coerce.number().int().min(0).default(0),
 });
+
+/** IRS EIN format: XX-XXXXXXX (dash optional on input, normalized before storage). */
+const einSchema = z.string().regex(/^\d{2}-?\d{7}$/, "ein must match XX-XXXXXXX");
+
+function normalizeEin(ein: string): string {
+  const digits = ein.replace("-", "");
+  return `${digits.slice(0, 2)}-${digits.slice(2)}`;
+}
 
 export function registerAdminSettingsRoutes(app: FastifyInstance, deps: Deps): void {
   const { db, config, guards } = deps;
@@ -56,6 +64,8 @@ export function registerAdminSettingsRoutes(app: FastifyInstance, deps: Deps): v
             country: z.string().min(2).max(2),
           })
           .optional(),
+        // Spec 11 (D19): admin-editable EIN — encrypted at rest, write-only.
+        ein: einSchema.optional(),
       })
       .safeParse(req.body);
     if (!body.success)
@@ -70,16 +80,30 @@ export function registerAdminSettingsRoutes(app: FastifyInstance, deps: Deps): v
       .set({
         legalName: body.data.legalName,
         ...(body.data.address !== undefined ? { address: body.data.address } : {}),
+        ...(body.data.ein !== undefined
+          ? { ein: encryptField(normalizeEin(body.data.ein), config.encryptionKey) }
+          : {}),
       })
       .where(eq(company.id, before.id))
       .returning();
+    // Audit records MASKED before/after only — the plaintext EIN never lands
+    // in audit_events.
+    const einChanged = body.data.ein !== undefined;
     await db.insert(auditEvents).values({
       actorId: req.authUser!.id,
       action: "company.update",
       entity: "company",
       entityId: String(before.id),
-      before: { legalName: before.legalName, address: before.address },
-      after: { legalName: updated[0]!.legalName, address: updated[0]!.address },
+      before: {
+        legalName: before.legalName,
+        address: before.address,
+        ...(einChanged ? { einMasked: maskLast4(before.ein, config.encryptionKey) } : {}),
+      },
+      after: {
+        legalName: updated[0]!.legalName,
+        address: updated[0]!.address,
+        ...(einChanged ? { einMasked: maskLast4(updated[0]!.ein, config.encryptionKey) } : {}),
+      },
     });
     return {
       company: {

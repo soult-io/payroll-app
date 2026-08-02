@@ -30,6 +30,12 @@ export const REQUEST_TYPES: {
     icon: "pi pi-id-card",
     blurb: "Correct the name on your payslips",
   },
+  {
+    value: "tax_id",
+    label: "Tax ID (SSN)",
+    icon: "pi pi-lock",
+    blurb: "Submit or correct your tax ID",
+  },
 ];
 
 export function requestTypeLabel(type: string): string {

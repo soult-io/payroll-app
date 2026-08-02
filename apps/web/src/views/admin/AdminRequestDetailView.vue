@@ -55,7 +55,23 @@ const note = ref("");
 const denyVisible = ref(false);
 const denyReason = ref("");
 
+// Spec 11 (D21): tax_id reveal-on-demand — deliberate, audit-logged server-side.
+const revealedTaxId = ref<string | null>(null);
+const revealBusy = ref(false);
+
 const isPending = computed(() => request.value?.status === "pending");
+
+async function revealTaxId() {
+  revealBusy.value = true;
+  try {
+    const { taxId } = await changeRequestsApi.revealTaxId(publicId);
+    revealedTaxId.value = taxId;
+  } catch (err) {
+    notify.error(err, "Could not reveal the tax ID");
+  } finally {
+    revealBusy.value = false;
+  }
+}
 
 const currentRows = computed<{ label: string; value: string }[]>(() => {
   const req = request.value;
@@ -77,6 +93,10 @@ const currentRows = computed<{ label: string; value: string }[]>(() => {
       return [{ label: "Legal name", value: emp?.legalName ?? "—" }];
     case "bank_details":
       return [{ label: "Bank details", value: "On file (masked — not shown)" }];
+    case "tax_id":
+      return [
+        { label: "Tax ID", value: emp?.hasTaxId ? "On file (masked — not shown)" : "Not on file" },
+      ];
     case "w4": {
       const w = currentW4.value;
       if (!w) return [{ label: "W-4 election", value: "None on file" }];
@@ -226,6 +246,23 @@ onMounted(load);
         <section class="card">
           <h3>Proposed</h3>
           <RequestPayloadView :request-type="request.requestType" :payload="request.payload" />
+          <template v-if="request.requestType === 'tax_id'">
+            <div v-if="revealedTaxId" class="reveal-row">
+              <code class="mono">{{ revealedTaxId }}</code>
+              <Button label="Hide" text size="small" icon="pi pi-eye-slash" @click="revealedTaxId = null" />
+            </div>
+            <div v-else class="reveal-row">
+              <Button
+                label="Reveal full tax ID"
+                text
+                size="small"
+                icon="pi pi-eye"
+                :loading="revealBusy"
+                @click="revealTaxId"
+              />
+              <small class="muted">Logged in the audit trail.</small>
+            </div>
+          </template>
         </section>
       </div>
 
@@ -275,5 +312,11 @@ onMounted(load);
 }
 .head-row h3 {
   margin: 0;
+}
+.reveal-row {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  margin-top: 0.75rem;
 }
 </style>

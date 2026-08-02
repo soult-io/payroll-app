@@ -9,6 +9,7 @@ import Button from "primevue/button";
 import Skeleton from "primevue/skeleton";
 import Dialog from "primevue/dialog";
 import InputText from "primevue/inputtext";
+import InputMask from "primevue/inputmask";
 import InputNumber from "primevue/inputnumber";
 import Select from "primevue/select";
 import Checkbox from "primevue/checkbox";
@@ -55,6 +56,11 @@ const inviteDialog = ref(false);
 const inviteEmail = ref("");
 const inviteBusy = ref(false);
 const setupLink = ref("");
+
+// Spec 11 (D20a): admin direct-set of the employee TIN (backfill/corrections).
+const tinDialog = ref(false);
+const tinBusy = ref(false);
+const tinValue = ref("");
 
 const compDialog = ref(false);
 const compBusy = ref(false);
@@ -170,6 +176,26 @@ function toggleStatus() {
   });
 }
 
+async function saveTaxId() {
+  const taxId = tinValue.value.trim();
+  if (!/^\d{9}$/.test(taxId)) {
+    notify.info("Invalid tax ID", "Enter the 9-digit TIN/SSN.");
+    return;
+  }
+  tinBusy.value = true;
+  try {
+    await adminEmployeesApi.setTaxId(employeeId, { taxId });
+    notify.success("Tax ID saved", "Stored encrypted; only the masked form is ever shown.");
+    tinDialog.value = false;
+    tinValue.value = "";
+    await load();
+  } catch (err) {
+    notify.error(err, "Could not save the tax ID");
+  } finally {
+    tinBusy.value = false;
+  }
+}
+
 async function addCompensation() {
   compBusy.value = true;
   try {
@@ -276,6 +302,17 @@ onMounted(load);
                 <template v-if="employee.user">{{ employee.user.email }} · {{ accountState.label }}</template>
                 <span v-else>Not invited</span>
               </dd>
+              <dt>Tax ID</dt>
+              <dd>
+                {{ employee.hasTaxId ? "On file (masked — not shown)" : "Not on file" }}
+                <Button
+                  :label="employee.hasTaxId ? 'Correct' : 'Set'"
+                  text
+                  size="small"
+                  icon="pi pi-lock"
+                  @click="tinDialog = true"
+                />
+              </dd>
             </dl>
           </section>
         </TabPanel>
@@ -347,6 +384,24 @@ onMounted(load);
         <Button label="Cancel" text severity="secondary" @click="inviteDialog = false" />
         <Button label="Send invite" :loading="inviteBusy" :disabled="!inviteEmail.includes('@')" @click="sendInvite(false)" />
       </div>
+    </Dialog>
+
+    <Dialog v-model:visible="tinDialog" modal header="Set employee tax ID" :style="{ width: '26rem' }">
+      <form class="stack" @submit.prevent="saveTaxId">
+        <p class="muted small">
+          The TIN/SSN is encrypted at rest, write-only in every API response, and the change is
+          audit-logged with masked values only. Employees can also submit their own via a
+          change request.
+        </p>
+        <div class="field">
+          <label for="tinInput">Tax ID / SSN (9 digits)</label>
+          <InputMask id="tinInput" v-model="tinValue" mask="999999999" autocomplete="off" required />
+        </div>
+        <div class="row" style="justify-content: flex-end">
+          <Button label="Cancel" text severity="secondary" type="button" @click="tinDialog = false" />
+          <Button type="submit" label="Save" icon="pi pi-save" :loading="tinBusy" />
+        </div>
+      </form>
     </Dialog>
 
     <Dialog v-model:visible="compDialog" modal header="Add compensation" :style="{ width: '30rem' }">

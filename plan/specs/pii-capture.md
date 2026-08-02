@@ -1,6 +1,6 @@
 # Spec 11 — PII capture: company EIN + employee TIN
 
-Status: `APPROVED 2026-08-03 — approved as written` · Depends on: Spec 1, Spec 4 (change requests), Spec 7 (admin) · Amends: interview answer E10 ("tax ID never changes — don't support it"), reversed by owner 2026-08-03 because initial values were never captured
+Status: `APPROVED 2026-08-03 — implemented` · Depends on: Spec 1, Spec 4 (change requests), Spec 7 (admin) · Amends: interview answer E10 ("tax ID never changes — don't support it"), reversed by owner 2026-08-03 because initial values were never captured
 
 Two small write paths for sensitive identifiers that were never backfilled after cutover.
 Both reuse the existing app-level field encryption (`crypto/field-encryption.ts`, the

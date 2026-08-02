@@ -2,8 +2,9 @@
  * Shared change-request payload schemas (spec 4).
  *
  * Used by BOTH the web form and the server API so a payload is validated
- * identically on both sides. Four requestable field groups (D7): address, w4,
- * bank_details, legal_name. Tax ID is explicitly NOT requestable.
+ * identically on both sides. Requestable field groups (D7 + spec 11): address,
+ * w4, bank_details, legal_name, tax_id. The tax_id payload is encrypted at
+ * rest inside change_requests.payload — the JSONB stores only ciphertext.
  */
 
 import { z } from "zod";
@@ -86,12 +87,23 @@ export const legalNamePayload = z.object({
 });
 export type LegalNamePayload = z.infer<typeof legalNamePayload>;
 
+/**
+ * tax_id → employees.tax_id (spec 11, D20b). The 9-digit TIN is encrypted at
+ * rest inside the payload column (only ciphertext in the JSONB), masked
+ * (••••1234) in every API response, and applied encrypted on approval.
+ */
+export const taxIdPayload = z.object({
+  taxId: z.string().regex(/^\d{9}$/, "tax id must be 9 digits"),
+});
+export type TaxIdPayload = z.infer<typeof taxIdPayload>;
+
 export const changeRequestPayloads = {
   address: addressPayload,
   w4: w4Payload,
   bank_details: bankDetailsPayload,
   legal_name: legalNamePayload,
+  tax_id: taxIdPayload,
 } as const;
 
-export const changeRequestType = z.enum(["address", "w4", "bank_details", "legal_name"]);
+export const changeRequestType = z.enum(["address", "w4", "bank_details", "legal_name", "tax_id"]);
 export type ChangeRequestType = z.infer<typeof changeRequestType>;

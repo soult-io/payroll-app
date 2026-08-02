@@ -10,7 +10,13 @@
 import type { FastifyInstance, FastifyReply, FastifyRequest } from "fastify";
 import { and, asc, desc, eq, type SQL } from "drizzle-orm";
 import { z } from "zod";
-import { authUser, changeRequestComments, changeRequests, employees } from "@payroll/db";
+import {
+  authUser,
+  auditEvents,
+  changeRequestComments,
+  changeRequests,
+  employees,
+} from "@payroll/db";
 import { changeRequestPayloads, changeRequestType, isoDate } from "@payroll/shared";
 import type { Db } from "../db.js";
 import type { AppConfig } from "../config.js";
@@ -25,7 +31,7 @@ import {
   withdrawRequest,
   type ChangeRequestRow,
 } from "../change-requests/service.js";
-import { maskLast4 } from "../crypto/field-encryption.js";
+import { decryptField, maskLast4 } from "../crypto/field-encryption.js";
 
 interface Deps {
   db: Db;
@@ -33,15 +39,25 @@ interface Deps {
   guards: Guards;
 }
 
-/** Never leak bank payloads: routing + account masked (••••1234), never ciphertext. */
+/**
+ * Never leak sensitive payloads: bank routing + account and the tax_id TIN
+ * are masked (••••1234) in every API response — never ciphertext, never clear.
+ */
 function maskPayload(requestType: string, payload: unknown, key: string): unknown {
-  if (requestType !== "bank_details" || !payload || typeof payload !== "object") return payload;
-  const bank = payload as Record<string, unknown>;
-  return {
-    ...bank,
-    routing: typeof bank.routing === "string" ? maskLast4(bank.routing, key) : null,
-    account: typeof bank.account === "string" ? maskLast4(bank.account, key) : null,
-  };
+  if (!payload || typeof payload !== "object") return payload;
+  if (requestType === "bank_details") {
+    const bank = payload as Record<string, unknown>;
+    return {
+      ...bank,
+      routing: typeof bank.routing === "string" ? maskLast4(bank.routing, key) : null,
+      account: typeof bank.account === "string" ? maskLast4(bank.account, key) : null,
+    };
+  }
+  if (requestType === "tax_id") {
+    const tin = payload as Record<string, unknown>;
+    return { taxId: typeof tin.taxId === "string" ? maskLast4(tin.taxId, key) : null };
+  }
+  return payload;
 }
 
 function requestView(row: ChangeRequestRow, key: string, employeeName?: string) {
@@ -229,6 +245,35 @@ export function registerChangeRequestRoutes(app: FastifyInstance, deps: Deps): v
         { requestId: request.id, authorId: req.authUser!.id, body: body.data.body },
       );
       return reply.code(201).send({ ok: true });
+    },
+  );
+
+  // Admin: reveal-on-demand for a tax_id request (spec 11 D21). The ONLY
+  // endpoint that ever returns the clear TIN — deliberate, admin-gated, and
+  // audit-logged (the audit row records the reveal, never the value).
+  app.get(
+    "/api/change-requests/:publicId/reveal-tax-id",
+    { preHandler: admin },
+    async (req, reply) => {
+      const { publicId } = req.params as { publicId: string };
+      const request = await byPublicId(publicId);
+      if (!request) return reply.code(404).send({ error: "not_found" });
+      if (request.requestType !== "tax_id") {
+        return reply.code(409).send({ error: "not_tax_id", message: "not a tax_id request" });
+      }
+      const payload = request.payload as { taxId?: unknown };
+      if (typeof payload.taxId !== "string") {
+        return reply.code(409).send({ error: "no_tax_id", message: "payload carries no TIN" });
+      }
+      await db.insert(auditEvents).values({
+        actorId: req.authUser!.id,
+        action: "change_request.reveal_tax_id",
+        entity: "change_request",
+        entityId: request.publicId,
+        before: null,
+        after: { revealed: true },
+      });
+      return { taxId: decryptField(payload.taxId, config.encryptionKey) };
     },
   );
 

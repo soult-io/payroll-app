@@ -19,6 +19,7 @@ import AddressRequestForm from "../../components/requests/AddressRequestForm.vue
 import W4RequestForm from "../../components/requests/W4RequestForm.vue";
 import BankRequestForm from "../../components/requests/BankRequestForm.vue";
 import LegalNameRequestForm from "../../components/requests/LegalNameRequestForm.vue";
+import TaxIdRequestForm from "../../components/requests/TaxIdRequestForm.vue";
 import { REQUEST_TYPES, requestTypeLabel } from "../../composables/useRequestTypes";
 import { changeRequestsApi, type ChangeRequestType } from "../../lib/api";
 import { useDates } from "../../composables/useDates";
@@ -61,6 +62,8 @@ const formComponent = computed(() => {
       return BankRequestForm;
     case "legal_name":
       return LegalNameRequestForm;
+    case "tax_id":
+      return TaxIdRequestForm;
     default:
       return null;
   }

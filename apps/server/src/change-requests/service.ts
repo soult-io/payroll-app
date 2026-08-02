@@ -26,11 +26,11 @@ import {
   EVENT_TYPE,
   type TemplateContext,
 } from "@payroll/notifications";
-import type { BankDetailsPayload } from "@payroll/shared";
+import type { BankDetailsPayload, ChangeRequestType, TaxIdPayload } from "@payroll/shared";
 import type { Db } from "../db.js";
 import { isUniqueViolation } from "../db.js";
 import type { AppConfig } from "../config.js";
-import { encryptField, isEncrypted } from "../crypto/field-encryption.js";
+import { encryptField, isEncrypted, maskLast4 } from "../crypto/field-encryption.js";
 import { companyName } from "../notify/outbox.js";
 import type { DbLike } from "../payroll/resolve.js";
 
@@ -95,6 +95,30 @@ export async function employeeForUser(db: DbLike, userId: string) {
 }
 
 /**
+ * Stored form of a payload: sensitive identifiers are encrypted at rest in
+ * the payload column too, exactly like their target fields (spec 4
+ * "Sensitive-data handling" + spec 11 for tax_id). encrypt() is idempotent
+ * on already-encrypted values so legacy plaintext payloads still land
+ * encrypted on the target field at approval time.
+ */
+export function payloadForStorage(
+  requestType: ChangeRequestType,
+  payload: Record<string, unknown>,
+  key: string,
+): Record<string, unknown> {
+  const enc = (v: string) => (isEncrypted(v) ? v : encryptField(v, key));
+  if (requestType === "bank_details") {
+    const bank = payload as unknown as BankDetailsPayload;
+    return { ...bank, routing: enc(bank.routing), account: enc(bank.account) };
+  }
+  if (requestType === "tax_id") {
+    const tin = payload as unknown as TaxIdPayload;
+    return { taxId: enc(tin.taxId) };
+  }
+  return payload;
+}
+
+/**
  * Submit a request. The payload is already validated against the shared Zod
  * schema for its type. The partial unique index enforces one pending request
  * per (employee, type) — a violation maps to a clean conflict.
@@ -104,29 +128,13 @@ export async function submitRequest(
   input: {
     employeeId: number;
     employeeName: string;
-    requestType: "address" | "w4" | "bank_details" | "legal_name";
+    requestType: ChangeRequestType;
     payload: Record<string, unknown>;
     effectiveFrom: string;
   },
 ): Promise<ChangeRequestRow> {
   const { db, config } = deps;
-  // Bank details are encrypted at rest in the payload column too, exactly
-  // like the target field (spec 4 "Sensitive-data handling").
-  const payload =
-    input.requestType === "bank_details"
-      ? (() => {
-          const bank = input.payload as unknown as BankDetailsPayload;
-          return {
-            ...bank,
-            routing: isEncrypted(bank.routing)
-              ? bank.routing
-              : encryptField(bank.routing, config.encryptionKey),
-            account: isEncrypted(bank.account)
-              ? bank.account
-              : encryptField(bank.account, config.encryptionKey),
-          };
-        })()
-      : input.payload;
+  const payload = payloadForStorage(input.requestType, input.payload, config.encryptionKey);
   let row: ChangeRequestRow;
   try {
     const inserted = await db
@@ -234,22 +242,24 @@ export async function approveRequest(
       }
       case "bank_details": {
         before = { bankDetails: employee.bankDetails }; // stored form (encrypted) — safe in audit
-        const bank = payload as unknown as BankDetailsPayload;
-        // Payload was encrypted at submit; encrypt() is idempotent here so
-        // legacy plaintext payloads still land encrypted on the target field.
-        const encrypted = {
-          routing: isEncrypted(bank.routing)
-            ? bank.routing
-            : encryptField(bank.routing, config.encryptionKey),
-          account: isEncrypted(bank.account)
-            ? bank.account
-            : encryptField(bank.account, config.encryptionKey),
-          type: bank.type,
-        };
+        const encrypted = payloadForStorage("bank_details", payload, config.encryptionKey);
         after = encrypted;
         await tx
           .update(employees)
           .set({ bankDetails: encrypted, updatedAt: new Date() })
+          .where(eq(employees.id, employee.id));
+        break;
+      }
+      case "tax_id": {
+        // Spec 11 (D20b): audit holds MASKED before/after only; the applied
+        // value is the ciphertext from the payload (re-encrypted idempotently
+        // for legacy plaintext payloads).
+        const encrypted = String(payloadForStorage("tax_id", payload, config.encryptionKey).taxId);
+        before = { taxIdMasked: maskLast4(employee.taxId, config.encryptionKey) };
+        after = { taxIdMasked: maskLast4(encrypted, config.encryptionKey) };
+        await tx
+          .update(employees)
+          .set({ taxId: encrypted, updatedAt: new Date() })
           .where(eq(employees.id, employee.id));
         break;
       }

@@ -64,6 +64,13 @@
       "when": 1785678744820,
       "tag": "0008_complete_vin_gonzales",
       "breakpoints": true
+    },
+    {
+      "idx": 9,
+      "version": "7",
+      "when": 1785711969323,
+      "tag": "0009_familiar_barracuda",
+      "breakpoints": true
     }
   ]
 }

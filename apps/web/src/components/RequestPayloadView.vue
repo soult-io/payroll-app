@@ -55,6 +55,13 @@ const rows = computed<{ label: string; value: string }[]>(() => {
         { label: "New legal name", value: str(p.legalName) },
         { label: "Reason", value: str(p.reason) },
       ];
+    case "tax_id": {
+      // API payloads arrive masked; the local review step masks the just-typed
+      // value the same way — the clear TIN is only ever visible while typing.
+      const raw = str(p.taxId);
+      const masked = raw === "—" || raw.startsWith("••••") ? raw : `••••${raw.slice(-4)}`;
+      return [{ label: "Tax ID", value: masked }];
+    }
     default:
       return Object.entries(p).map(([k, v]) => ({ label: k, value: str(v) }));
   }

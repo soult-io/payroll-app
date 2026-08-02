@@ -60,7 +60,10 @@ onMounted(async () => {
           <dt>Hire date</dt>
           <dd>{{ date(profile.hireDate) }}</dd>
           <dt>Tax ID</dt>
-          <dd>{{ profile.taxIdMasked ?? "—" }} <span class="muted small">(changes handled by your admin)</span></dd>
+          <dd>
+            {{ profile.taxIdMasked ?? "—" }}
+            <Button label="Request change" size="small" text @click="requestChange('tax_id')" />
+          </dd>
         </dl>
       </section>
 

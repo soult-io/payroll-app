@@ -22,7 +22,7 @@ export interface Address {
 
 export type RunStatus = "draft" | "awaiting_approval" | "approved" | "issued" | "void";
 export type RequestStatus = "pending" | "approved" | "denied" | "withdrawn";
-export type ChangeRequestType = "address" | "w4" | "bank_details" | "legal_name";
+export type ChangeRequestType = "address" | "w4" | "bank_details" | "legal_name" | "tax_id";
 
 export interface PayslipSummary {
   publicId: string;
@@ -283,6 +283,8 @@ export interface AdminEmployeeDetail {
   status: string;
   address: Address | null;
   dateOfBirth: string | null;
+  /** Presence flag only (spec 11) — the TIN itself never reaches the browser. */
+  hasTaxId: boolean;
   user: {
     id: string;
     email: string | null;
@@ -397,6 +399,7 @@ async function request<T>(method: string, path: string, body?: unknown): Promise
 const get = <T>(path: string) => request<T>("GET", path);
 const post = <T>(path: string, body?: unknown) => request<T>("POST", path, body ?? {});
 const put = <T>(path: string, body: unknown) => request<T>("PUT", path, body);
+const patch = <T>(path: string, body: unknown) => request<T>("PATCH", path, body);
 
 function qs(params: Record<string, string | number | boolean | undefined>): string {
   const search = new URLSearchParams();
@@ -450,6 +453,9 @@ export const changeRequestsApi = {
     post<{ request: ChangeRequest }>(`/api/change-requests/${publicId}/deny`, { reason }),
   withdraw: (publicId: string) =>
     post<{ request: ChangeRequest }>(`/api/change-requests/${publicId}/withdraw`),
+  /** Admin-only reveal-on-demand for tax_id requests (spec 11 D21; audit-logged). */
+  revealTaxId: (publicId: string) =>
+    get<{ taxId: string }>(`/api/change-requests/${publicId}/reveal-tax-id`),
 };
 
 export const myApi = {
@@ -533,6 +539,9 @@ export const adminEmployeesApi = {
     employeeId: number,
     input: { status: "active" | "terminated"; terminationDate?: string },
   ) => post<{ employee: AdminEmployeeDetail }>(`/api/admin/employees/${employeeId}/status`, input),
+  /** Spec 11 (D20a): admin direct-set of the employee TIN (write-only). */
+  setTaxId: (employeeId: number, input: { taxId: string }) =>
+    patch<{ employee: AdminEmployeeDetail }>(`/api/admin/employees/${employeeId}`, input),
 };
 
 export const adminUsersApi = {
@@ -549,7 +558,7 @@ export const adminNotificationsApi = {
 
 export const adminSettingsApi = {
   company: () => get<{ company: CompanyProfile }>("/api/admin/company"),
-  putCompany: (input: { legalName: string; address?: Address }) =>
+  putCompany: (input: { legalName: string; address?: Address; ein?: string }) =>
     put<{ company: CompanyProfile }>("/api/admin/company", input),
   authEvents: (input: { limit?: number; offset?: number } = {}) =>
     get<Paged<AuthEventRow>>(`/api/admin/audit/auth-events${qs(input)}`),
