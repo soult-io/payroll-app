@@ -89,7 +89,7 @@ function employeeName(id: number): string {
               <RouterLink :to="{ name: 'admin-request-detail', params: { publicId: r.publicId } }">
                 {{ r.employeeName ?? `Employee #${r.employeeId}` }} — {{ requestTypeLabel(r.requestType) }}
               </RouterLink>
-              <p class="muted small">submitted {{ date(r.submittedAt) }} · effective {{ date(r.effectiveFrom) }}</p>
+              <p class="muted small">submitted {{ dateTime(r.submittedAt) }} · effective {{ date(r.effectiveFrom) }}</p>
             </div>
             <StatusChip :status="r.status" />
           </li>

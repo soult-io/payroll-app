@@ -17,7 +17,7 @@ import { useDates } from "../../composables/useDates";
 import { useNotify } from "../../composables/useNotify";
 
 const router = useRouter();
-const { date } = useDates();
+const { date, dateTime } = useDates();
 const notify = useNotify();
 
 const loading = ref(true);
@@ -79,7 +79,7 @@ onMounted(load);
           <template #body="{ data }">{{ date(data.effectiveFrom) }}</template>
         </Column>
         <Column header="Submitted">
-          <template #body="{ data }">{{ date(data.submittedAt) }}</template>
+          <template #body="{ data }">{{ dateTime(data.submittedAt) }}</template>
         </Column>
         <Column header="Status">
           <template #body="{ data }"><StatusChip :status="data.status" /></template>

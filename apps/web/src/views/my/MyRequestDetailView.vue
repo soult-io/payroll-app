@@ -21,7 +21,7 @@ import { useNotify } from "../../composables/useNotify";
 const route = useRoute();
 const router = useRouter();
 const confirm = useConfirm();
-const { date } = useDates();
+const { date, dateTime } = useDates();
 const notify = useNotify();
 
 const publicId = route.params.publicId as string;
@@ -116,11 +116,11 @@ onMounted(load);
           <dt>Effective from</dt>
           <dd>{{ date(request.effectiveFrom) }}</dd>
           <dt>Submitted</dt>
-          <dd>{{ date(request.submittedAt) }}</dd>
+          <dd>{{ dateTime(request.submittedAt) }}</dd>
           <dt v-if="request.decidedAt">Decided</dt>
-          <dd v-if="request.decidedAt">{{ date(request.decidedAt) }}</dd>
+          <dd v-if="request.decidedAt">{{ dateTime(request.decidedAt) }}</dd>
           <dt v-if="request.appliedAt">Applied</dt>
-          <dd v-if="request.appliedAt">{{ date(request.appliedAt) }}</dd>
+          <dd v-if="request.appliedAt">{{ dateTime(request.appliedAt) }}</dd>
         </dl>
       </section>
 

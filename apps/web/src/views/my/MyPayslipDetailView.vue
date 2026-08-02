@@ -18,7 +18,7 @@ import { useNotify } from "../../composables/useNotify";
 
 const route = useRoute();
 const { money } = useMoney();
-const { date } = useDates();
+const { date, dateTime } = useDates();
 const notify = useNotify();
 
 const loading = ref(true);
@@ -124,7 +124,7 @@ const eff = computed(() =>
           <dt>Snapshot hash</dt>
           <dd class="mono">{{ payslip.snapshotHash.slice(0, 16) }}…</dd>
           <dt>Issued</dt>
-          <dd>{{ date(payslip.issuedAt) }}</dd>
+          <dd>{{ dateTime(payslip.issuedAt) }}</dd>
         </dl>
       </section>
     </div>
