@@ -42,10 +42,14 @@ const statusOptions = [
 ];
 
 const yearFilter = ref<number | null>(new Date().getFullYear());
-const yearOptions = [null, 2026, 2025, 2024].map((y) => ({
-  label: y ? String(y) : "All years",
-  value: y,
-}));
+/**
+ * Year options derived from the DATA (never hardcoded — the original
+ * [2026, 2025, 2024] list would silently rot every January), plus the
+ * current year even when it has no runs yet, so drafts can be reviewed.
+ */
+const yearOptions = ref<{ label: string; value: number | null }[]>([
+  { label: "All years", value: null },
+]);
 
 const ENTRY_LABELS: [string, string][] = [
   ["grossPay", "Gross pay"],
@@ -86,8 +90,20 @@ watch([statusFilter, yearFilter], load);
 
 onMounted(async () => {
   try {
-    const { employees } = await adminEmployeesApi.list();
+    const [{ employees }, { runs: allRuns }] = await Promise.all([
+      adminEmployeesApi.list(),
+      adminPayrollApi.runs(), // unfiltered: the source of the dynamic year options
+    ]);
     employeeNames.value = new Map(employees.map((e) => [e.id, e.legalName]));
+    const years = [...new Set(allRuns.map((r) => Number(r.periodStart.slice(0, 4))))].sort(
+      (a, b) => b - a,
+    );
+    const current = new Date().getFullYear();
+    if (!years.includes(current)) years.unshift(current);
+    yearOptions.value = [
+      { label: "All years", value: null },
+      ...years.map((y) => ({ label: String(y), value: y })),
+    ];
   } catch (err) {
     notify.error(err, "Could not load employees");
   }
