@@ -116,6 +116,18 @@ Activates the D10 1099 future per `specs/contractors.md` (Spec 10) with research
 - **D18** — Export API extended: `GET /api/export/contractor-payments?year=YYYY` behind
   the existing read-only export token
 
+## D19–D21 — PII capture (company EIN + employee TIN)  `CONFIRMED by owner 2026-08-03 ("approved as written")`
+
+Per `specs/pii-capture.md` (Spec 11); reverses interview E10 (initial values were never
+captured, so edit paths are needed after all):
+
+- **D19** — Company EIN admin-editable in company settings: validated, encrypted at rest,
+  write-only (masked reads), masked audit before/after, no approval loop
+- **D20** — Employee TIN two paths: admin direct set (backfill) + employee `'tax_id'`
+  change request with encrypted-at-rest payload (ciphertext only in change_requests /
+  comments / audit / notifications)
+- **D21** — TIN in admin review UI masked by default with explicit reveal control
+
 ---
 
 ## After sign-off
