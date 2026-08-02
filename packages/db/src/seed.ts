@@ -11,7 +11,13 @@
 import { sql } from "drizzle-orm";
 import type { PostgresJsDatabase } from "drizzle-orm/postgres-js";
 import { TAX_CONFIG, TAX_CONFIG_2025, type TaxConfig } from "@payroll/engine";
-import { company, paySchedules, taxBrackets, taxConfig } from "./schema.js";
+import {
+  company,
+  contractorReportingConfig,
+  paySchedules,
+  taxBrackets,
+  taxConfig,
+} from "./schema.js";
 import type * as schema from "./schema.js";
 
 export type SeedDb = PostgresJsDatabase<typeof schema>;
@@ -82,11 +88,36 @@ async function seedPaySchedule(db: SeedDb): Promise<void> {
   });
 }
 
+/**
+ * Spec 10 §3: dated 1099-NEC thresholds — $600 through 2025, $2,000 for 2026
+ * (OBBBA, inflation-indexed annually from 2027). Lookup falls back to the
+ * latest earlier row, so one 2025 row covers every year ≤ 2025 and 2026
+ * covers 2027+ until an admin enters the indexed figure.
+ */
+async function seedContractorReportingConfig(db: SeedDb): Promise<void> {
+  await db
+    .insert(contractorReportingConfig)
+    .values([
+      {
+        taxYear: 2025,
+        necThreshold: "600.00",
+        note: "Federal 1099-NEC threshold in effect through 2025",
+      },
+      {
+        taxYear: 2026,
+        necThreshold: "2000.00",
+        note: "OBBBA (July 2025); inflation-indexed annually from 2027",
+      },
+    ])
+    .onConflictDoNothing({ target: [contractorReportingConfig.taxYear] });
+}
+
 /** Run all seeds. Returns a summary for CLI output / test assertions. */
 export async function seedDatabase(db: SeedDb): Promise<{ done: true }> {
   await seedCompany(db);
   await seedTaxConfig(db, TAX_CONFIG_2025);
   await seedTaxConfig(db, TAX_CONFIG);
   await seedPaySchedule(db);
+  await seedContractorReportingConfig(db);
   return { done: true };
 }

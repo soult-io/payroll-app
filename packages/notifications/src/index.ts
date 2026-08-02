@@ -21,6 +21,12 @@ export const EVENT_TYPE = {
   securityLoginNewDevice: "security_login_new_device",
   /** Admin observability test email (spec admin settings page). */
   adminTestEmail: "admin_test_email",
+  /** Spec 10 — contractor invoice workflow + W-8 form lifecycle. */
+  contractorInvoiceSubmitted: "contractor_invoice_submitted",
+  contractorInvoiceReviewed: "contractor_invoice_reviewed",
+  contractorInvoicePaid: "contractor_invoice_paid",
+  contractorFormExpiring: "contractor_form_expiring",
+  contractorFormExpired: "contractor_form_expired",
 } as const;
 
 export type EventType = (typeof EVENT_TYPE)[keyof typeof EVENT_TYPE];
@@ -32,6 +38,20 @@ export const WORKFLOW_EVENTS: readonly EventType[] = [
   EVENT_TYPE.changeRequestSubmitted,
   EVENT_TYPE.changeRequestApproved,
   EVENT_TYPE.changeRequestDenied,
+];
+
+/**
+ * Spec 10 contractor events — compliance notices to admins (form expiry,
+ * payment gate) and contractor-facing invoice lifecycle mail. Always on: not
+ * part of the five toggleable workflow events (the settings surface is
+ * unchanged from spec 6).
+ */
+export const CONTRACTOR_EVENTS: readonly EventType[] = [
+  EVENT_TYPE.contractorInvoiceSubmitted,
+  EVENT_TYPE.contractorInvoiceReviewed,
+  EVENT_TYPE.contractorInvoicePaid,
+  EVENT_TYPE.contractorFormExpiring,
+  EVENT_TYPE.contractorFormExpired,
 ];
 
 export const SECURITY_EVENTS: readonly EventType[] = [
@@ -213,5 +233,95 @@ export function adminTestEmail(ctx: TemplateContext, data: { by: string }): Rend
     "test email",
     body,
     `Test email from ${ctx.companyName} Payroll admin settings (requested by ${data.by}). SMTP delivery is working.`,
+  );
+}
+
+// ---------------------------------------------------------------------------
+// Spec 10 — contractor invoice workflow + W-8 form lifecycle
+// ---------------------------------------------------------------------------
+
+const TAX_FORM_LABELS: Record<string, string> = {
+  w9: "W-9",
+  w8ben: "W-8BEN",
+  w8ben_e: "W-8BEN-E",
+  w8eci: "W-8ECI",
+};
+
+export function taxFormLabel(taxForm: string): string {
+  return TAX_FORM_LABELS[taxForm] ?? taxForm.toUpperCase();
+}
+
+/** Admin: a contractor self-submitted an invoice (D16 portal; V1 invoices are admin-entered). */
+export function contractorInvoiceSubmitted(
+  ctx: TemplateContext,
+  data: { contractorName: string; description: string },
+): RenderedEmail {
+  const body = `<p><strong>${escapeHtml(data.contractorName)}</strong> submitted an invoice: ${escapeHtml(data.description)}.</p><p><a href="${ctx.appUrl}">Log in to review it</a>.</p>`;
+  return email(
+    ctx,
+    "contractor invoice submitted",
+    body,
+    `${data.contractorName} submitted an invoice (${data.description}). Log in to review it: ${ctx.appUrl}`,
+  );
+}
+
+/** Contractor: their invoice was approved or rejected (no amounts). */
+export function contractorInvoiceReviewed(
+  ctx: TemplateContext,
+  data: { description: string; approved: boolean; note: string | null },
+): RenderedEmail {
+  const decision = data.approved ? "approved" : "rejected";
+  const notePart = data.note ? ` Note: ${escapeHtml(data.note)}` : "";
+  const body = `<p>Your invoice (${escapeHtml(data.description)}) was <strong>${decision}</strong>.${notePart}</p><p><a href="${ctx.appUrl}">Log in to view details</a>.</p>`;
+  const textNote = data.note ? ` Note: ${data.note}` : "";
+  return email(
+    ctx,
+    `invoice ${decision}`,
+    body,
+    `Your invoice (${data.description}) was ${decision}.${textNote} Log in to view details: ${ctx.appUrl}`,
+  );
+}
+
+/** Contractor: payment recorded against their invoice. */
+export function contractorInvoicePaid(
+  ctx: TemplateContext,
+  data: { description: string; payDate: string },
+): RenderedEmail {
+  const body = `<p>Payment for your invoice (${escapeHtml(data.description)}) was recorded, pay date ${data.payDate}.</p><p><a href="${ctx.appUrl}">Log in to view details</a>.</p>`;
+  return email(
+    ctx,
+    "invoice paid",
+    body,
+    `Payment for your invoice (${data.description}) was recorded, pay date ${data.payDate}. Log in to view details: ${ctx.appUrl}`,
+  );
+}
+
+/** Admin: a contractor's W-8 expires within 30 days — collect a renewal before the payment gate re-arms. */
+export function contractorFormExpiring(
+  ctx: TemplateContext,
+  data: { contractorName: string; taxForm: string; expiresAt: string; daysLeft: number },
+): RenderedEmail {
+  const form = taxFormLabel(data.taxForm);
+  const body = `<p>The <strong>${form}</strong> on file for <strong>${escapeHtml(data.contractorName)}</strong> expires on ${data.expiresAt} (${data.daysLeft} days). Collect a renewal — payments are blocked once the form expires.</p><p><a href="${ctx.appUrl}">Log in to update the record</a>.</p>`;
+  return email(
+    ctx,
+    `contractor ${form} expiring`,
+    body,
+    `The ${form} on file for ${data.contractorName} expires on ${data.expiresAt} (${data.daysLeft} days). Collect a renewal — payments are blocked once the form expires: ${ctx.appUrl}`,
+  );
+}
+
+/** Admin: a contractor's form expired — the payment gate has re-armed. */
+export function contractorFormExpired(
+  ctx: TemplateContext,
+  data: { contractorName: string; taxForm: string; expiresAt: string },
+): RenderedEmail {
+  const form = taxFormLabel(data.taxForm);
+  const body = `<p>The <strong>${form}</strong> on file for <strong>${escapeHtml(data.contractorName)}</strong> expired on ${data.expiresAt}. Payments are blocked until a new form is collected.</p><p><a href="${ctx.appUrl}">Log in to update the record</a>.</p>`;
+  return email(
+    ctx,
+    `contractor ${form} expired`,
+    body,
+    `The ${form} on file for ${data.contractorName} expired on ${data.expiresAt}. Payments are blocked until a new form is collected: ${ctx.appUrl}`,
   );
 }

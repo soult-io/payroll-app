@@ -451,7 +451,152 @@ export const timeOff = pgTable(
 );
 
 // ---------------------------------------------------------------------------
-// 8. Step-2: setup tokens (spec 3 — invite/reset machinery)
+// 8. Spec 10 — 1099 contractors (classification & tax-forms layer)
+// ---------------------------------------------------------------------------
+
+/**
+ * 1:1 with employees where employment_type='1099' (spec 10 §1). tax_status is
+ * STATUS, not location: a US citizen abroad is still 'us_person'. tin is
+ * encrypted at rest like employees.tax_id. form_expires_at for w8ben/w8ben_e
+ * is computed app-side (collected + 3 calendar years); w9 has no expiry.
+ */
+export const contractorDetails = pgTable(
+  "contractor_details",
+  {
+    id: serial("id").primaryKey(),
+    employeeId: integer("employee_id")
+      .notNull()
+      .references(() => employees.id),
+    taxStatus: text("tax_status").notNull(),
+    entityType: text("entity_type").notNull(),
+    /** ISO-3166; required app-side when tax_status='nonresident'. */
+    residenceCountry: text("residence_country"),
+    /** SSN/EIN/foreign TIN — encrypted at rest (app-level AES-256-GCM). */
+    tin: text("tin"),
+    taxForm: text("tax_form").notNull(),
+    /** NULL = form outstanding (blocks payment, spec 10 §4). */
+    formCollectedAt: date("form_collected_at"),
+    formExpiresAt: date("form_expires_at"),
+    /** TRUE → withhold 24% (missing/incorrect TIN, IRS notice). */
+    backupWithholding: boolean("backup_withholding").notNull().default(false),
+    /** Contractor's assertion of where work is physically performed. */
+    servicesLocation: text("services_location").notNull().default("foreign"),
+    /** [{year, days, note}] — sourcing documentation; presence of US days triggers 1042-S review. */
+    usDaysLog: jsonb("us_days_log").notNull().default(sql`'[]'::jsonb`),
+    createdAt: createdAt(),
+    updatedAt: updatedAt(),
+  },
+  (t) => [
+    unique("contractor_details_employee_uniq").on(t.employeeId),
+    check(
+      "contractor_details_tax_status_check",
+      sql`${t.taxStatus} IN ('us_person','nonresident')`,
+    ),
+    check("contractor_details_entity_type_check", sql`${t.entityType} IN ('individual','entity')`),
+    check(
+      "contractor_details_tax_form_check",
+      sql`${t.taxForm} IN ('w9','w8ben','w8ben_e','w8eci')`,
+    ),
+    check(
+      "contractor_details_services_location_check",
+      sql`${t.servicesLocation} IN ('foreign','us','mixed')`,
+    ),
+  ],
+);
+
+/**
+ * Contractors are paid against INVOICES, not periods (spec 10 §2) — separate
+ * from payroll_runs: no snapshot, no engine, no payslip. Status transitions
+ * are guarded app-side: submitted→approved|rejected, approved→paid, any→void
+ * (void requires a note; paid is otherwise terminal).
+ */
+export const contractorInvoices = pgTable(
+  "contractor_invoices",
+  {
+    id: serial("id").primaryKey(),
+    employeeId: integer("employee_id")
+      .notNull()
+      .references(() => employees.id),
+    /** Contractor's own reference/number. */
+    invoiceRef: text("invoice_ref"),
+    description: text("description").notNull(),
+    amount: money("amount").notNull(),
+    /** v1: recorded as USD at payment. */
+    currency: text("currency").notNull().default("USD"),
+    invoiceDate: date("invoice_date").notNull(),
+    status: text("status").notNull().default("submitted"),
+    /** user.id if contractor self-submits (D16 deferred); NULL = admin-entered. */
+    submittedBy: text("submitted_by"),
+    /** review_* doubles as void bookkeeping (who/when/note). */
+    reviewedBy: text("reviewed_by"),
+    reviewedAt: timestamp("reviewed_at", { withTimezone: true }),
+    reviewNote: text("review_note"),
+    createdAt: createdAt(),
+  },
+  (t) => [
+    check("contractor_invoices_amount_check", sql`${t.amount} > 0`),
+    check(
+      "contractor_invoices_status_check",
+      sql`${t.status} IN ('submitted','approved','rejected','paid','void')`,
+    ),
+  ],
+);
+
+/**
+ * 1:1 with contractor_invoices in v1 (one payment settles one invoice).
+ * method drives the 1099-NEC carve-out: card/third_party_network payments are
+ * EXCLUDED from the payer's 1099-NEC (the processor files 1099-K).
+ */
+export const contractorPayments = pgTable(
+  "contractor_payments",
+  {
+    id: serial("id").primaryKey(),
+    invoiceId: integer("invoice_id")
+      .notNull()
+      .references(() => contractorInvoices.id),
+    payDate: date("pay_date").notNull(),
+    /** USD actually paid. */
+    amount: money("amount").notNull(),
+    /** NULL if the invoice was already USD. */
+    exchangeRate: numeric("exchange_rate", { precision: 12, scale: 6 }),
+    method: text("method").notNull(),
+    /** 24% of amount when contractor_details.backup_withholding. */
+    backupWithheld: money("backup_withheld").notNull().default("0"),
+    /** Check #, wire ref, transaction id. */
+    reference: text("reference"),
+    createdAt: createdAt(),
+  },
+  (t) => [
+    unique("contractor_payments_invoice_uniq").on(t.invoiceId),
+    check(
+      "contractor_payments_method_check",
+      sql`${t.method} IN ('ach','check','wire','card','third_party_network')`,
+    ),
+  ],
+);
+
+/**
+ * Dated 1099-NEC reporting thresholds (spec 10 §3) — same versioned-config
+ * pattern as tax_config, never a hardcoded constant. Seeded $600 through
+ * 2025, $2,000 for 2026 (OBBBA, inflation-indexed annually from 2027);
+ * admin-editable per year. Lookup: exact year, else latest earlier row.
+ */
+export const contractorReportingConfig = pgTable(
+  "contractor_reporting_config",
+  {
+    id: serial("id").primaryKey(),
+    taxYear: integer("tax_year").notNull(),
+    necThreshold: money("nec_threshold").notNull(),
+    /** e.g. statutory source / indexing note. */
+    note: text("note").notNull().default(""),
+    createdAt: createdAt(),
+    updatedAt: updatedAt(),
+  },
+  (t) => [unique("contractor_reporting_config_year_uniq").on(t.taxYear)],
+);
+
+// ---------------------------------------------------------------------------
+// 9. Step-2: setup tokens (spec 3 — invite/reset machinery)
 // ---------------------------------------------------------------------------
 
 /**
@@ -480,7 +625,7 @@ export const setupTokens = pgTable(
 );
 
 // ---------------------------------------------------------------------------
-// 9. Step-6: legacy migration ledger (spec 9 — migration & cutover)
+// 10. Step-6: legacy migration ledger (spec 9 — migration & cutover)
 // ---------------------------------------------------------------------------
 
 /**

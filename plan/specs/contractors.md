@@ -1,6 +1,6 @@
 # Spec 10 — 1099 Contractors (domestic & international)
 
-Status: `DRAFT — awaiting owner sign-off` · Depends on: Spec 1 (data model), Spec 5 (documents), export API · Factual basis: `plan/research/contractors.md` · Activates: D10 (1099 invoicing future)
+Status: `APPROVED 2026-08-02 — implemented` · Depends on: Spec 1 (data model), Spec 5 (documents), export API · Factual basis: `plan/research/contractors.md` · Activates: D10 (1099 invoicing future)
 
 Scope: everything needed to onboard, pay, and year-end-report 1099 contractors — US-person
 and non-US-resident — as first-class records alongside W-2 employees. Explicitly **not** in
@@ -157,5 +157,5 @@ package. Documented in docs/export-api.md.
 
 ## Owner sign-off
 
-- [ ] Approved as written
+- [x] Approved as written
 - [ ] Approved with changes (list):

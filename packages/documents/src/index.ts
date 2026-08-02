@@ -419,3 +419,9 @@ export async function renderPayslipPdf(snapshot: PayslipSnapshot): Promise<Buffe
   const doc = pdfMake.createPdf(buildPayslipDoc(snapshot));
   return doc.getBuffer();
 }
+
+export {
+  renderNec1099Pdf,
+  type Nec1099Address,
+  type Nec1099Input,
+} from "./nec-1099.js";

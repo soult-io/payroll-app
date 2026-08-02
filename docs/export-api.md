@@ -108,6 +108,76 @@ employee_id,period_start,period_end,pay_date,status,snapshot_hash,gross_pay,fede
 
 The company header is JSON-only; CSV consumers key on one known company.
 
+## Contractor payments (Spec 10, D18)
+
+```
+GET /api/export/contractor-payments?year=YYYY
+```
+
+Per-contractor payments export for the January 1099/945 package. Same auth,
+same read-only + audited doctrine (`action=export.contractor_payments`), same
+no-surplus-PII rule: **no TIN, no bank details, no personal address** — the
+only address-like data is the company header (`legalName`, decrypted `ein`).
+
+| Param  | Default    | Notes                              |
+| ------ | ---------- | ---------------------------------- |
+| `year` | (required) | Tax year `YYYY`; keyed on pay_date |
+
+### JSON response
+
+```json
+{
+  "company": { "legalName": "SOULT IO LTD", "ein": "12-3456789" },
+  "year": 2026,
+  "threshold": "2000.00",
+  "contractors": [
+    {
+      "employeeId": 7,
+      "legalName": "Casey Contractor",
+      "taxStatus": "us_person",
+      "entityType": "individual",
+      "form": { "taxForm": "w9", "collected": true, "formExpiresAt": null, "expired": false },
+      "review1042": false,
+      "payments": [
+        { "payDate": "2026-03-15", "amount": "2500.00", "method": "ach", "backupWithheld": "600.00", "reference": "ach-123" }
+      ],
+      "reportableTotal": "2500.00",
+      "grossTotal": "3400.00",
+      "backupWithheldTotal": "816.00",
+      "threshold": "2000.00",
+      "formRequired": true
+    }
+  ]
+}
+```
+
+- `threshold` is the dated federal 1099-NEC threshold for the year (from
+  `contractor_reporting_config`: $600 through 2025, $2,000 for 2026,
+  inflation-indexed from 2027; admin-editable per year). Missing config →
+  `409 no_threshold_config`.
+- `reportableTotal` EXCLUDES payments by `card` / `third_party_network` — the
+  processor reports those on Form 1099-K (the carve-out prevents
+  double-reporting). `grossTotal` is everything.
+- `formRequired` = US person **and** `reportableTotal ≥ threshold` **and** no
+  1042-S review flag. Below-threshold contractors are included with
+  `formRequired: false` — the threshold decision is visible, never silent.
+- `review1042` = `us_days_log` non-empty or `services_location` us/mixed → the
+  contractor needs a **1042-S review** instead of a 1099-NEC (detection only;
+  1042-S generation is out of scope, Spec 10 §7).
+- `backupWithheldTotal` feeds the Form 945 reminder (24% backup withholding is
+  reported on 1099-NEC box 4 and remitted via Form 945).
+- Payments on void invoices are excluded from totals.
+- All amounts are **strings to the cent** — parse as decimal, never float.
+
+### Errors
+
+| Code | Meaning                                             |
+| ---- | --------------------------------------------------- |
+| 400  | `invalid_year` (year required as `YYYY`)            |
+| 401  | missing or wrong bearer token                       |
+| 409  | `no_threshold_config` (run seeds / enter the year)  |
+| 503  | export disabled (no `export-token` in SECRETS_DIR)  |
+
 ## Aggregation recipes (Accountant)
 
 - **Monthly 941 deposit** for month M (`from=YYYY-MM-01&to=YYYY-MM-<last>`):

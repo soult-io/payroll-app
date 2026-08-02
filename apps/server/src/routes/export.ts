@@ -25,6 +25,7 @@ import { and, asc, eq, gte, inArray, lte } from "drizzle-orm";
 import { auditEvents, company, payrollEntries, payrollRuns } from "@payroll/db";
 import type { AppConfig } from "../config.js";
 import { decryptField } from "../crypto/field-encryption.js";
+import { ContractorServiceError, yearEndSummary } from "../contractors/service.js";
 import type { Db } from "../db.js";
 
 export const EXPORT_ACTOR = "service:export";
@@ -255,6 +256,79 @@ export function registerExportRoutes(app: FastifyInstance, deps: ExportDeps): vo
       status: "issued",
       range: { from: params.from ?? null, to: params.to ?? null },
       runs: runsPayload,
+    };
+  });
+
+  /**
+   * Spec 10 §5 (D18): contractor-payments export for the Accountant agent's
+   * January 1099/945 package. Per contractor: classification + form status +
+   * payments + reportable total (1099-K carve-out applied) + dated threshold
+   * + form-required flag. NO TIN, no bank details, no personal address —
+   * same PII doctrine as the payroll export. Read-only + audited.
+   */
+  app.get("/api/export/contractor-payments", async (req, reply) => {
+    if (!(await authorize(req, reply, config))) return;
+
+    const q = req.query as { year?: string };
+    if (!q.year || !/^\d{4}$/.test(q.year)) {
+      return badRequest(reply, "invalid_year", "year is required as YYYY");
+    }
+    const year = Number(q.year);
+
+    let summary: Awaited<ReturnType<typeof yearEndSummary>>;
+    try {
+      summary = await yearEndSummary(db, year);
+    } catch (err) {
+      if (err instanceof ContractorServiceError && err.code === "no_threshold_config") {
+        return reply.code(409).send({ error: err.code, message: err.message });
+      }
+      throw err;
+    }
+
+    const [companyRow] = await db.select().from(company).limit(1);
+    const companyPayload = {
+      legalName: companyRow?.legalName ?? null,
+      ein: companyRow?.ein ? decryptField(companyRow.ein, config.encryptionKey) : null,
+    };
+
+    // Auditable access trail — one row per successful call.
+    await db.insert(auditEvents).values({
+      actorId: EXPORT_ACTOR,
+      action: "export.contractor_payments",
+      entity: "export",
+      entityId: String(year),
+      after: { year, contractorCount: summary.rows.length },
+    });
+
+    return {
+      company: companyPayload,
+      year,
+      threshold: summary.threshold,
+      contractors: summary.rows.map((row) => ({
+        employeeId: row.employeeId,
+        legalName: row.legalName,
+        taxStatus: row.taxStatus,
+        entityType: row.entityType,
+        form: {
+          taxForm: row.taxForm,
+          collected: row.formCollectedAt !== null,
+          formExpiresAt: row.formExpiresAt,
+          expired: row.formExpired,
+        },
+        review1042: row.review1042,
+        payments: row.payments.map((p) => ({
+          payDate: p.payDate,
+          amount: p.amount,
+          method: p.method,
+          backupWithheld: p.backupWithheld,
+          reference: p.reference,
+        })),
+        reportableTotal: row.reportableTotal.toFixed(2),
+        grossTotal: row.grossTotal.toFixed(2),
+        backupWithheldTotal: row.backupWithheldTotal.toFixed(2),
+        threshold: row.threshold.toFixed(2),
+        formRequired: row.formRequired,
+      })),
     };
   });
 }

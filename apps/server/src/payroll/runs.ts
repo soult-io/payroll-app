@@ -53,6 +53,7 @@ export class PayrollServiceError extends Error {
       | "invalid_transition"
       | "void_reason_required"
       | "unsupported_frequency"
+      | "not_w2_employee"
       | "no_company",
     message: string,
   ) {
@@ -164,6 +165,14 @@ export async function generateDraft(
       const employee = employeeRows[0];
       if (!employee)
         throw new PayrollServiceError("run_not_found", `employee ${input.employeeId} not found`);
+      // Spec 10 §4: only W-2 employees produce payroll drafts — hard assertion
+      // so a 1099 contractor can never enter payroll_runs even by accident.
+      if (employee.employmentType !== "w2") {
+        throw new PayrollServiceError(
+          "not_w2_employee",
+          `employee ${input.employeeId} is employment_type='${employee.employmentType}' — contractors are paid via invoices, never payroll runs (spec 10 §4)`,
+        );
+      }
       const companyRows = await tx.select().from(company).limit(1);
       const companyRow = companyRows[0];
       if (!companyRow)
@@ -362,9 +371,15 @@ export async function generateDraftsForPeriod(
   },
 ): Promise<{ generated: RunRow[]; skipped: { employeeId: number; reason: string }[] }> {
   const { db } = deps;
+  // Spec 10 §4: the bulk path filters to W-2 employees outright; the single-
+  // employee path keeps the full row so generateDraft's assertion reports
+  // not_w2_employee in `skipped` instead of silently dropping the worker.
   const employeeRows = input.employeeId
     ? await db.select().from(employees).where(eq(employees.id, input.employeeId))
-    : await db.select().from(employees).where(eq(employees.status, "active"));
+    : await db
+        .select()
+        .from(employees)
+        .where(and(eq(employees.status, "active"), eq(employees.employmentType, "w2")));
 
   const generated: RunRow[] = [];
   const skipped: { employeeId: number; reason: string }[] = [];

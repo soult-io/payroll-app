@@ -23,6 +23,7 @@ import { registerMyRoutes } from "./routes/my.js";
 import { registerAdminNotificationRoutes } from "./routes/admin-notifications.js";
 import { registerAdminEmployeeRoutes } from "./routes/admin-employees.js";
 import { registerAdminSettingsRoutes } from "./routes/admin-settings.js";
+import { registerAdminContractorRoutes } from "./routes/admin-contractors.js";
 import { registerExportRoutes } from "./routes/export.js";
 import { registerStubRoutes } from "./routes/stubs.js";
 
@@ -70,6 +71,7 @@ export async function buildApp(deps: BuildAppDeps = {}) {
   registerAdminNotificationRoutes(app, { db, config, guards });
   registerAdminEmployeeRoutes(app, { auth, db, config, guards });
   registerAdminSettingsRoutes(app, { db, config, guards });
+  registerAdminContractorRoutes(app, { db, config, guards });
   registerExportRoutes(app, { db, config });
   registerStubRoutes(app, guards);
 

@@ -23,10 +23,12 @@ import type { Db } from "../db.js";
 import type { AppConfig } from "../config.js";
 import { generateDraftsForPeriod, monthlyPeriod } from "./runs.js";
 import { drainOutbox, type MailTransport } from "../notify/outbox.js";
+import { checkContractorFormExpiry } from "../contractors/service.js";
 
 const TICK_QUEUE = "payroll-draft-tick";
 const GENERATE_QUEUE = "payroll-generate-draft";
 const OUTBOX_QUEUE = "email-outbox-drain";
+const FORM_EXPIRY_QUEUE = "contractor-form-expiry";
 
 export interface Scheduler {
   boss: PgBoss;
@@ -55,6 +57,7 @@ export async function startScheduler(deps: {
   await boss.createQueue(TICK_QUEUE);
   await boss.createQueue(GENERATE_QUEUE);
   await boss.createQueue(OUTBOX_QUEUE);
+  await boss.createQueue(FORM_EXPIRY_QUEUE);
 
   // Cron tick → enqueue per-employee generation jobs (singleton per period).
   await boss.work(TICK_QUEUE, async () => {
@@ -64,7 +67,11 @@ export async function startScheduler(deps: {
     const { year, month } = currentPeriod();
     const period = monthlyPeriod(year, month, schedule.payDayOfMonth);
 
-    const activeEmployees = await db.select({ id: employees.id }).from(employees);
+    // Spec 10 §4: contractors never enter payroll_runs — W-2 employees only.
+    const activeEmployees = await db
+      .select({ id: employees.id })
+      .from(employees)
+      .where(eq(employees.employmentType, "w2"));
     for (const employee of activeEmployees) {
       await boss.send(
         GENERATE_QUEUE,
@@ -129,11 +136,21 @@ export async function startScheduler(deps: {
     }
   });
 
+  // W-8 expiry sweep (spec 10 §4): admins are notified 30 days before a
+  // contractor's form expires and again at expiry (payment gate re-arms).
+  await boss.work(FORM_EXPIRY_QUEUE, async () => {
+    const result = await checkContractorFormExpiry({ db, config });
+    if (result.expiring + result.expired > 0) {
+      console.log(`[contractors] form expiry sweep: ${JSON.stringify(result)}`);
+    }
+  });
+
   async function syncSchedules(): Promise<void> {
     const schedules = await db.select().from(paySchedules).where(isNull(paySchedules.employeeId));
     const schedule = schedules[0];
     await boss.unschedule(TICK_QUEUE);
     await boss.unschedule(OUTBOX_QUEUE);
+    await boss.unschedule(FORM_EXPIRY_QUEUE);
     if (schedule?.active) {
       // Draft day at 09:12 local (off-peak minute), display timezone per spec 1.
       await boss.schedule(TICK_QUEUE, `12 9 ${schedule.draftDayOfMonth} * *`, null, {
@@ -142,6 +159,8 @@ export async function startScheduler(deps: {
     }
     // Outbox drain every minute (spec 6 outbox worker).
     await boss.schedule(OUTBOX_QUEUE, "47 * * * *", null, { tz: config.appTz });
+    // W-8 expiry sweep daily at 08:23 local (off-peak minute).
+    await boss.schedule(FORM_EXPIRY_QUEUE, "23 8 * * *", null, { tz: config.appTz });
   }
 
   await syncSchedules();
