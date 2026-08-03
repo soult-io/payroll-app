@@ -16,7 +16,7 @@
       "!plan",
       "!docs",
       "!pnpm-lock.yaml",
-      "!docker-compose.yml",
+      "!compose.example.yml",
       "!**/coverage"
     ]
   },

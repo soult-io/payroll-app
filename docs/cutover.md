@@ -81,19 +81,23 @@ sudo chmod 600 /srv/payroll/secrets/*
 sudo chown 10001:10001 /srv/payroll/secrets/*   # container payroll user — REQUIRED
 ```
 
-The `secrets:` blocks in `docker-compose.yml` are already wired (mounted from
-`SECRETS_HOST_DIR`, default `/srv/payroll/secrets`) — no compose edits needed.
+The `secrets:` blocks in the production compose
+(`prod/docker-compose.yml` in the private `nsoult-agentic/stack-payroll`
+deployment repo, per the spec-13 repo/stack split) are already wired — mounted
+from `SECRETS_HOST_DIR`, default `/srv/payroll/secrets` — no compose edits
+needed.
 
 ## 3. Deploy (order matters)
 
-Non-secret deploy config (BASE_URL, SMTP_*, SECRETS_HOST_DIR) is committed in
-the repo's `.env` — the mail values point at the stack-ops mailserver
-(`mail.stabpablo.eu`). Portainer GitOps reads it from the repo; for a manual
-deploy just:
+Non-secret deploy config (BASE_URL, SMTP_* against the stack-ops mailserver,
+SECRETS_HOST_DIR) lives in the stack repo's `.env` next to
+`prod/docker-compose.yml` (moved out of the app repo in the spec-13 split —
+the app repo is artifact-only now). Portainer GitOps reads it from the stack
+repo; for a manual deploy from a stack-repo checkout:
 
 ```sh
-cd /path/to/payroll
-docker compose up -d --build
+cd /path/to/stack-payroll/prod
+docker compose up -d
 ```
 
 Boot order is enforced by compose: `db` (healthy) → `app-migrate` (one-shot
@@ -248,9 +252,9 @@ docker exec payroll-app node dist/cli/create-admin.js you@example.com --name "Ad
       websockets off, TLS cert + Force SSL + HSTS. (NPM resolves the container
       by name over the shared `mcp_network`; the host loopback bind on 8927 is
       only for host-side debugging.)
-- [ ] `BASE_URL=https://payroll.stabpablo.eu` — already set in the committed
-      `.env`; no action unless the hostname changes (setup links and auth
-      trusted origins depend on it).
+- [ ] `BASE_URL=https://payroll.stabpablo.eu` — set in the stack repo's `.env`
+      (next to `prod/docker-compose.yml`); no action unless the hostname
+      changes (setup links and auth trusted origins depend on it).
 - [ ] From outside: `https://payroll.stabpablo.eu` loads; sign in as admin.
 
 ## 9. Sole-writer declaration (D4)

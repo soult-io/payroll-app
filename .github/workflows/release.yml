@@ -1,0 +1,190 @@
+name: release
+
+# Release model (spec 13, D28): prod moves only on tagged releases.
+#   release PR (CHANGELOG + version bump) → owner merges → tag vX.Y.Z pushed →
+#   THIS workflow publishes ghcr.io/soult-io/payroll-app:vX.Y.Z / vX.Y / latest
+#   and opens a prod-pin PR in nsoult-agentic/stack-payroll → owner merges →
+#   Portainer GitOps redeploys prod.
+# Two explicit owner gates: the release PR merge and the pin PR merge.
+
+on:
+  push:
+    tags:
+      - "v*.*.*"
+
+env:
+  REGISTRY: ghcr.io
+  IMAGE_NAME: ${{ github.repository }}
+  STACK_REPO: nsoult-agentic/stack-payroll
+
+jobs:
+  # Re-verify the tagged commit before publishing anything (lint/build/
+  # typecheck/unit+integration tests — same gate as CI's verify job). The tag
+  # normally points at a main commit that already passed full CI incl. e2e;
+  # this is the belt-and-suspenders check against tagging a bad commit.
+  verify:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: pnpm/action-setup@v4
+        with:
+          version: 11.17.0
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: pnpm
+
+      - name: Install
+        run: pnpm install --frozen-lockfile
+
+      - name: Lint + format (biome)
+        run: pnpm lint
+
+      # Build BEFORE typecheck: cross-package imports resolve to dist/*.d.ts,
+      # which must exist first (locally, stale dist dirs mask this).
+      - name: Build web + server + packages
+        run: pnpm -r run build
+
+      - name: Typecheck (all packages)
+        run: pnpm -r run typecheck
+
+      - name: Engine unit tests + coverage (regression oracle — spec 2)
+        run: pnpm --filter @payroll/engine exec vitest run --coverage
+
+      - name: Server integration tests + coverage (PGlite — spec 2/3/4/6)
+        run: pnpm --filter @payroll/server exec vitest run --coverage
+
+  push-image:
+    needs: [verify]
+    runs-on: ubuntu-latest
+    permissions:
+      packages: write
+      security-events: write   # Trivy SARIF upload to code scanning
+    outputs:
+      release_tag: ${{ steps.version.outputs.release_tag }}
+      minor_tag: ${{ steps.version.outputs.minor_tag }}
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Compute image tags from the git tag
+        id: version
+        run: |
+          TAG="${GITHUB_REF_NAME}"            # e.g. v1.2.3
+          MINOR="${TAG%.*}"                   # e.g. v1.2
+          echo "release_tag=${TAG}" >> "$GITHUB_OUTPUT"
+          echo "minor_tag=${MINOR}" >> "$GITHUB_OUTPUT"
+          echo "Publishing ${TAG} + ${MINOR} + latest"
+
+      - uses: docker/setup-buildx-action@v3
+
+      - uses: docker/login-action@v3
+        with:
+          registry: ${{ env.REGISTRY }}
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - uses: docker/build-push-action@v6
+        with:
+          context: .
+          push: true
+          tags: |
+            ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}:${{ steps.version.outputs.release_tag }}
+            ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}:${{ steps.version.outputs.minor_tag }}
+            ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}:latest
+          cache-from: type=gha
+          cache-to: type=gha,mode=max
+
+      # Image vulnerability gate: fail on CRITICAL (fixed) findings. SARIF
+      # upload to code scanning only when GitHub Advanced Security is available.
+      - name: Trivy image scan
+        uses: aquasecurity/trivy-action@v0.36.0
+        with:
+          image-ref: ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}:${{ steps.version.outputs.release_tag }}
+          severity: CRITICAL
+          ignore-unfixed: true
+          exit-code: "1"
+          format: table
+
+      - name: Trivy image scan (SARIF for code scanning)
+        if: github.event.repository.visibility == 'public'
+        uses: aquasecurity/trivy-action@v0.36.0
+        with:
+          image-ref: ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}:${{ steps.version.outputs.release_tag }}
+          severity: CRITICAL
+          ignore-unfixed: true
+          exit-code: "0"
+          format: sarif
+          output: trivy-results.sarif
+
+      - name: Upload Trivy SARIF
+        if: github.event.repository.visibility == 'public'
+        uses: github/codeql-action/upload-sarif@v3
+        with:
+          sarif_file: trivy-results.sarif
+
+  prod-pin:
+    # Open a PR in the stack repo pinning prod to this release. Owner merge of
+    # that PR is the second (and final) gate before Portainer redeploys prod.
+    needs: [push-image]
+    runs-on: ubuntu-latest
+    steps:
+      - name: Require STACK_REPO_TOKEN
+        env:
+          STACK_REPO_TOKEN: ${{ secrets.STACK_REPO_TOKEN }}
+        run: |
+          if [ -z "$STACK_REPO_TOKEN" ]; then
+            echo "::error::STACK_REPO_TOKEN is not set on this repo. Create a fine-grained PAT with contents+pull-requests access to ${STACK_REPO} and add it as the STACK_REPO_TOKEN Actions secret (docs/deployment.md#release-process). The image is published; re-run this job once the secret exists."
+            exit 1
+          fi
+
+      - name: Check out the stack repo
+        uses: actions/checkout@v4
+        with:
+          repository: ${{ env.STACK_REPO }}
+          token: ${{ secrets.STACK_REPO_TOKEN }}
+          path: stack
+
+      - name: Pin prod image to this release
+        working-directory: stack
+        env:
+          RELEASE_TAG: ${{ needs.push-image.outputs.release_tag }}
+        run: |
+          sed -i "s|image: ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}:.*|image: ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}:${RELEASE_TAG}|g" prod/docker-compose.yml
+          grep -n "image: ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}" prod/docker-compose.yml
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git checkout -B "release/${RELEASE_TAG}"
+          git add prod/docker-compose.yml
+          if git diff --cached --quiet; then
+            echo "prod already pinned to ${RELEASE_TAG} — nothing to do."
+            exit 0
+          fi
+          git commit -m "deploy: pin payroll-app ${RELEASE_TAG}"
+          git push -u --force-with-lease origin "release/${RELEASE_TAG}"
+
+      - name: Open the prod-pin PR
+        working-directory: stack
+        env:
+          GH_TOKEN: ${{ secrets.STACK_REPO_TOKEN }}
+          RELEASE_TAG: ${{ needs.push-image.outputs.release_tag }}
+        run: |
+          if git diff --quiet HEAD origin/main -- prod/docker-compose.yml 2>/dev/null; then
+            echo "No diff against main (already pinned) — skipping PR creation."
+            exit 0
+          fi
+          if gh pr list --repo "${{ env.STACK_REPO }}" --head "release/${RELEASE_TAG}" --state open --json number --jq length | grep -q '^[1-9]'; then
+            echo "Pin PR for release/${RELEASE_TAG} already exists — leaving it open."
+            exit 0
+          fi
+          gh pr create \
+            --repo "${{ env.STACK_REPO }}" \
+            --base main \
+            --head "release/${RELEASE_TAG}" \
+            --title "deploy: pin payroll-app ${RELEASE_TAG}" \
+            --body "Pins \`prod/docker-compose.yml\` to \`ghcr.io/${{ env.IMAGE_NAME }}:${RELEASE_TAG}\` (published by the release workflow in ${{ github.repository }} from tag ${RELEASE_TAG}).
+
+          Merging this PR is the final deploy gate: Portainer GitOps polls this repo and redeploys prod. The app-migrate one-shot runs the new schema migrations before the app boots, as usual.
+
+          Rollback: pin the previous release tag and merge."

@@ -7,9 +7,10 @@ dist/
 build/
 *.tsbuildinfo
 
-# Env & secrets — .env IS committed (non-secret deploy config, read by
-# compose interpolation). Only local overrides and secret material stay out.
-.env.local
+# Env & secrets — .env is NOT committed (spec 13: the app repo carries zero
+# personal config; deploy env lives in the stack repo / the consumer's host).
+# Only the template stays tracked.
+.env
 .env.*
 !.env.example
 secrets/

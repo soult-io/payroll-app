@@ -1,0 +1,185 @@
+# Example deployment for the payroll app — copy, adjust, deploy.
+# Worst-case footprint ≈ 1 GB (app 512m + migrate 512m one-shot + db 512m).
+#
+# Quickstart:
+#   1. cp .env.example .env            # fill in BASE_URL / SMTP_* as needed
+#   2. Create the secret files (see SECRETS at the bottom — layout + ownership)
+#   3. docker compose -f compose.example.yml up -d
+#   4. First run only: seed + create the first admin (see docs/deployment.md)
+#
+# Full guide: docs/deployment.md.
+
+name: payroll
+
+services:
+  app:
+    container_name: payroll-app
+    # `:latest` tracks the newest release. For production, pin to a release
+    # tag instead — e.g. ghcr.io/soult-io/payroll-app:v1.2.3 — and upgrade
+    # deliberately (docs/deployment.md#upgrades). Every merge to main also
+    # publishes sha-<full-sha> tags if you need a pre-release build.
+    image: ghcr.io/soult-io/payroll-app:latest
+    # To build from source instead of pulling, swap the image line for:
+    #   build:
+    #     context: .
+    #     dockerfile: Dockerfile
+    restart: unless-stopped
+    environment:
+      NODE_ENV: production
+      PORT: 8927
+      SECRETS_DIR: /run/secrets
+      DB_HOST: db
+      DB_PORT: 5432
+      DB_NAME: payroll
+      DB_USER: payroll
+      # Public URL of the app as users reach it (behind your reverse proxy,
+      # TLS terminates there). Used for setup links in invite/reset emails and
+      # auth trusted origins — must be the PUBLIC URL, not the container name.
+      BASE_URL: ${BASE_URL:-http://localhost:8927}
+      # SMTP is optional: without SMTP_HOST the app logs emails instead of
+      # sending (EMAIL_MODE=log). Password comes from the smtp-password secret
+      # file, never an env value.
+      SMTP_HOST: ${SMTP_HOST:-}
+      SMTP_PORT: ${SMTP_PORT:-587}
+      SMTP_USER: ${SMTP_USER:-}
+      SMTP_FROM: ${SMTP_FROM:-}
+      SMTP_SECURE: ${SMTP_SECURE:-false}
+    ports:
+      # Loopback-only by default; put a reverse proxy in front for TLS.
+      # PAYROLL_PORT (from .env) sets the host-side bind port; the container
+      # always listens on 8927 internally.
+      - "127.0.0.1:${PAYROLL_PORT:-8927}:8927"
+    depends_on:
+      db:
+        condition: service_healthy
+      app-migrate:
+        condition: service_completed_successfully
+    deploy:
+      resources:
+        limits:
+          memory: 512m
+          cpus: "1.0"
+    read_only: true
+    tmpfs:
+      - /tmp
+    security_opt:
+      - no-new-privileges:true
+    cap_drop:
+      - ALL
+    healthcheck:
+      test: ["CMD", "wget", "-qO-", "http://127.0.0.1:8927/health"]
+      interval: 30s
+      timeout: 5s
+      start_period: 10s
+      retries: 3
+    secrets:
+      - db-password
+      - smtp-password
+      - encryption-key
+      - session-secret
+      - export-token
+
+  app-migrate:
+    container_name: payroll-app-migrate
+    # Keep this tag identical to the app service's image tag.
+    image: ghcr.io/soult-io/payroll-app:latest
+    # One-shot: drizzle-kit migrate, then exits (seeds run once by hand — see
+    # docs/deployment.md#first-run). The app service gates boot on this
+    # completing successfully: schema always migrates before the app starts.
+    command:
+      - sh
+      - -c
+      - |
+        set -eu
+        if [ ! -r /run/secrets/db-password ]; then
+          echo "FATAL: /run/secrets/db-password is not readable by the payroll user (uid 10001)." >&2
+          echo "Host fix: chown 10001:10001 <secrets-dir>/* (compose bind-mounts preserve host ownership)." >&2
+          exit 1
+        fi
+        export DB_PASSWORD=$$(cat /run/secrets/db-password)
+        export DATABASE_URL="postgres://$${DB_USER}:$${DB_PASSWORD}@$${DB_HOST}:$${DB_PORT}/$${DB_NAME}"
+        cd /app/db && ./node_modules/.bin/drizzle-kit migrate --config drizzle.config.ts
+    environment:
+      DB_HOST: db
+      DB_PORT: 5432
+      DB_NAME: payroll
+      DB_USER: payroll
+    depends_on:
+      db:
+        condition: service_healthy
+    deploy:
+      resources:
+        limits:
+          memory: 512m
+          cpus: "1.0"
+    security_opt:
+      - no-new-privileges:true
+    cap_drop:
+      - ALL
+    secrets:
+      - db-password
+
+  db:
+    container_name: payroll-db
+    image: postgres:16-alpine
+    restart: unless-stopped
+    environment:
+      POSTGRES_DB: payroll
+      POSTGRES_USER: payroll
+      POSTGRES_PASSWORD_FILE: /run/secrets/db-password
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+    deploy:
+      resources:
+        limits:
+          memory: 512m
+          cpus: "1.0"
+    security_opt:
+      - no-new-privileges:true
+    # NO cap_drop here: the postgres image entrypoint starts as root and must
+    # chown/chmod /var/lib/postgresql/data + setuid down to the postgres user —
+    # cap_drop ALL strips CHOWN/SETUID/SETGID and initdb dies. app/app-migrate
+    # keep their cap_drop.
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U payroll -d payroll"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+      start_period: 30s
+    secrets:
+      - db-password
+
+volumes:
+  pgdata:
+
+# SECRETS — one file per secret in a host directory, mounted read-only into
+# /run/secrets. Layout (default dir ./secrets next to this file; override with
+# SECRETS_HOST_DIR in .env):
+#
+#   secrets/db-password      REQUIRED  postgres payroll role + app DB access
+#   secrets/encryption-key   REQUIRED  32 random bytes hex — AES-256-GCM for SSN/bank/EIN
+#   secrets/session-secret   REQUIRED  >= 32 random chars — session signing
+#   secrets/smtp-password    REQUIRED* SMTP password (* create the file even if
+#                                      SMTP is unused — compose requires every
+#                                      declared secret file to exist)
+#   secrets/export-token     OPTIONAL  read-only export API (docs/export-api.md);
+#                                      without it the endpoint 503s. Create the
+#                                      file anyway, or comment out this entry +
+#                                      the app service reference.
+#
+# Ownership matters: the app and migrate containers run as uid/gid 10001 and
+# bind-mounts preserve host ownership, so files must be readable by 10001:
+#   install -d -m 700 secrets
+#   openssl rand -hex 32 > secrets/encryption-key   # same for session-secret
+#   chmod 600 secrets/* && sudo chown 10001:10001 secrets/*
+secrets:
+  db-password:
+    file: ${SECRETS_HOST_DIR:-./secrets}/db-password
+  smtp-password:
+    file: ${SECRETS_HOST_DIR:-./secrets}/smtp-password
+  encryption-key:
+    file: ${SECRETS_HOST_DIR:-./secrets}/encryption-key
+  session-secret:
+    file: ${SECRETS_HOST_DIR:-./secrets}/session-secret
+  export-token:
+    file: ${SECRETS_HOST_DIR:-./secrets}/export-token

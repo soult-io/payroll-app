@@ -5,7 +5,7 @@
  *
  * Usage:
  *   pnpm create-admin <email> [--name "Admin Name"]
- *   docker compose exec app pnpm create-admin <email>
+ *   docker exec payroll-app node dist/cli/create-admin.js <email>   (container)
  */
 
 import { loadConfig } from "../config.js";

@@ -84,14 +84,14 @@ jobs:
           retention-days: 7
 
   push-image:
-    # Image is pushed only from main (spec 8). Portainer GitOps polls the repo
-    # and redeploys; compose tag rewrite happens in the deploy job (later step).
+    # Image is pushed only from main (spec 8/13). This repo is artifact-only:
+    # CI publishes sha-<full-sha> + latest tags and nothing here touches any
+    # deployment — prod moves via release.yml + a pin PR in the stack repo.
     # E2E gates the push: the image carries exactly what the journeys exercise.
     needs: [verify, e2e]
     if: github.event_name == 'push' && github.ref == 'refs/heads/main'
     runs-on: ubuntu-latest
     permissions:
-      contents: write   # push-image pins the compose tag and commits it back
       packages: write
       security-events: write   # Trivy SARIF upload to code scanning
     steps:
@@ -143,15 +143,3 @@ jobs:
         uses: github/codeql-action/upload-sarif@v3
         with:
           sarif_file: trivy-results.sarif
-
-      # Pin the compose file to this build's sha tag so Portainer GitOps
-      # (polling the repo) always deploys the image CI just pushed.
-      # [skip ci] prevents the bump commit from re-triggering this workflow.
-      - name: Pin compose image tag to this sha
-        run: |
-          sed -i "s|image: ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}:.*|image: ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}:sha-${{ github.sha }}|g" docker-compose.yml
-          git config user.name "github-actions[bot]"
-          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
-          git add docker-compose.yml
-          git diff --cached --quiet || git commit -m "deploy: pin image sha-${{ github.sha }} [skip ci]"
-          git push

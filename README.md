@@ -16,8 +16,9 @@ Node 22) that owns a dedicated Postgres 16 database via Drizzle migrations
 vendored copy of the battle-tested `payroll.ts`/`money.ts` from `stack-finance`,
 pure and deterministic, with its original unit tests as the regression oracle.
 Shared Zod schemas live in `packages/shared`. Deployment is a single
-self-contained `docker-compose.yml` (app + one-shot migrate + postgres); the
-full design — twelve locked decisions (D1–D12) and nine signed-off specs —
+self-contained container image published to ghcr (`compose.example.yml` shows
+a reference deployment: app + one-shot migrate + postgres); the full design —
+twelve locked decisions (D1–D12) and nine signed-off specs —
 lives in [plan/](plan/README.md).
 
 ## Quickstart
@@ -28,8 +29,9 @@ Prereqs: Node ≥ 22, pnpm 11 (`npm install -g pnpm`), Docker for the database.
 # 1. Install dependencies
 pnpm install
 
-# 2. Start Postgres (the compose db service works standalone for dev)
-docker compose up -d db
+# 2. Start Postgres (the example compose db service works standalone for dev)
+mkdir -p secrets && echo payroll > secrets/db-password
+docker compose -f compose.example.yml up -d db
 
 # 3. Run migrations (needs DATABASE_URL; matches the dev compose defaults)
 DATABASE_URL=postgres://payroll:payroll@localhost:5432/payroll pnpm db:migrate
@@ -46,7 +48,7 @@ Useful checks:
 
 ```sh
 pnpm -r run typecheck              # tsc / vue-tsc across all packages
-pnpm test                          # ALL tests: engine 54 + server 72 (vitest)
+pnpm test                          # ALL tests: engine 61 + server 133 (vitest)
 pnpm -r run build                  # build everything
 pnpm db:generate                   # regenerate SQL migrations from the schema
 ```
@@ -71,23 +73,37 @@ SOURCE_DATABASE_URL=postgres://…@second-brain-db:5432/second_brain \
 The full owner-side procedure (secrets, deploy order, verification, rollback)
 is in [docs/cutover.md](docs/cutover.md).
 
-## Full container deployment
+## Run it (Docker)
 
-Non-secret deploy config (BASE_URL, SMTP_* against the stack-ops mailserver,
-SECRETS_HOST_DIR) is committed in [.env](.env); secrets are files under
-`/srv/payroll/secrets/` (see [docs/cutover.md](docs/cutover.md)). Then:
+Prereqs: Docker with the compose plugin. The published image is
+`ghcr.io/soult-io/payroll-app` — no build required.
 
 ```sh
-docker compose up -d --build
+# 1. Configure — every knob is documented inline
+cp .env.example .env          # set BASE_URL; SMTP_* optional
+
+# 2. Secrets — one file per secret; the app runs as uid 10001 and must read them
+install -d -m 700 secrets
+openssl rand -hex 32 > secrets/db-password
+openssl rand -hex 32 > secrets/encryption-key
+openssl rand -hex 32 > secrets/session-secret
+touch secrets/smtp-password secrets/export-token   # placeholders are fine
+chmod 600 secrets/* && sudo chown 10001:10001 secrets/*
+
+# 3. Boot — db (healthy) → app-migrate (one-shot) → app on 127.0.0.1:8927
+docker compose -f compose.example.yml up -d
+
+# 4. First run only — seed reference data, then create the first admin
+#    (prints a single-use setup link: password + TOTP enrollment)
+docker exec payroll-app node dist/cli/seed.js
+docker exec payroll-app node dist/cli/create-admin.js you@example.com --name "Admin"
 ```
 
-For local dev, copy `.env.example` instead — it documents every knob.
-
-Boots `db` (postgres:16-alpine) → `app-migrate` (one-shot `drizzle-kit
-migrate`) → `app` on `127.0.0.1:8927` (one port everywhere: app listen port,
-host loopback bind, and the NPM upstream `payroll-app:8927` over the shared
-docker network). Secrets wiring (mounted files under `/srv/payroll/secrets/`)
-is in [docker-compose.yml](docker-compose.yml).
+For production, pin the image to a release tag (`:vX.Y.Z`) instead of
+`:latest`, and put a TLS-terminating reverse proxy in front with `BASE_URL`
+set to the public URL. The full guide — env-var reference, the SECRETS_DIR
+contract, migrate-then-boot, health endpoint, backups, upgrades, and the
+release process — is [docs/deployment.md](docs/deployment.md).
 
 ## Repo layout
 
@@ -101,8 +117,8 @@ packages/shared/    Zod schemas, types shared by server+web
 plan/               approved plan: decisions.md + specs/ (docs, not code)
 docs/               operations docs (cutover runbook)
 Dockerfile          multi-stage: build web → build server → runtime
-docker-compose.yml  self-contained: app + postgres
-.github/workflows/  CI: test → build image → push ghcr (main only)
+compose.example.yml reference deployment: app + migrate one-shot + postgres
+.github/workflows/  CI: test → build image → push ghcr (main); release.yml: tags → release images + prod-pin PR
 ```
 
 ## Database notes

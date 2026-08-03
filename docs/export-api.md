@@ -38,13 +38,15 @@ must be `0600 10001:10001` like the other secrets:
 sudo sh -c 'openssl rand -hex 32 > /srv/payroll/secrets/export-token'
 sudo chown --reference=/srv/payroll/secrets/db-password /srv/payroll/secrets/export-token
 sudo chmod --reference=/srv/payroll/secrets/db-password /srv/payroll/secrets/export-token
-# stack redeploy picks it up (declared in docker-compose.yml `secrets:`)
+# stack redeploy picks it up (declared in the prod compose `secrets:` block —
+# prod/docker-compose.yml in nsoult-agentic/stack-payroll)
 ```
 
 Note: compose requires the file to exist at deploy time once the secret is
 declared — to deploy WITHOUT the export API, comment out the `export-token`
-entries in `docker-compose.yml` (top-level `secrets:` + the `app` service
-list); the endpoint answers `503 export_disabled` when unconfigured.
+entries in the deployment's compose file (top-level `secrets:` + the `app`
+service list); the endpoint answers `503 export_disabled` when unconfigured.
+(Same rule in `compose.example.yml` for self-hosters.)
 
 ## Endpoint
 
