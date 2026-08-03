@@ -16,7 +16,7 @@ payroll/
   compose.example.yml reference deployment: app + migrate one-shot + postgres
   Dockerfile          multi-stage: build web → build server → runtime
   .github/workflows/  ci.yml: test → build image → push ghcr (sha tags, main);
-                      release.yml: v*.*.* tags → release images + prod-pin PR
+                      release.yml: v*.*.* tags → release images + GitHub release
 ```
 
 No dependency on `stack-finance` code at runtime (engine is vendored, tests included) — D9.
@@ -25,8 +25,9 @@ No dependency on `stack-finance` code at runtime (engine is vendored, tests incl
 app source + published container image, runnable by a stranger, zero personal config.
 Production deployment lives in the private stack repo `nsoult-agentic/stack-payroll`
 (`prod/docker-compose.yml`), deployed by Portainer GitOps. **Prod moves only via tagged
-releases**: release PR → owner merge → `vX.Y.Z` tag → release workflow publishes the
-image and opens a prod-pin PR in the stack repo → owner merges → Portainer redeploys.
+releases** (D28 amended 2026-08-03 — consumer pulls): release PR → owner merge →
+`vX.Y.Z` tag → release workflow publishes the image + GitHub release → the stack repo's
+own scheduled workflow opens a prod-pin PR → owner merges → Portainer redeploys.
 The old self-pinning `[skip ci]` bot in this repo is removed.
 
 ## Containers (compose.example.yml — self-contained, reusable)
@@ -49,8 +50,9 @@ Total worst-case footprint ≈ 1 GB — comfortable on the NUC alongside the exi
   the public hostname (`payroll.stabpablo.eu`) to `payroll-app:8927` with TLS + HSTS —
   that proxy config lives with the stack repo, not here.
 - **Deploy flow (your infra):** release PR → owner merge → tag `vX.Y.Z` → release
-  workflow publishes the image + opens a prod-pin PR in `nsoult-agentic/stack-payroll` →
-  owner merges → Portainer GitOps redeploys → migrate one-shot runs → app boots.
+  workflow publishes the image + GitHub release → `nsoult-agentic/stack-payroll`'s
+  scheduled pin-update workflow opens a prod-pin PR itself → owner merges → Portainer
+  GitOps redeploys → migrate one-shot runs → app boots.
 - **Deploy flow (anyone else):** clone, `cp .env.example .env`, place secrets,
   `docker compose -f compose.example.yml up -d` — nothing Kimi/NUC-specific. First admin
   via `docker exec payroll-app node dist/cli/create-admin.js <email>`.

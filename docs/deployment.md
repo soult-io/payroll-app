@@ -161,23 +161,19 @@ WebSockets are not required.
 ## Release process (for maintainers of this repo)
 
 Prod moves only through tagged releases — two explicit approvals (spec 13,
-D28):
+D28 amended 2026-08-03: **consumer pulls, producer never pushes**). This repo
+publishes artifacts only; it knows nothing about any deployment repo and holds
+no cross-repo credential.
 
 1. **Release PR** in this repo (CHANGELOG + version bump), proposed by the
    agent or a maintainer → owner reviews and merges.
 2. Tag the merge commit `vX.Y.Z` and push the tag.
 3. `.github/workflows/release.yml` re-verifies the tagged commit, publishes
    `ghcr.io/soult-io/payroll-app` tagged `vX.Y.Z` + `vX.Y` + `latest`, and
-   opens a **prod-pin PR** in the deployment repo
-   (`nsoult-agentic/stack-payroll`) updating the image tag in
-   `prod/docker-compose.yml`.
-4. **Owner merges the pin PR** → the deployment automation (Portainer GitOps)
+   creates the GitHub release.
+4. The deployment repo (`nsoult-agentic/stack-payroll`) polls for new releases
+   on a schedule and opens a **prod-pin PR** itself, using its own token.
+5. **Owner merges the pin PR** → the deployment automation (Portainer GitOps)
    redeploys prod; the migrate one-shot runs first, as always.
 
 Emergency fix = the same flow with a smaller version bump.
-
-**One-time setup:** the pin-PR step authenticates with a `STACK_REPO_TOKEN`
-Actions secret on this repo — a fine-grained PAT with **contents** and
-**pull-requests** access to the stack repo. If the secret is missing the
-release workflow fails with an explicit error after publishing the image; add
-the secret and re-run the failed `prod-pin` job.

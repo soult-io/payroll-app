@@ -118,7 +118,7 @@ plan/               approved plan: decisions.md + specs/ (docs, not code)
 docs/               operations docs (cutover runbook)
 Dockerfile          multi-stage: build web → build server → runtime
 compose.example.yml reference deployment: app + migrate one-shot + postgres
-.github/workflows/  CI: test → build image → push ghcr (main); release.yml: tags → release images + prod-pin PR
+.github/workflows/  CI: test → build image → push ghcr (main); release.yml: tags → release images + GitHub release
 ```
 
 ## Database notes

@@ -151,8 +151,12 @@ Per `specs/stack-split.md` (Spec 13):
   compose paths; two Portainer gitops stacks from one repo; secrets stay on NUC fs
 - **D27** — QA auto-follows `main` (pin-bot into stack repo); prod follows tagged
   releases only
-- **D28** — Release mechanics: release PR (agent/CI-proposed) → owner merge → tag
-  workflow → prod-pin PR → owner merge. Two explicit gates
+- **D28** — Release mechanics (AMENDED 2026-08-03, owner: consumer pulls, not producer
+  pushes): app repo only publishes artifacts (release PR → owner merge → tag → images +
+  GitHub release). Stack repo's own scheduled workflow pulls: QA auto-bumps to latest
+  main build (`[skip ci]`); prod gets a pin PR on new release tags → owner merge. Only
+  credential: a READ-ONLY upstream token held by the stack repo — no STACK_REPO_TOKEN,
+  the app repo holds nothing
 - **D29** — Repo + ghcr package private now; public flip + license choice deferred as
   a future explicit decision
 

@@ -38,18 +38,29 @@ stack-payroll/
 
 ## 3. Release model — two gates, prod moves only on releases
 
-- **QA auto-follows `main`**: on every green main build, app-repo CI commits a
-  `[skip ci]` QA-pin bump into `stack-payroll` (`qa/docker-compose.yml` → new
-  `sha-*` tag). Portainer redeploys QA automatically. QA breakage is free.
-- **Prod follows tagged releases only**, via an approval-gated workflow:
-  1. A **release PR** is opened in the app repo (CHANGELOG + version bump), proposed
-     by the agent or CI — owner reviews and merges.
-  2. Merge → release workflow tags `vX.Y.Z`, publishes the tagged images, and opens a
-     **prod-pin PR** in `stack-payroll`.
-  3. Owner merges the pin PR → Portainer redeploys prod (migrate one-shot runs first,
-     as today).
-- Nothing in prod can move without passing through a release PR and a pin PR — two
-  explicit owner approvals. Emergency fix = same workflow, smaller version bump.
+**Amended 2026-08-03 (owner: "the stack repo should be responsible for releasing our
+production / qa builds" — the original push model coupled the app repo to our ops repo,
+backwards for an OSS-style artifact). The dependency now points the right way: the app
+repo only publishes artifacts; the stack repo PULLS updates to its own pins.**
+
+- **App repo is pure**: merges to `main` → `sha-*` images; release tag `vX.Y.Z` →
+  `vX.Y.Z` + `vX.Y` + `latest` images + GitHub release. It has no knowledge of any
+  deployment repo and holds no cross-repo credential. (Release PR — CHANGELOG +
+  version bump — is still proposed by agent/CI and owner-merged; gate 1.)
+- **Stack repo owns its deployment lifecycle** via a scheduled workflow *in the stack
+  repo* (`pin-update.yml`), using its own same-repo `GITHUB_TOKEN`:
+  - **QA auto-follows `main`**: polls for the latest green `sha-*` image tag → bumps
+    `qa/docker-compose.yml` pin, commits `[skip ci]` → Portainer redeploys QA
+    automatically. QA breakage is free.
+  - **Prod follows tagged releases only**: polls for the newest `v*` release → opens a
+    **prod-pin PR** (gate 2) → owner merges → Portainer redeploys prod (migrate
+    one-shot runs first, as today).
+- The stack repo holds one **read-only upstream credential** (`UPSTREAM_READ_TOKEN`:
+  packages+contents read on `soult-io/payroll-app`) because the package/repo are
+  private — the same consumer-reads-upstream relationship the NUC already has pulling
+  images from ghcr. Nothing upstream holds any credential for the stack repo.
+- Nothing in prod can move without a release PR merge and a prod-pin PR merge — two
+  explicit owner approvals, both now on the correct side of the boundary.
 - `docs/cutover.md` and `plan/specs/deployment.md` updated to describe the new flow.
 
 ## 4. Migration steps (ordered, zero downtime)
