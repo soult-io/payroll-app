@@ -1,6 +1,6 @@
 # Spec 13 — Repo/stack split & release model
 
-Status: `DRAFT — awaiting owner sign-off` · Owner direction 2026-08-03 · Depends on: nothing (unblocks Spec 14 QA env and Plane)
+Status: `APPROVED 2026-08-03 — approved as written` · Owner direction 2026-08-03 · Depends on: nothing (unblocks Spec 14 QA env and Plane)
 
 Treat payroll-app like an open-source project: the app repo is **only** the app and a
 published container; all personal operations live in a private stack repo, matching the
@@ -73,5 +73,5 @@ stack-payroll/
 
 ## Owner sign-off
 
-- [ ] Approved as written
+- [x] Approved as written — 2026-08-03
 - [ ] Approved with changes (list):

@@ -1,6 +1,6 @@
 # Spec 14 — QA environment
 
-Status: `DRAFT — awaiting owner sign-off` · Depends on: Spec 13 (stack repo, QA compose path, auto pin-bot)
+Status: `APPROVED 2026-08-03 — approved as written` · Depends on: Spec 13 (stack repo, QA compose path, auto pin-bot)
 
 A permanent, disposable-data QA deployment for clicking through features (incl. ones the
 owner doesn't use in prod), plus a live target for real end-to-end tests. Lives in
@@ -65,5 +65,5 @@ is ever copied** (PII discipline). Personas chosen to cover the feature surface:
 
 ## Owner sign-off
 
-- [ ] Approved as written
+- [x] Approved as written — 2026-08-03
 - [ ] Approved with changes (list):

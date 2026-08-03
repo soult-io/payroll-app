@@ -1,6 +1,6 @@
 # Spec 15 — Plane (project management) deployment
 
-Status: `DRAFT — awaiting owner sign-off` · Owner direction 2026-08-03 ("ok let's go with plane") · Independent of Specs 13–14; moves to `nsoult-agentic/stack-plane` when created
+Status: `APPROVED 2026-08-03 — approved as written` · Owner direction 2026-08-03 ("ok let's go with plane") · Independent of Specs 13–14; moves to `nsoult-agentic/stack-plane` when created
 
 Self-hosted Plane Community Edition for project/feature tracking — the web UI for the
 owner, programmatic access for the agent. Follows the house convention: private gitops
@@ -56,5 +56,5 @@ official self-host file, images **pinned by version** (no `:latest`):
 
 ## Owner sign-off
 
-- [ ] Approved as written
+- [x] Approved as written — 2026-08-03
 - [ ] Approved with changes (list):

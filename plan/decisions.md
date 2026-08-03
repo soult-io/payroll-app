@@ -143,6 +143,36 @@ Per `specs/recurring-invoices.md` (Spec 12):
 - **Amendment** — contractor invoice generation runs as a SEPARATE scheduler (own
   module/registration/tick, independent of the W-2 payroll scheduler)
 
+## D26–D29 — Repo/stack split & release model  `CONFIRMED by owner 2026-08-03 ("approved as written")`
+
+Per `specs/stack-split.md` (Spec 13):
+
+- **D26** — New private `nsoult-agentic/stack-payroll` (house convention); prod/qa
+  compose paths; two Portainer gitops stacks from one repo; secrets stay on NUC fs
+- **D27** — QA auto-follows `main` (pin-bot into stack repo); prod follows tagged
+  releases only
+- **D28** — Release mechanics: release PR (agent/CI-proposed) → owner merge → tag
+  workflow → prod-pin PR → owner merge. Two explicit gates
+- **D29** — Repo + ghcr package private now; public flip + license choice deferred as
+  a future explicit decision
+
+## D30–D32 — QA environment  `CONFIRMED by owner 2026-08-03 ("approved as written")`
+
+Per `specs/qa-environment.md` (Spec 14):
+
+- **D30** — Own stack (`qa/` path), own DB, Mailpit-only email (no external SMTP by
+  construction), APP_ENV=qa banner, both schedulers enabled
+- **D31** — Synthetic-only deterministic `seed:qa`; no production data ever
+- **D32** — Playwright targets live QA via E2E_BASE_URL; nightly CI + failure→issue
+
+## D33–D35 — Plane (project management)  `CONFIRMED by owner 2026-08-03 ("approved as written")`
+
+Per `specs/plane-pm.md` (Spec 15):
+
+- **D33** — `nsoult-agentic/stack-plane`, official images version-pinned, `/srv/plane`
+- **D34** — `plane.stabpablo.eu` via NPM; no SSO (CE limitation); invite-only
+- **D35** — Agent access via service-account API key (REST first, MCP optional later)
+
 ---
 
 ## After sign-off
