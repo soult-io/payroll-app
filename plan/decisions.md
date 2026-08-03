@@ -128,6 +128,21 @@ captured, so edit paths are needed after all):
   comments / audit / notifications)
 - **D21** — TIN in admin review UI masked by default with explicit reveal control
 
+## D22–D25 — Recurring contractor invoices  `CONFIRMED by owner 2026-08-03 (with separate-scheduler amendment)`
+
+Per `specs/recurring-invoices.md` (Spec 12):
+
+- **D22** — Generated invoices arrive as `submitted`, requiring admin approval (mirrors
+  W-2 draft→approve); payments are NEVER auto-recorded (permanent non-goal)
+- **D23** — Payment-due reminder notification on the configured pay day if
+  approved-but-unpaid (absorbs any standalone reminder)
+- **D24** — Schedule model: invoice dated last-day-of-month or fixed day ≤28; payment
+  due on fixed day ≤28 of the following month
+- **D25** — Template edits affect future generations only; pause/end instead of delete
+  once used
+- **Amendment** — contractor invoice generation runs as a SEPARATE scheduler (own
+  module/registration/tick, independent of the W-2 payroll scheduler)
+
 ---
 
 ## After sign-off

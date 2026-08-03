@@ -1,6 +1,6 @@
 # Spec 12 — Recurring contractor invoices
 
-Status: `DRAFT — awaiting owner sign-off` · Depends on: Spec 10 (contractors), Spec 2 (scheduler pattern), Spec 6 (notifications) · Owner request 2026-08-03
+Status: `APPROVED 2026-08-03 — approved as written, with the separate-scheduler amendment (owner: "like the W-2 scheduler, but different")` · Depends on: Spec 10 (contractors), Spec 2 (scheduler pattern), Spec 6 (notifications) · Owner request 2026-08-03
 
 The W-2 side has a scheduler that generates a monthly payroll **draft** → admin approves →
 issued. Contractors get the same shape: a recurring template that generates an **invoice**
@@ -39,8 +39,13 @@ allowed only before its first generation; afterwards it's pause/end only (audit 
 
 ## 2. Generation
 
-- The existing scheduler gains a daily tick (alongside the payroll tick): for each active
-  template whose period invoice date is **today**, generate one invoice.
+- A **separate scheduler** for contractor invoices — same infrastructure and pattern as
+  the W-2 payroll scheduler, but its own module, registration, and tick, registered
+  independently of the payroll scheduler (owner direction 2026-08-03: "like the W-2
+  scheduler, but different, since this is for contractors"). It can be inspected,
+  logged, and if ever needed disabled without touching payroll generation.
+- Its daily tick: for each active template whose period invoice date is **today**,
+  generate one invoice.
 - Generated invoice: `invoice_date` per template rule (last day of month, or fixed day),
   `description` with `{month}`/`{year}` interpolated, `amount`/`currency` from template,
   `submitted_by = NULL`, **status = 'submitted'** — it lands in the normal approval queue
@@ -89,5 +94,5 @@ the idempotency index. Additive migration only.
 
 ## Owner sign-off
 
-- [ ] Approved as written
+- [x] Approved as written — 2026-08-03, with separate-scheduler amendment
 - [ ] Approved with changes (list):
