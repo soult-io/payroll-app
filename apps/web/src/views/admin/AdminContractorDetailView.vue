@@ -698,8 +698,9 @@ onMounted(load);
             <InputNumber id="t-amount" v-model="templateForm.amount" mode="currency" currency="USD" :min="0.01" required />
           </div>
           <div class="field">
-            <label for="t-payday">Payment due day (next month, 1–28)</label>
+            <label for="t-payday">Payment due day (1–28)</label>
             <InputNumber id="t-payday" v-model="templateForm.payDayOfMonth" :min="1" :max="28" required />
+            <small class="muted">Day of the following month the payment is due.</small>
           </div>
         </div>
         <div class="form-grid">

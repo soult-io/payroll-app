@@ -101,8 +101,22 @@ body {
 
 .form-grid {
   display: grid;
-  grid-template-columns: 1fr 1fr;
+  grid-template-columns: minmax(0, 1fr) minmax(0, 1fr);
   gap: 0 1rem;
+}
+
+/* Form controls fill their .field column (same docking principle as the
+   .p-password rule above): without this, PrimeVue wrappers keep intrinsic
+   min-widths and overflow narrow grids/dialogs. */
+.field > .p-inputnumber,
+.field > .p-inputtext,
+.field > .p-select,
+.field > .p-datepicker {
+  width: 100%;
+}
+
+.field .p-inputnumber-input {
+  width: 100%;
 }
 
 @media (max-width: 720px) {
