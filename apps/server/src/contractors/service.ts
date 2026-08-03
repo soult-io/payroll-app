@@ -170,7 +170,7 @@ async function loadContractor(
     .where(eq(employees.id, employeeId))
     .limit(1);
   const row = rows[0];
-  if (!row || row.employee.employmentType !== "1099") {
+  if (row?.employee.employmentType !== "1099") {
     throw new ContractorServiceError("not_found", `contractor ${employeeId} not found`);
   }
   return row;

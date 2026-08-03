@@ -27,6 +27,9 @@ export const EVENT_TYPE = {
   contractorInvoicePaid: "contractor_invoice_paid",
   contractorFormExpiring: "contractor_form_expiring",
   contractorFormExpired: "contractor_form_expired",
+  /** Spec 12 — recurring invoice generation + payment-due reminder. */
+  contractorRecurringGenerated: "contractor_recurring_generated",
+  contractorRecurringPaymentDue: "contractor_recurring_payment_due",
 } as const;
 
 export type EventType = (typeof EVENT_TYPE)[keyof typeof EVENT_TYPE];
@@ -52,6 +55,8 @@ export const CONTRACTOR_EVENTS: readonly EventType[] = [
   EVENT_TYPE.contractorInvoicePaid,
   EVENT_TYPE.contractorFormExpiring,
   EVENT_TYPE.contractorFormExpired,
+  EVENT_TYPE.contractorRecurringGenerated,
+  EVENT_TYPE.contractorRecurringPaymentDue,
 ];
 
 export const SECURITY_EVENTS: readonly EventType[] = [
@@ -324,5 +329,37 @@ export function contractorFormExpired(
     `contractor ${form} expired`,
     body,
     `The ${form} on file for ${data.contractorName} expired on ${data.expiresAt}. Payments are blocked until a new form is collected: ${ctx.appUrl}`,
+  );
+}
+
+// ---------------------------------------------------------------------------
+// Spec 12 — recurring contractor invoices
+// ---------------------------------------------------------------------------
+
+/** Admin: the recurring scheduler generated an invoice — it awaits approval (spec 12 §2). */
+export function contractorRecurringGenerated(
+  ctx: TemplateContext,
+  data: { contractorName: string; amountLabel: string; periodLabel: string; description: string },
+): RenderedEmail {
+  const body = `<p>Recurring invoice for <strong>${escapeHtml(data.contractorName)}</strong> — ${escapeHtml(data.amountLabel)}, ${data.periodLabel} — was generated and is awaiting your approval (${escapeHtml(data.description)}).</p><p><a href="${ctx.appUrl}">Log in to review it</a>.</p>`;
+  return email(
+    ctx,
+    "recurring invoice awaiting approval",
+    body,
+    `Recurring invoice for ${data.contractorName} — ${data.amountLabel}, ${data.periodLabel} — was generated and is awaiting your approval (${data.description}). Log in to review it: ${ctx.appUrl}`,
+  );
+}
+
+/** Admin: pay day arrived and the generated invoice is approved but unpaid (spec 12 §3). */
+export function contractorRecurringPaymentDue(
+  ctx: TemplateContext,
+  data: { contractorName: string; amountLabel: string; description: string },
+): RenderedEmail {
+  const body = `<p>Payment due today: <strong>${escapeHtml(data.contractorName)}</strong> — ${escapeHtml(data.amountLabel)} (${escapeHtml(data.description)}). The invoice is approved but no payment is recorded.</p><p><a href="${ctx.appUrl}">Log in to record the payment</a>.</p>`;
+  return email(
+    ctx,
+    "contractor payment due today",
+    body,
+    `Payment due today: ${data.contractorName} — ${data.amountLabel} (${data.description}). The invoice is approved but no payment is recorded. Log in to record the payment: ${ctx.appUrl}`,
   );
 }

@@ -1,6 +1,6 @@
 # Spec 12 — Recurring contractor invoices
 
-Status: `APPROVED 2026-08-03 — approved as written, with the separate-scheduler amendment (owner: "like the W-2 scheduler, but different")` · Depends on: Spec 10 (contractors), Spec 2 (scheduler pattern), Spec 6 (notifications) · Owner request 2026-08-03
+Status: `APPROVED 2026-08-03 — implemented` · Depends on: Spec 10 (contractors), Spec 2 (scheduler pattern), Spec 6 (notifications) · Owner request 2026-08-03
 
 The W-2 side has a scheduler that generates a monthly payroll **draft** → admin approves →
 issued. Contractors get the same shape: a recurring template that generates an **invoice**

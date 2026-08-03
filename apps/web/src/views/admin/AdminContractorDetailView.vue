@@ -23,7 +23,9 @@ import {
   adminContractorsApi,
   type ContractorDetail,
   type ContractorInvoiceRow,
+  type InvoiceDay,
   type PaymentMethod,
+  type RecurringTemplateRow,
   type TaxStatus,
   type UsDayEntry,
 } from "../../lib/api";
@@ -62,7 +64,7 @@ const expiryCountdown = computed(() => {
   if (!d?.formExpiresAt) return null;
   const ms =
     Date.parse(`${d.formExpiresAt}T00:00:00Z`) -
-    Date.parse(new Date().toISOString().slice(0, 10) + "T00:00:00Z");
+    Date.parse(`${new Date().toISOString().slice(0, 10)}T00:00:00Z`);
   return Math.round(ms / 86_400_000);
 });
 
@@ -113,11 +115,130 @@ function applyDetail(detail: ContractorDetail) {
 async function load() {
   loading.value = true;
   try {
-    applyDetail(await adminContractorsApi.detail(employeeId));
+    const [detail, recurring] = await Promise.all([
+      adminContractorsApi.detail(employeeId),
+      adminContractorsApi.recurringList(employeeId),
+    ]);
+    applyDetail(detail);
+    templates.value = recurring.templates;
   } catch (err) {
     notify.error(err, "Could not load contractor");
   } finally {
     loading.value = false;
+  }
+}
+
+// ---------------------------------------------------- recurring (spec 12)
+
+const templates = ref<RecurringTemplateRow[]>([]);
+const templateDialog = ref(false);
+const templateBusy = ref(false);
+const editingTemplate = ref<RecurringTemplateRow | null>(null);
+const templateForm = ref({
+  description: "",
+  amount: null as number | null,
+  invoiceDay: "last_day" as InvoiceDay,
+  invoiceDayOfMonth: null as number | null,
+  payDayOfMonth: null as number | null,
+  startsOn: new Date(),
+  endsOn: null as Date | null,
+});
+const endTarget = ref<RecurringTemplateRow | null>(null);
+const endDate = ref<Date | null>(null);
+const endBusy = ref(false);
+
+/** "Last day of month · pays on the 11th" — the schedule column. */
+function scheduleSummary(t: RecurringTemplateRow): string {
+  const invoice =
+    t.invoiceDay === "fixed" ? `Invoice day ${t.invoiceDayOfMonth}` : "Invoice last day of month";
+  return `${invoice} · pays on the ${t.payDayOfMonth}th of the next month`;
+}
+
+function openTemplateDialog(t?: RecurringTemplateRow) {
+  editingTemplate.value = t ?? null;
+  templateForm.value = {
+    description: t?.description ?? "",
+    amount: t ? Number(t.amount) : null,
+    invoiceDay: t?.invoiceDay ?? "last_day",
+    invoiceDayOfMonth: t?.invoiceDayOfMonth ?? null,
+    payDayOfMonth: t?.payDayOfMonth ?? null,
+    startsOn: t ? fromIso(t.startsOn)! : new Date(),
+    endsOn: fromIso(t?.endsOn ?? null),
+  };
+  templateDialog.value = true;
+}
+
+async function saveTemplate() {
+  templateBusy.value = true;
+  try {
+    const startsOn = toIso(templateForm.value.startsOn);
+    if (!startsOn || !templateForm.value.amount || !templateForm.value.payDayOfMonth) return;
+    const input = {
+      description: templateForm.value.description.trim(),
+      amount: templateForm.value.amount,
+      invoiceDay: templateForm.value.invoiceDay,
+      invoiceDayOfMonth:
+        templateForm.value.invoiceDay === "fixed" ? templateForm.value.invoiceDayOfMonth : null,
+      payDayOfMonth: templateForm.value.payDayOfMonth,
+      startsOn,
+      endsOn: templateForm.value.endsOn ? toIso(templateForm.value.endsOn)! : null,
+    };
+    if (editingTemplate.value) {
+      await adminContractorsApi.recurringUpdate(editingTemplate.value.id, input);
+      notify.success("Template updated — future generations only");
+    } else {
+      await adminContractorsApi.recurringCreate(employeeId, input);
+      notify.success("Recurring template created");
+    }
+    templateDialog.value = false;
+    await load();
+  } catch (err) {
+    notify.error(err, "Could not save template");
+  } finally {
+    templateBusy.value = false;
+  }
+}
+
+async function toggleTemplate(t: RecurringTemplateRow) {
+  try {
+    await adminContractorsApi.recurringUpdate(t.id, { active: !t.active });
+    notify.success(t.active ? "Template paused" : "Template resumed");
+    await load();
+  } catch (err) {
+    notify.error(err, "Could not update template");
+  }
+}
+
+function openEnd(t: RecurringTemplateRow) {
+  endTarget.value = t;
+  endDate.value = fromIso(t.endsOn);
+}
+
+async function saveEnd() {
+  if (!endTarget.value || !endDate.value) return;
+  endBusy.value = true;
+  try {
+    await adminContractorsApi.recurringUpdate(endTarget.value.id, {
+      endsOn: toIso(endDate.value)!,
+    });
+    notify.success("Template end date set — it retires after the last period");
+    endTarget.value = null;
+    await load();
+  } catch (err) {
+    notify.error(err, "Could not end template");
+  } finally {
+    endBusy.value = false;
+  }
+}
+
+async function removeTemplate(t: RecurringTemplateRow) {
+  try {
+    await adminContractorsApi.recurringDelete(t.id);
+    notify.success("Template deleted");
+    await load();
+  } catch (err) {
+    // D25: delete is blocked after the first generation — server names it.
+    notify.error(err, "Could not delete template");
   }
 }
 
@@ -373,6 +494,69 @@ onMounted(load);
 
     <div class="card">
       <div class="row" style="justify-content: space-between; align-items: center">
+        <h3 style="margin: 0">Recurring</h3>
+        <Button label="New template" icon="pi pi-plus" size="small" @click="openTemplateDialog()" />
+      </div>
+      <DataTable :value="templates" :loading="loading" striped-rows>
+        <template #empty>
+          <EmptyState
+            icon="pi pi-replay"
+            title="No recurring templates"
+            body="A template generates an invoice each period into the normal approval queue."
+          />
+        </template>
+        <Column header="Template">
+          <template #body="{ data }">
+            {{ data.description }}
+            <div class="muted small">since {{ date(data.startsOn) }}<template v-if="data.endsOn"> · ends {{ date(data.endsOn) }}</template></div>
+          </template>
+        </Column>
+        <Column header="Amount">
+          <template #body="{ data }">{{ money(data.amount) }} {{ data.currency }}</template>
+        </Column>
+        <Column header="Schedule">
+          <template #body="{ data }">
+            {{ scheduleSummary(data) }}
+            <div class="muted small">
+              <template v-if="data.nextGenerationOn">next invoice {{ date(data.nextGenerationOn) }}</template>
+              <template v-else>no upcoming invoice</template>
+            </div>
+          </template>
+        </Column>
+        <Column header="State">
+          <template #body="{ data }">
+            <StatusChip :status="data.active ? 'active' : 'void'" :label="data.active ? 'Active' : 'Paused'" />
+            <div v-if="data.lastGeneratedPeriod" class="muted small">last generated {{ data.lastGeneratedPeriod }}</div>
+          </template>
+        </Column>
+        <Column header="Actions" style="width: 15rem">
+          <template #body="{ data }">
+            <div class="row" style="gap: 0.25rem">
+              <Button label="Edit" size="small" text @click="openTemplateDialog(data)" />
+              <Button
+                :label="data.active ? 'Pause' : 'Resume'"
+                size="small"
+                text
+                severity="secondary"
+                @click="toggleTemplate(data)"
+              />
+              <Button label="End…" size="small" text severity="secondary" @click="openEnd(data)" />
+              <Button
+                v-if="!data.lastGeneratedPeriod"
+                label="Delete"
+                size="small"
+                text
+                severity="danger"
+                @click="removeTemplate(data)"
+              />
+            </div>
+          </template>
+        </Column>
+      </DataTable>
+    </div>
+
+    <div class="card">
+      <div class="row" style="justify-content: space-between; align-items: center">
         <h3 style="margin: 0">Invoices</h3>
         <Button label="Record invoice" icon="pi pi-plus" size="small" @click="invoiceDialog = true" />
       </div>
@@ -384,7 +568,7 @@ onMounted(load);
           <template #body="{ data }">
             {{ data.description }}
             <div class="muted small">
-              {{ data.invoiceRef ? `#${data.invoiceRef} · ` : "" }}{{ date(data.invoiceDate) }}
+              {{ data.invoiceRef ? `#${data.invoiceRef} · ` : "" }}{{ date(data.invoiceDate) }}<template v-if="data.recurringTemplateId"> · ↻ recurring</template>
             </div>
           </template>
         </Column>
@@ -488,6 +672,101 @@ onMounted(load);
         <div class="row" style="justify-content: flex-end">
           <Button label="Cancel" text severity="secondary" type="button" @click="payDialog = false" />
           <Button type="submit" label="Record payment" :loading="payBusy" :disabled="!payForm.amount" />
+        </div>
+      </form>
+    </Dialog>
+
+    <Dialog
+      v-model:visible="templateDialog"
+      modal
+      :header="editingTemplate ? 'Edit recurring template' : 'New recurring template'"
+      :style="{ width: '32rem' }"
+    >
+      <form class="stack" @submit.prevent="saveTemplate">
+        <p class="muted small" style="margin: 0">
+          Generates one invoice per period into the approval queue (status submitted). Use
+          <code>{month}</code> / <code>{year}</code> in the description — they are interpolated
+          at generation. Edits apply to future generations only.
+        </p>
+        <div class="field">
+          <label for="t-desc">Description</label>
+          <InputText id="t-desc" v-model="templateForm.description" required placeholder="Monthly retainer — {month} {year}" />
+        </div>
+        <div class="form-grid">
+          <div class="field">
+            <label for="t-amount">Amount (USD)</label>
+            <InputNumber id="t-amount" v-model="templateForm.amount" mode="currency" currency="USD" :min="0.01" required />
+          </div>
+          <div class="field">
+            <label for="t-payday">Payment due day (next month, 1–28)</label>
+            <InputNumber id="t-payday" v-model="templateForm.payDayOfMonth" :min="1" :max="28" required />
+          </div>
+        </div>
+        <div class="form-grid">
+          <div class="field">
+            <label for="t-invday">Invoice date rule</label>
+            <Select
+              id="t-invday"
+              v-model="templateForm.invoiceDay"
+              :options="[
+                { label: 'Last day of month', value: 'last_day' },
+                { label: 'Fixed day of month', value: 'fixed' },
+              ]"
+              option-label="label"
+              option-value="value"
+            />
+          </div>
+          <div v-if="templateForm.invoiceDay === 'fixed'" class="field">
+            <label for="t-invdaynum">Fixed day (1–28)</label>
+            <InputNumber id="t-invdaynum" v-model="templateForm.invoiceDayOfMonth" :min="1" :max="28" required />
+          </div>
+        </div>
+        <div class="form-grid">
+          <div class="field">
+            <label for="t-starts">Starts on</label>
+            <DatePicker id="t-starts" v-model="templateForm.startsOn" date-format="yy-mm-dd" required />
+          </div>
+          <div class="field">
+            <label for="t-ends">Ends on (optional)</label>
+            <DatePicker id="t-ends" v-model="templateForm.endsOn" date-format="yy-mm-dd" show-button-bar />
+          </div>
+        </div>
+        <div class="row" style="justify-content: flex-end">
+          <Button label="Cancel" text severity="secondary" type="button" @click="templateDialog = false" />
+          <Button
+            type="submit"
+            :label="editingTemplate ? 'Save' : 'Create'"
+            :loading="templateBusy"
+            :disabled="
+              !templateForm.description.trim() ||
+              !templateForm.amount ||
+              !templateForm.payDayOfMonth ||
+              (templateForm.invoiceDay === 'fixed' && !templateForm.invoiceDayOfMonth)
+            "
+          />
+        </div>
+      </form>
+    </Dialog>
+
+    <Dialog
+      :visible="!!endTarget"
+      modal
+      header="End recurring template"
+      :style="{ width: '26rem' }"
+      @update:visible="endTarget = null"
+    >
+      <form class="stack" @submit.prevent="saveEnd">
+        <p class="muted small" style="margin: 0">
+          The last period on or before the end date is generated; then the template retires
+          itself. History is kept.
+        </p>
+        <div class="field">
+          <label for="e-date">End date</label>
+          <DatePicker id="e-date" v-model="endDate" date-format="yy-mm-dd" required />
+        </div>
+        <div class="row" style="justify-content: flex-end">
+          <Button label="Cancel" text severity="secondary" type="button" @click="endTarget = null" />
+          <Button type="submit" label="Set end date" :loading="endBusy" :disabled="!endDate" />
         </div>
       </form>
     </Dialog>

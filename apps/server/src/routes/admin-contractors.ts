@@ -38,6 +38,12 @@ import {
   voidInvoice,
   yearEndSummary,
 } from "../contractors/service.js";
+import {
+  createTemplate,
+  deleteTemplate,
+  listTemplates,
+  updateTemplate,
+} from "../contractors/recurring.js";
 
 interface Deps {
   db: Db;
@@ -317,6 +323,107 @@ export function registerAdminContractorRoutes(app: FastifyInstance, deps: Deps):
         actorId: req.authUser!.id,
       });
       return { invoice };
+    } catch (err) {
+      return serviceError(err, reply);
+    }
+  });
+
+  // ------------------------------------------------- recurring templates (spec 12)
+
+  const recurringFields = {
+    description: z.string().trim().min(1).max(500),
+    amount: z.number().positive(),
+    currency: z.string().trim().min(3).max(3),
+    invoiceDay: z.enum(["last_day", "fixed"]),
+    invoiceDayOfMonth: z.number().int().min(1).max(28).nullable(),
+    payDayOfMonth: z.number().int().min(1).max(28),
+    startsOn: DATE,
+    endsOn: DATE.nullable(),
+  };
+
+  app.get(
+    "/api/admin/contractors/:employeeId/recurring",
+    { preHandler: admin },
+    async (req, reply) => {
+      const employeeId = Number((req.params as { employeeId: string }).employeeId);
+      try {
+        return { templates: await listTemplates({ db, config }, employeeId) };
+      } catch (err) {
+        return serviceError(err, reply);
+      }
+    },
+  );
+
+  app.post(
+    "/api/admin/contractors/:employeeId/recurring",
+    { preHandler: admin },
+    async (req, reply) => {
+      const employeeId = Number((req.params as { employeeId: string }).employeeId);
+      const body = z
+        .object({
+          description: recurringFields.description,
+          amount: recurringFields.amount,
+          currency: recurringFields.currency.default("USD"),
+          invoiceDay: recurringFields.invoiceDay.default("last_day"),
+          invoiceDayOfMonth: recurringFields.invoiceDayOfMonth.optional(),
+          payDayOfMonth: recurringFields.payDayOfMonth,
+          startsOn: recurringFields.startsOn,
+          endsOn: recurringFields.endsOn.optional(),
+        })
+        .safeParse(req.body);
+      if (!body.success)
+        return reply.code(400).send({ error: "invalid_body", details: body.error.issues });
+      try {
+        const template = await createTemplate(
+          { db, config },
+          employeeId,
+          body.data,
+          req.authUser!.id,
+        );
+        return reply.code(201).send({ template });
+      } catch (err) {
+        return serviceError(err, reply);
+      }
+    },
+  );
+
+  // Edits affect future generations only (D25); active toggles pause/resume.
+  app.patch("/api/admin/recurring/:templateId", { preHandler: admin }, async (req, reply) => {
+    const templateId = Number((req.params as { templateId: string }).templateId);
+    const body = z
+      .object({
+        description: recurringFields.description.optional(),
+        amount: recurringFields.amount.optional(),
+        currency: recurringFields.currency.optional(),
+        invoiceDay: recurringFields.invoiceDay.optional(),
+        invoiceDayOfMonth: recurringFields.invoiceDayOfMonth.optional(),
+        payDayOfMonth: recurringFields.payDayOfMonth.optional(),
+        startsOn: recurringFields.startsOn.optional(),
+        endsOn: recurringFields.endsOn.optional(),
+        active: z.boolean().optional(),
+      })
+      .safeParse(req.body);
+    if (!body.success)
+      return reply.code(400).send({ error: "invalid_body", details: body.error.issues });
+    try {
+      const template = await updateTemplate(
+        { db, config },
+        templateId,
+        body.data,
+        req.authUser!.id,
+      );
+      return { template };
+    } catch (err) {
+      return serviceError(err, reply);
+    }
+  });
+
+  // Delete only before the first generation (D25) — afterwards pause/end only.
+  app.delete("/api/admin/recurring/:templateId", { preHandler: admin }, async (req, reply) => {
+    const templateId = Number((req.params as { templateId: string }).templateId);
+    try {
+      await deleteTemplate({ db, config }, templateId, req.authUser!.id);
+      return { ok: true };
     } catch (err) {
       return serviceError(err, reply);
     }

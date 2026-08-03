@@ -13,7 +13,7 @@ import { computed, ref, watch } from "vue";
 import { useRoute, useRouter } from "vue-router";
 import Button from "primevue/button";
 import Badge from "primevue/badge";
-import Menu from "primevue/menu";
+import type Menu from "primevue/menu";
 import Toast from "primevue/toast";
 import ConfirmDialog from "primevue/confirmdialog";
 import { useAuthStore } from "./stores/auth";
