@@ -60,6 +60,7 @@ jobs:
     needs: [verify]
     runs-on: ubuntu-latest
     permissions:
+      contents: read   # checkout
       packages: write
       security-events: write   # Trivy SARIF upload to code scanning
     outputs:
