@@ -10,6 +10,12 @@ export interface AppConfig {
   port: number;
   host: string;
   nodeEnv: string;
+  /**
+   * Deployment environment label (spec 14): "qa" enables the QA banner + the
+   * QA-only mailbox endpoint; anything else (incl. unset → "production") is
+   * byte-identical to pre-spec-14 behavior.
+   */
+  appEnv: string;
   logLevel: string;
   /** Display timezone for dates (DB stores TIMESTAMPTZ). */
   appTz: string;
@@ -23,6 +29,8 @@ export interface AppConfig {
   sessionSecret: string;
   /** AES-256-GCM key for field-level encryption (bank_details, tax_id, ein). */
   encryptionKey: string;
+  /** Mailpit HTTP API base URL — only used by the QA-only mailbox endpoint. */
+  mailpitUrl: string;
   /**
    * Read-only export API bearer token (from $SECRETS_DIR/export-token).
    * Absent = export endpoint disabled (503). No dev fallback: an export
@@ -42,7 +50,7 @@ export interface AppConfig {
     port: number;
     user: string;
     from: string;
-    /** From $SECRETS_DIR/smtp-password (never an env value). */
+    /** From $SECRETS_DIR/smtp-password (never an env value); only read when SMTP_USER is set. */
     password?: string | undefined;
     /** true = implicit TLS (port 465-style); false = STARTTLS/plain per port. */
     secure: boolean;
@@ -72,6 +80,7 @@ export function loadConfig(overrides: Partial<AppConfig> = {}): AppConfig {
     port: Number(env("PORT", "8927")),
     host: env("HOST", "0.0.0.0"),
     nodeEnv,
+    appEnv: env("APP_ENV", "production"),
     logLevel: env("LOG_LEVEL", "info"),
     appTz: env("APP_TZ", "Europe/Madrid"),
     baseUrl: env("BASE_URL", `http://localhost:${Number(env("PORT", "8927"))}`),
@@ -94,6 +103,7 @@ export function loadConfig(overrides: Partial<AppConfig> = {}): AppConfig {
           })()
         : "dev-only-insecure-encryption-key-0123456789abcdef"),
     exportToken: readSecret({ secretsDir }, "export-token"),
+    mailpitUrl: env("MAILPIT_URL", "http://localhost:8025"),
     db: {
       host: env("DB_HOST", "localhost"),
       port: Number(env("DB_PORT", "5432")),
@@ -105,7 +115,11 @@ export function loadConfig(overrides: Partial<AppConfig> = {}): AppConfig {
       port: Number(env("SMTP_PORT", "587")),
       user: env("SMTP_USER"),
       from: env("SMTP_FROM"),
-      password: readSecret({ secretsDir }, "smtp-password"),
+      // The smtp-password secret file is only read when SMTP auth is actually
+      // configured (SMTP_USER set). Targets without credentials — e.g. QA's
+      // Mailpit, which takes no auth — need no /run/secrets/smtp-password at
+      // all. When SMTP_USER IS set the behavior is unchanged (prod identical).
+      password: env("SMTP_USER") ? readSecret({ secretsDir }, "smtp-password") : undefined,
       secure: env("SMTP_SECURE", "false") === "true",
     },
     // Dev mode without SMTP: log emails instead of sending (spec 6 config flag).

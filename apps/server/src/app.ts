@@ -56,6 +56,11 @@ export async function buildApp(deps: BuildAppDeps = {}) {
 
   app.get("/health", async () => ({ ok: true }));
 
+  // Public runtime config (spec 14): the deployment environment label only —
+  // the web shell reads it to render the QA banner. Unauthenticated by design
+  // (it must be visible on the login page); it exposes nothing else.
+  app.get("/api/runtime-config", async () => ({ appEnv: config.appEnv }));
+
   mountBetterAuth(app, { auth, config });
   registerOnboardingRoutes(app, { auth, db, config, guards });
   registerAdminRoutes(app, { auth, db, config, guards });

@@ -9,7 +9,7 @@
  * when a linked employee record exists). This avoids the duplicated
  * Dashboard/Requests/Settings labels of the original side-by-side layout.
  */
-import { computed, ref, watch } from "vue";
+import { computed, onMounted, ref, watch } from "vue";
 import { useRoute, useRouter } from "vue-router";
 import Button from "primevue/button";
 import Badge from "primevue/badge";
@@ -28,6 +28,24 @@ const pendingCount = ref(0);
 /** True when the signed-in user has a linked employee record (admins may not). */
 const hasEmployee = ref(false);
 const myMenu = ref<InstanceType<typeof Menu>>();
+
+/**
+ * Deployment environment (spec 14): fetched once from the unauthenticated
+ * runtime-config endpoint. "qa" renders a persistent banner on EVERY page
+ * (incl. login) so prod and QA are never confusable in a screenshot; anything
+ * else renders nothing.
+ */
+const appEnv = ref("");
+onMounted(async () => {
+  try {
+    const res = await fetch("/api/runtime-config");
+    if (res.ok) {
+      appEnv.value = ((await res.json()) as { appEnv?: string }).appEnv ?? "";
+    }
+  } catch {
+    // Banner is best-effort; never block the app on it.
+  }
+});
 
 const employeeNav = [
   { label: "Dashboard", name: "my-dashboard" },
@@ -103,6 +121,9 @@ async function logout() {
 
 <template>
   <div class="shell">
+    <!-- In-flow block (not fixed/absolute): pushes the topbar down instead of
+         overlapping it, so no layout breaks and no duplicated headers. -->
+    <div v-if="appEnv === 'qa'" class="qa-banner" role="status">QA — synthetic data</div>
     <header v-if="signedIn" class="topbar">
       <div class="brand-row">
         <RouterLink :to="{ name: 'my-dashboard' }" class="brand">Payroll</RouterLink>
@@ -165,6 +186,16 @@ async function logout() {
 </template>
 
 <style scoped>
+.qa-banner {
+  background: #b45309; /* amber-700 — unmistakable, not a brand color */
+  color: #fff;
+  text-align: center;
+  font-weight: 700;
+  font-size: 0.85rem;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  padding: 0.3rem 1rem;
+}
 .topbar {
   background: var(--p-surface-card, #fff);
   border-bottom: 1px solid var(--p-surface-border, #e4e4e7);
