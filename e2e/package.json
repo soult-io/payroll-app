@@ -12,8 +12,8 @@
     "@better-auth/utils": "~0.4.2"
   },
   "devDependencies": {
-    "@playwright/test": "^1.62.0",
-    "@types/node": "~22.18.13",
-    "typescript": "~5.9.2"
+    "@playwright/test": "^1.62.1",
+    "@types/node": "~26.1.2",
+    "typescript": "~7.0.2"
   }
 }
