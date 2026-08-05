@@ -4,7 +4,7 @@
 # The same image serves the app and runs the app-migrate one-shot.
 
 ## ---- build: install deps, build all packages (web + server + libs) ----
-FROM node:22-alpine AS build
+FROM node:25-alpine AS build
 RUN npm install -g pnpm@11.17.0
 WORKDIR /app
 COPY pnpm-workspace.yaml package.json pnpm-lock.yaml tsconfig.base.json ./
@@ -30,7 +30,7 @@ RUN rm -rf /prod/app/node_modules/.pnpm/vite@* \
            /prod/app/node_modules/.pnpm/@esbuild+*@0.25*
 
 ## ---- runtime: node:22-alpine, non-root, healthcheck on /health ----
-FROM node:22-alpine AS runtime
+FROM node:25-alpine AS runtime
 ENV NODE_ENV=production \
     PORT=8927 \
     SECRETS_DIR=/run/secrets
