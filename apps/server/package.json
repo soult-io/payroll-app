@@ -16,7 +16,8 @@
     "backfill-legacy-ytd": "tsx src/cli/backfill-legacy-ytd.ts",
     "migrate:legacy": "tsx src/migrate/cli.ts",
     "gen-auth-sql": "tsx scripts/gen-better-auth-sql.ts",
-    "seed": "tsx src/cli/seed.ts"
+    "seed": "tsx src/cli/seed.ts",
+    "seed:qa": "tsx src/cli/seed-qa.ts"
   },
   "dependencies": {
     "@better-auth/utils": "~0.4.2",
