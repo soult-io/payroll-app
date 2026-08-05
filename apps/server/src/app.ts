@@ -25,6 +25,7 @@ import { registerAdminEmployeeRoutes } from "./routes/admin-employees.js";
 import { registerAdminSettingsRoutes } from "./routes/admin-settings.js";
 import { registerAdminContractorRoutes } from "./routes/admin-contractors.js";
 import { registerExportRoutes } from "./routes/export.js";
+import { registerQaRoutes } from "./routes/qa.js";
 import { registerStubRoutes } from "./routes/stubs.js";
 
 export interface BuildAppDeps {
@@ -78,6 +79,7 @@ export async function buildApp(deps: BuildAppDeps = {}) {
   registerAdminSettingsRoutes(app, { db, config, guards });
   registerAdminContractorRoutes(app, { db, config, guards });
   registerExportRoutes(app, { db, config });
+  registerQaRoutes(app, { config }); // no-op unless APP_ENV=qa (spec 14 §3)
   registerStubRoutes(app, guards);
 
   // Serve the built SPA when present (spec 8: server serves the SPA).
