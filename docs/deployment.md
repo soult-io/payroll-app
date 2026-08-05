@@ -86,9 +86,11 @@ secrets below. The compose example already wires the bolded ones.
 | `DB_HOST` / `DB_PORT` / `DB_NAME` / `DB_USER` | `localhost` / `5432` / `payroll` / `payroll` | Postgres connection. The password is **not** an env var — it is the `db-password` secret file. |
 | `SMTP_HOST` | (empty) | Mail server. Empty → emails are logged, not sent (`EMAIL_MODE=log`). |
 | `SMTP_PORT` | `587` | SMTP port. |
-| `SMTP_USER` / `SMTP_FROM` | (empty) | SMTP login / From address. The password is the `smtp-password` secret file. |
+| `SMTP_USER` / `SMTP_FROM` | (empty) | SMTP login / From address. The password is the `smtp-password` secret file — only read when `SMTP_USER` is set, so credential-less SMTP targets (e.g. QA's Mailpit) need no such file. |
 | `SMTP_SECURE` | `false` | `true` = implicit TLS (port 465 style); `false` = STARTTLS/plain per port. |
 | `EMAIL_MODE` | (auto) | `smtp` or `log`, overriding the auto-detection (`smtp` when `SMTP_HOST` set, else `log`). `log` prints emails to the server log and marks them sent — handy for evaluation. |
+| `APP_ENV` | `production` | Deployment environment label (spec 14). `qa` renders the web "QA — synthetic data" banner (via the public `GET /api/runtime-config`) and registers the QA-only `GET /api/qa/mailbox` endpoint (see `docs/qa.md`). Anything else is byte-identical to normal behavior. |
+| `MAILPIT_URL` | `http://localhost:8025` | Mailpit HTTP API base URL — only used by the QA-only mailbox endpoint. |
 | `SOURCE_DATABASE_URL` | (empty) | Legacy cutover only (`docs/cutover.md`): connection string for the old database, read solely by the one-time `migrate:legacy` tooling, never by the running app. |
 
 Compose-only variables (interpolation in `compose.example.yml`, not read by the

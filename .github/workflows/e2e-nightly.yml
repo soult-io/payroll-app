@@ -1,0 +1,106 @@
+name: e2e-nightly
+
+# Nightly e2e against live QA (spec 14 §3): the full Playwright suite runs
+# against https://payroll-qa.stabpablo.eu — real Postgres, pg-boss schedulers,
+# Mailpit. Failures open (or comment on) a deduped GitHub issue.
+#
+# The QA admin TOTP is NOT a secret: it is the fixed, documented, fake value
+# from the QA seed (docs/qa.md), hardcoded in e2e/tests/qa.ts — the seed
+# creates the account with exactly that secret, so the suite can compute
+# valid codes. The only true secret here is the QA export token.
+
+on:
+  schedule:
+    - cron: "17 5 * * *"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  issues: write
+
+jobs:
+  e2e-qa:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: pnpm/action-setup@v4
+        with:
+          version: 11.17.0
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: pnpm
+
+      - name: Install
+        run: pnpm install --frozen-lockfile
+
+      - name: Install Playwright chromium
+        run: pnpm --filter @payroll/e2e exec playwright install --with-deps chromium
+
+      # E2E_BASE_URL disables the ephemeral boot; QA credentials/TOTP are the
+      # documented fixed seed values (see header comment). No build needed —
+      # Playwright runs the TS specs directly and nothing imports app dists.
+      - name: E2E against live QA
+        env:
+          E2E_BASE_URL: https://payroll-qa.stabpablo.eu
+          E2E_QA_EXPORT_TOKEN: ${{ secrets.E2E_QA_EXPORT_TOKEN }}
+        run: pnpm --filter @payroll/e2e e2e
+
+      - name: Upload Playwright report on failure
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: playwright-qa-report
+          path: e2e/playwright-report/
+          retention-days: 14
+
+      # Failure → GitHub issue, deduped on the 'e2e-nightly' label: comment on
+      # the existing open issue instead of opening a duplicate. Scheduled runs
+      # only — workflow_dispatch failures just fail the run.
+      - name: Open or update failure issue
+        if: failure() && github.event_name == 'schedule'
+        uses: actions/github-script@v7
+        with:
+          script: |
+            const label = "e2e-nightly";
+            const date = new Date().toISOString().slice(0, 10);
+            const title = `Nightly e2e against QA failed ${date}`;
+            const runUrl = `${context.serverUrl}/${context.repo.owner}/${context.repo.repo}/actions/runs/${context.runId}`;
+            const body = [
+              `The nightly e2e suite against https://payroll-qa.stabpablo.eu failed.`,
+              ``,
+              `- Run: ${runUrl}`,
+              `- Commit: ${context.sha}`,
+              `- Date: ${date}`,
+              ``,
+              `See the Playwright report artifact on the run for the failure summary.`,
+            ].join("\n");
+
+            const { data: issues } = await github.rest.issues.listForRepo({
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              state: "open",
+              labels: label,
+              per_page: 10,
+            });
+            const existing = issues.find((i) => !i.pull_request);
+            if (existing) {
+              await github.rest.issues.createComment({
+                owner: context.repo.owner,
+                repo: context.repo.repo,
+                issue_number: existing.number,
+                body: `Failed again: ${title}\n\n${body}`,
+              });
+              core.info(`commented on existing issue #${existing.number}`);
+            } else {
+              const { data: created } = await github.rest.issues.create({
+                owner: context.repo.owner,
+                repo: context.repo.repo,
+                title,
+                body,
+                labels: [label],
+              });
+              core.info(`opened issue #${created.number}`);
+            }

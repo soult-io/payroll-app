@@ -103,7 +103,9 @@ For production, pin the image to a release tag (`:vX.Y.Z`) instead of
 `:latest`, and put a TLS-terminating reverse proxy in front with `BASE_URL`
 set to the public URL. The full guide — env-var reference, the SECRETS_DIR
 contract, migrate-then-boot, health endpoint, backups, upgrades, and the
-release process — is [docs/deployment.md](docs/deployment.md).
+release process — is [docs/deployment.md](docs/deployment.md). The disposable
+QA environment (synthetic seed, fixed credentials, nightly e2e against live
+QA) is documented in [docs/qa.md](docs/qa.md).
 
 ## Repo layout
 
