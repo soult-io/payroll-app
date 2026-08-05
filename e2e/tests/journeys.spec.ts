@@ -29,7 +29,22 @@ interface E2EState {
 
 const HERE = dirname(fileURLToPath(import.meta.url));
 const STATE_DIR = resolve(HERE, "../.state");
-const STATE = JSON.parse(readFileSync(resolve(STATE_DIR, "state.json"), "utf8")) as E2EState;
+/**
+ * Ephemeral-mode fixture state, written by @payroll/server's e2e:serve boot.
+ * In live-QA mode (E2E_BASE_URL) there is no state file and these journeys
+ * are skipped outright — live QA is a shared environment and the journeys
+ * MUTATE data (onboarding, issuing payroll runs, approving change requests).
+ */
+const STATE = (
+  process.env.E2E_BASE_URL
+    ? null
+    : JSON.parse(readFileSync(resolve(STATE_DIR, "state.json"), "utf8"))
+) as E2EState;
+
+test.skip(
+  Boolean(process.env.E2E_BASE_URL),
+  "journeys are ephemeral-fixture only — live QA is read-only (spec 14 §3)",
+);
 
 /**
  * Saved browser sessions (storageState, written into the gitignored .state
