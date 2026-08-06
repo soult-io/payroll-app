@@ -129,16 +129,17 @@ wake. Runner bring-up:
 
 1. Repo → Settings → Actions → Runners → **New self-hosted runner** (Linux
    x64) — copy the one-time registration token.
-2. `ssh nsoult@172.16.10.45` (FRAME-DESK), then `sudo -iu pai` — the
-   embara-android runner runs as host user `pai`; mirror it. Confirm with
-   `systemctl cat actions.runner.soult-io-embara-android.FRAME-DESK.service | grep -E '^(User|WorkingDirectory)='`.
-3. As `pai`, in a NEW directory (this is a second instance — do not touch
-   the embara runner): `mkdir -p ~/actions-runner-payroll && cd ~/actions-runner-payroll`,
+2. `ssh nsoult@172.16.10.45` (FRAME-DESK) — the embara-android runner runs as
+   host user `nsoult` (`/home/nsoult/actions-runner`, verified via
+   `systemctl cat actions.runner.soult-io-embara-android.FRAME-DESK.service`);
+   stay as `nsoult`, no user switch.
+3. In a NEW directory (this is a second instance — do not touch
+   `~/actions-runner`): `mkdir -p ~/actions-runner-payroll && cd ~/actions-runner-payroll`,
    download + untar the runner package per the GitHub instructions, then:
    `./config.sh --unattended --url https://github.com/soult-io/payroll-app --token <TOKEN> --name FRAME-DESK-qa --labels qa-e2e --work _work`
 4. SELinux (FRAME-DESK is Fedora 44, enforcing — same fix the embara runner
-   needed, SB #2115): `sudo chcon -R -t bin_t /home/pai/actions-runner-payroll`
-5. `sudo ./svc.sh install pai && sudo ./svc.sh start` (systemd service
+   needed, SB #2115): `sudo chcon -R -t bin_t /home/nsoult/actions-runner-payroll`
+5. `sudo ./svc.sh install nsoult && sudo ./svc.sh start` (systemd service
    `actions.runner.soult-io-payroll-app.FRAME-DESK-qa.service`).
 6. One-time Playwright system libraries — Fedora, so dnf (Playwright's
    `install-deps` is apt-only; the workflow runs `playwright install
