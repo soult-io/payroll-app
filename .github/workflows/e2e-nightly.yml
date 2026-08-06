@@ -1,13 +1,23 @@
 name: e2e-nightly
 
-# Nightly e2e against live QA (spec 14 §3): the full Playwright suite runs
-# against https://payroll-qa.stabpablo.eu — real Postgres, pg-boss schedulers,
-# Mailpit. Failures open (or comment on) a deduped GitHub issue.
+# Nightly e2e against live QA (spec 14 §3, amended 2026-08-06): the full
+# Playwright suite runs against https://payroll-qa.stabpablo.eu — real
+# Postgres, pg-boss schedulers, Mailpit. Failures open (or comment on) a
+# deduped GitHub issue.
 #
-# The QA admin TOTP is NOT a secret: it is the fixed, documented, fake value
-# from the QA seed (docs/qa.md), hardcoded in e2e/tests/qa.ts — the seed
-# creates the account with exactly that secret, so the suite can compute
-# valid codes. The only true secret here is the QA export token.
+# QA credentials/TOTP AND the QA export token are NOT secrets: they are the
+# fixed, documented, fake values from the QA seed (docs/qa.md), hardcoded in
+# e2e/tests/qa.ts — this repo holds no GitHub secrets.
+#
+# Runner (amendment 2026-08-06): payroll-qa is scoped behind the NPM access
+# list (LAN/tailnet only) — GitHub-hosted runners get 403, so this job runs
+# on the repo-scoped self-hosted runner on FRAME-DESK (label: qa-e2e), which
+# is inside the allow list. If FRAME-DESK is asleep at cron time the job
+# QUEUES and runs when it wakes (24h queue window) — the nightly becomes
+# "next time the desktop is on", which is acceptable for e2e.
+# Playwright system libraries are pre-installed on the runner host (one-time
+# runbook step, docs/qa.md) — hence `playwright install chromium` WITHOUT
+# --with-deps (which would need sudo on every run).
 
 on:
   schedule:
@@ -20,7 +30,7 @@ permissions:
 
 jobs:
   e2e-qa:
-    runs-on: ubuntu-latest
+    runs-on: [self-hosted, qa-e2e]
     steps:
       - uses: actions/checkout@v4
 
@@ -37,12 +47,11 @@ jobs:
         run: pnpm install --frozen-lockfile
 
       - name: Install Playwright chromium
-        run: pnpm --filter @payroll/e2e exec playwright install --with-deps chromium
+        run: pnpm --filter @payroll/e2e exec playwright install chromium
 
-      # E2E_BASE_URL disables the ephemeral boot; QA credentials/TOTP AND the
-      # QA export token are the documented fixed seed values (see qa.ts header)
-      # — this repo holds no secrets. No build needed — Playwright runs the TS
-      # specs directly and nothing imports app dists.
+      # E2E_BASE_URL disables the ephemeral boot; the suite targets live QA.
+      # No build needed — Playwright runs the TS specs directly and nothing
+      # imports app dists.
       - name: E2E against live QA
         env:
           E2E_BASE_URL: https://payroll-qa.stabpablo.eu

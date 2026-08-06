@@ -121,6 +121,29 @@ documented value above (this repo intentionally holds no repo secrets).
 On failure (scheduled runs only) it opens or comments on an open issue
 labelled `e2e-nightly` instead of spamming duplicates.
 
+**Runner (spec 14 amendment 2026-08-06):** QA sits behind the NPM access list
+(LAN/tailnet only), so this job runs on the **repo-scoped self-hosted runner
+on FRAME-DESK** (label `qa-e2e`) — GitHub-hosted runners get 403. If
+FRAME-DESK is asleep at cron time the job queues (24h window) and runs on
+wake. Runner bring-up:
+
+1. Repo → Settings → Actions → Runners → **New self-hosted runner** (Linux
+   x64) — copy the one-time registration token.
+2. On FRAME-DESK, as the CI user, in a NEW directory (this is a second
+   instance — do not touch the embara-android runner):
+   `mkdir -p ~/actions-runner-payroll && cd ~/actions-runner-payroll`,
+   download + untar the runner package per the GitHub instructions, then:
+   `./config.sh --unattended --url https://github.com/soult-io/payroll-app --token <TOKEN> --name FRAME-DESK-qa --labels qa-e2e --work _work`
+3. `sudo ./svc.sh install && sudo ./svc.sh start` (systemd service
+   `actions.runner.soult-io-payroll-app.FRAME-DESK-qa.service`; enable-linger
+   already done for the CI user).
+4. One-time Playwright system libraries (the workflow runs
+   `playwright install chromium` WITHOUT `--with-deps`):
+   `sudo npx playwright@1.62.0 install-deps chromium` (or the apt package
+   list Playwright prints if npx/node is unavailable on the host).
+5. Verify: repo → Settings → Actions → Runners shows `FRAME-DESK-qa` idle;
+   then Actions → e2e-nightly → Run workflow.
+
 To run the suite against live QA by hand:
 
 ```sh

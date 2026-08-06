@@ -55,6 +55,25 @@ is ever copied** (PII discipline). Personas chosen to cover the feature surface:
 - No QA→prod promotion mechanism; code flows main→release, not data.
 - QA is not a performance/load environment.
 
+## Amendment 2026-08-06 — self-hosted runner (approved: repo-scoped)
+
+- `payroll-qa.stabpablo.eu` is scoped behind the NPM access list (LAN/tailnet
+  only, like the MCP servers) — owner decision: QA is never publicly
+  reachable. GitHub-hosted runners get 403, so `e2e-nightly.yml` runs on a
+  **repo-scoped self-hosted runner on FRAME-DESK** (label `qa-e2e`; second
+  runner instance alongside the embara-android one, SB #2115). Playwright
+  system libs are pre-installed on the host (one-time); the workflow uses
+  `playwright install chromium` without `--with-deps`.
+- If FRAME-DESK is asleep at cron time the job queues (24h window) and runs
+  on wake — accepted behavior for e2e.
+- The QA export token is a FIXED DOCUMENTED value (docs/qa.md), not a GitHub
+  secret — the app repo holds no repo secrets (owner 2026-08-06). The QA
+  stack's `export-token` file must contain exactly that value.
+- Public-repo caveat for later: before `soult-io/payroll-app` ever flips
+  public, fork-PR workflow approval must be "all outside collaborators" (the
+  nightly is schedule-only on self-hosted, so exposure is minimal — but set
+  the guardrail first).
+
 ## Decisions for owner verification
 
 | # | Question | Proposal |
