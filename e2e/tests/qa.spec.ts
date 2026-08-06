@@ -90,7 +90,6 @@ test("scheduler draft: seeded current-period run shows in admin approvals (read-
 
 test("email capture: admin test email lands in Mailpit (via /api/qa/mailbox)", async ({ page }) => {
   test.skip(!LIVE_QA, "live-QA only — Mailpit capture requires APP_ENV=qa");
-  test.skip(!QA_EXPORT_TOKEN, "E2E_QA_EXPORT_TOKEN not set — cannot call /api/qa/mailbox");
   test.setTimeout(240_000);
 
   await loginAs(page, QA_ADMIN);

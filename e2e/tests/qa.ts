@@ -28,8 +28,16 @@ export const QA_EMPLOYEE = {
   totpSecret: "QAEMPLOYEE0FIXED1TOTP2SECRET3SEED",
 };
 
-/** Export-token bearer for the QA-only mailbox endpoint (GitHub secret in CI). */
-export const QA_EXPORT_TOKEN = process.env.E2E_QA_EXPORT_TOKEN ?? "";
+/**
+ * FIXED, DOCUMENTED QA export token — bearer for the QA-only mailbox endpoint
+ * (and the QA export API). Like the logins/TOTP above it guards a
+ * synthetic-data environment only, so it deliberately lives in the repo
+ * instead of a GitHub secret (owner 2026-08-06: the app repo holds no repo
+ * secrets). The QA stack's /srv/payroll-qa/secrets/export-token file must
+ * contain exactly this value ("seed" repeated — 64 hex chars, openssl -hex 32
+ * format).
+ */
+export const QA_EXPORT_TOKEN = "5eed5eed5eed5eed5eed5eed5eed5eed5eed5eed5eed5eed5eed5eed5eed5eed";
 
 export async function totp(secret: string): Promise<string> {
   return createOTP(secret, { digits: 6, period: 30 }).totp();

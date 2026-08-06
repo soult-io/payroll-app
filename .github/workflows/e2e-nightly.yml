@@ -39,13 +39,13 @@ jobs:
       - name: Install Playwright chromium
         run: pnpm --filter @payroll/e2e exec playwright install --with-deps chromium
 
-      # E2E_BASE_URL disables the ephemeral boot; QA credentials/TOTP are the
-      # documented fixed seed values (see header comment). No build needed —
-      # Playwright runs the TS specs directly and nothing imports app dists.
+      # E2E_BASE_URL disables the ephemeral boot; QA credentials/TOTP AND the
+      # QA export token are the documented fixed seed values (see qa.ts header)
+      # — this repo holds no secrets. No build needed — Playwright runs the TS
+      # specs directly and nothing imports app dists.
       - name: E2E against live QA
         env:
           E2E_BASE_URL: https://payroll-qa.stabpablo.eu
-          E2E_QA_EXPORT_TOKEN: ${{ secrets.E2E_QA_EXPORT_TOKEN }}
         run: pnpm --filter @payroll/e2e e2e
 
       - name: Upload Playwright report on failure

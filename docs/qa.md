@@ -65,6 +65,19 @@ are:
 Both accounts are fully enrolled (password + TOTP verified, workflow
 notification defaults on). No backup codes are seeded.
 
+**QA export token** (bearer for the QA export API + `/api/qa/mailbox`) is
+also fixed and documented — it guards synthetic data only, so it lives here
+instead of a GitHub secret:
+
+```text
+5eed5eed5eed5eed5eed5eed5eed5eed5eed5eed5eed5eed5eed5eed5eed5eed
+```
+
+("seed" × 16 — 64 hex chars, `openssl rand -hex 32` format.) The QA stack's
+`/srv/payroll-qa/secrets/export-token` file must contain exactly this value;
+the other three QA secrets (db-password, encryption-key, session-secret) are
+random per-install as usual.
+
 ## Persona inventory
 
 **W-2 employees** (payroll history: previous calendar year in full + current
@@ -102,9 +115,9 @@ year through last month, issued through the real draft→approve→issue pipelin
 `.github/workflows/e2e-nightly.yml` runs the Playwright suite at `17 5 * * *`
 UTC (plus `workflow_dispatch`) against `https://payroll-qa.stabpablo.eu`
 (`E2E_BASE_URL` disables the ephemeral boot; fixture journeys skip, the
-`qa.spec` specs run read-only against the seeded data). Required GitHub
-secret: **`E2E_QA_EXPORT_TOKEN`** — the value of the QA stack's
-`/srv/payroll-qa/secrets/export-token` file (used for the mailbox endpoint).
+`qa.spec` specs run read-only against the seeded data). **No GitHub secrets
+are needed** — the QA export token for the mailbox endpoint is the fixed
+documented value above (this repo intentionally holds no repo secrets).
 On failure (scheduled runs only) it opens or comments on an open issue
 labelled `e2e-nightly` instead of spamming duplicates.
 
@@ -112,6 +125,5 @@ To run the suite against live QA by hand:
 
 ```sh
 E2E_BASE_URL=https://payroll-qa.stabpablo.eu \
-E2E_QA_EXPORT_TOKEN=<qa export token> \
 pnpm --filter @payroll/e2e e2e
 ```
