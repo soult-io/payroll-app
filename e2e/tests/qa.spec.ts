@@ -108,6 +108,9 @@ test("email capture: admin test email lands in Mailpit (via /api/qa/mailbox)", a
     // Benign, idempotent-by-design observability action (queues an outbox row).
     // POST must come from inside the page: the server's csrfOriginCheck rejects
     // mutating requests without a matching Origin (page.request sends none).
+    // Navigate first — a fresh context page sits on about:blank, where the
+    // relative fetch URL cannot resolve.
+    await page.goto("/");
     const status = await page.evaluate(async () => {
       const res = await fetch("/api/admin/settings/test-email", { method: "POST" });
       return res.status;
