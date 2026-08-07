@@ -25,6 +25,7 @@ import {
   LIVE_QA,
   loadEphemeralState,
   loginAs,
+  newAuthedPage,
   QA_ADMIN,
   QA_EMPLOYEE,
   QA_EXPORT_TOKEN,
@@ -36,28 +37,29 @@ test("login: password + TOTP (fixed seeded credentials in live QA)", async ({ pa
   await loginAs(page, must(user, "fixture user"));
 });
 
-test("payslip PDF download round-trip (%PDF magic, non-trivial bytes)", async ({
-  page,
-  browser,
-}) => {
+test("payslip PDF download round-trip (%PDF magic, non-trivial bytes)", async ({ browser }) => {
   if (LIVE_QA) {
     // Carol Mockington (qa-employee login) has 19 issued payslips from the seed.
-    await loginAs(page, QA_EMPLOYEE);
-    await page.goto("/my/payslips");
-    // The employee payslips table shows Period/Pay date/Gross/Net — no status
-    // column (every listed row is issued by definition). Take the first data
-    // row; row-click navigates to the detail view.
-    const row = page.locator("tbody tr").first();
-    await expect(row).toBeVisible();
-    await row.click();
-    await page.waitForURL(/\/my\/payslips\/[0-9a-f-]{36}/);
-    const publicId = must(page.url().split("/").pop(), "payslip publicId in URL");
-    const pdf = await page.request.get(`/api/payslips/${publicId}/pdf`);
-    expect(pdf.status()).toBe(200);
-    expect(pdf.headers()["content-type"]).toContain("application/pdf");
-    const body = await pdf.body();
-    expect(body.subarray(0, 5).toString()).toBe("%PDF-");
-    expect(body.length).toBeGreaterThan(2000);
+    const page = await newAuthedPage(browser, QA_EMPLOYEE);
+    try {
+      await page.goto("/my/payslips");
+      // The employee payslips table shows Period/Pay date/Gross/Net — no status
+      // column (every listed row is issued by definition). Take the first data
+      // row; row-click navigates to the detail view.
+      const row = page.locator("tbody tr").first();
+      await expect(row).toBeVisible();
+      await row.click();
+      await page.waitForURL(/\/my\/payslips\/[0-9a-f-]{36}/);
+      const publicId = must(page.url().split("/").pop(), "payslip publicId in URL");
+      const pdf = await page.request.get(`/api/payslips/${publicId}/pdf`);
+      expect(pdf.status()).toBe(200);
+      expect(pdf.headers()["content-type"]).toContain("application/pdf");
+      const body = await pdf.body();
+      expect(body.subarray(0, 5).toString()).toBe("%PDF-");
+      expect(body.length).toBeGreaterThan(2000);
+    } finally {
+      await page.context().close();
+    }
     return;
   }
 
@@ -80,48 +82,58 @@ test("payslip PDF download round-trip (%PDF magic, non-trivial bytes)", async ({
 });
 
 test("scheduler draft: seeded current-period run shows in admin approvals (read-only)", async ({
-  page,
+  browser,
 }) => {
   test.skip(!LIVE_QA, "live-QA only — the ephemeral boot has no pg-boss scheduler context");
-  await loginAs(page, QA_ADMIN);
-  await page.goto("/admin/payroll");
-  // The list defaults to the current year; the seed leaves ONE current-period
-  // draft awaiting approval. Read-only assertion — never approve/void here.
-  const row = page.locator("tr", { hasText: "Awaiting approval" }).first();
-  await expect(row).toBeVisible();
+  const page = await newAuthedPage(browser, QA_ADMIN);
+  try {
+    await page.goto("/admin/payroll");
+    // The list defaults to the current year; the seed leaves ONE current-period
+    // draft awaiting approval. Read-only assertion — never approve/void here.
+    const row = page.locator("tr", { hasText: "Awaiting approval" }).first();
+    await expect(row).toBeVisible();
+  } finally {
+    await page.context().close();
+  }
 });
 
-test("email capture: admin test email lands in Mailpit (via /api/qa/mailbox)", async ({ page }) => {
+test("email capture: admin test email lands in Mailpit (via /api/qa/mailbox)", async ({
+  browser,
+}) => {
   test.skip(!LIVE_QA, "live-QA only — Mailpit capture requires APP_ENV=qa");
   test.setTimeout(240_000);
 
-  await loginAs(page, QA_ADMIN);
-  // Benign, idempotent-by-design observability action (queues an outbox row).
-  // POST must come from inside the page: the server's csrfOriginCheck rejects
-  // mutating requests without a matching Origin (page.request sends none).
-  const status = await page.evaluate(async () => {
-    const res = await fetch("/api/admin/settings/test-email", { method: "POST" });
-    return res.status;
-  });
-  expect(status).toBe(202);
+  const page = await newAuthedPage(browser, QA_ADMIN);
+  try {
+    // Benign, idempotent-by-design observability action (queues an outbox row).
+    // POST must come from inside the page: the server's csrfOriginCheck rejects
+    // mutating requests without a matching Origin (page.request sends none).
+    const status = await page.evaluate(async () => {
+      const res = await fetch("/api/admin/settings/test-email", { method: "POST" });
+      return res.status;
+    });
+    expect(status).toBe(202);
 
-  // The outbox drain worker runs every minute in QA — poll the mailbox.
-  const deadline = Date.now() + 200_000;
-  let found: { subject: string; text: string } | null = null;
-  while (Date.now() < deadline) {
-    const res = await page.request.get(
-      `/api/qa/mailbox?to=${encodeURIComponent(QA_ADMIN.email)}&latest=true`,
-      { headers: { authorization: `Bearer ${QA_EXPORT_TOKEN}` } },
-    );
-    if (res.ok()) {
-      const body = (await res.json()) as { subject: string; text: string };
-      if (body.subject.includes("test email")) {
-        found = body;
-        break;
+    // The outbox drain worker runs every minute in QA — poll the mailbox.
+    const deadline = Date.now() + 200_000;
+    let found: { subject: string; text: string } | null = null;
+    while (Date.now() < deadline) {
+      const res = await page.request.get(
+        `/api/qa/mailbox?to=${encodeURIComponent(QA_ADMIN.email)}&latest=true`,
+        { headers: { authorization: `Bearer ${QA_EXPORT_TOKEN}` } },
+      );
+      if (res.ok()) {
+        const body = (await res.json()) as { subject: string; text: string };
+        if (body.subject.includes("test email")) {
+          found = body;
+          break;
+        }
       }
+      await new Promise((resolve) => setTimeout(resolve, 5_000));
     }
-    await new Promise((resolve) => setTimeout(resolve, 5_000));
+    expect(found, "test email to appear in Mailpit within ~3 minutes").toBeTruthy();
+    expect(must(found, "test email in Mailpit").text).toContain("SMTP delivery is working");
+  } finally {
+    await page.context().close();
   }
-  expect(found, "test email to appear in Mailpit within ~3 minutes").toBeTruthy();
-  expect(must(found, "test email in Mailpit").text).toContain("SMTP delivery is working");
 });

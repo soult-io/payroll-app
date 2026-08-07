@@ -11,7 +11,7 @@
 import { readFileSync } from "node:fs";
 import { dirname, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
-import { expect, type Page } from "@playwright/test";
+import { expect, type Browser, type BrowserContext, type Page } from "@playwright/test";
 import { createOTP } from "@better-auth/utils/otp";
 
 export const LIVE_QA = Boolean(process.env.E2E_BASE_URL);
@@ -69,6 +69,35 @@ export async function loginAs(
   await expect(page.locator("#totp")).toBeVisible();
   await submitLoginTotp(page, user.totpSecret);
   await expect(page.getByRole("heading", { name: "Dashboard" })).toBeVisible();
+}
+
+// ---------------------------------------------------------------------------
+// Live-QA session cache — the API rate-limits credential endpoints to
+// 10 req/min (spec 3), so 4 full logins in one suite run get throttled (the
+// UI renders the 429 as "Invalid email or password", which is what the
+// 2026-08-07 nightly hit). Log in ONCE per user per worker (serial suite =
+// one process) and hand out fresh contexts carrying the cached storage state.
+// ---------------------------------------------------------------------------
+
+interface QaUser {
+  email: string;
+  password: string;
+  totpSecret: string;
+}
+type StoredState = Awaited<ReturnType<BrowserContext["storageState"]>>;
+
+const sessionCache = new Map<string, StoredState>();
+
+/** Fresh page authenticated as `user`, logging in only on first use. */
+export async function newAuthedPage(browser: Browser, user: QaUser): Promise<Page> {
+  const cached = sessionCache.get(user.email);
+  const ctx = await browser.newContext(cached ? { storageState: cached } : {});
+  const page = await ctx.newPage();
+  if (!cached) {
+    await loginAs(page, user);
+    sessionCache.set(user.email, await ctx.storageState());
+  }
+  return page;
 }
 
 // ---------------------------------------------------------------------------
