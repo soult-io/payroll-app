@@ -158,7 +158,7 @@ export async function startScheduler(deps: {
       });
     }
     // Outbox drain every minute (spec 6 outbox worker).
-    await boss.schedule(OUTBOX_QUEUE, "47 * * * *", null, { tz: config.appTz });
+    await boss.schedule(OUTBOX_QUEUE, "* * * * *", null, { tz: config.appTz });
     // W-8 expiry sweep daily at 08:23 local (off-peak minute).
     await boss.schedule(FORM_EXPIRY_QUEUE, "23 8 * * *", null, { tz: config.appTz });
   }
