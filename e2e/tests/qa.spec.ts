@@ -44,7 +44,10 @@ test("payslip PDF download round-trip (%PDF magic, non-trivial bytes)", async ({
     // Carol Mockington (qa-employee login) has 19 issued payslips from the seed.
     await loginAs(page, QA_EMPLOYEE);
     await page.goto("/my/payslips");
-    const row = page.locator("tr", { hasText: "Issued" }).first();
+    // The employee payslips table shows Period/Pay date/Gross/Net — no status
+    // column (every listed row is issued by definition). Take the first data
+    // row; row-click navigates to the detail view.
+    const row = page.locator("tbody tr").first();
     await expect(row).toBeVisible();
     await row.click();
     await page.waitForURL(/\/my\/payslips\/[0-9a-f-]{36}/);
@@ -94,8 +97,13 @@ test("email capture: admin test email lands in Mailpit (via /api/qa/mailbox)", a
 
   await loginAs(page, QA_ADMIN);
   // Benign, idempotent-by-design observability action (queues an outbox row).
-  const queued = await page.request.post("/api/admin/settings/test-email");
-  expect(queued.status()).toBe(202);
+  // POST must come from inside the page: the server's csrfOriginCheck rejects
+  // mutating requests without a matching Origin (page.request sends none).
+  const status = await page.evaluate(async () => {
+    const res = await fetch("/api/admin/settings/test-email", { method: "POST" });
+    return res.status;
+  });
+  expect(status).toBe(202);
 
   // The outbox drain worker runs every minute in QA — poll the mailbox.
   const deadline = Date.now() + 200_000;
