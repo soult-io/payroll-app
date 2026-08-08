@@ -4,7 +4,7 @@ Status: `APPROVED 2026-08-03 — implemented (app-repo side)` · Owner direction
 
 Treat payroll-app like an open-source project: the app repo is **only** the app and a
 published container; all personal operations live in a private stack repo, matching the
-house convention (every service on the NUC has `nsoult-agentic/stack-<name>` — payroll is
+house convention (every self-hosted service has `nsoult-agentic/stack-<name>` — payroll is
 currently the lone exception, with its app repo doubling as its own deployment repo).
 
 ## 1. App repo (`soult-io/payroll-app`) — artifact only
@@ -30,11 +30,11 @@ stack-payroll/
 └── README.md                 # runbook: redeploy, seed, secrets layout, rollback
 ```
 
-- Secrets stay on the NUC filesystem exactly as today (`/srv/payroll/secrets`,
+- Secrets stay on the home server filesystem exactly as today (`/srv/payroll/secrets`,
   `/srv/payroll-qa/secrets`) — referenced by compose `secrets:`, never committed.
-- **Portainer**: two gitops stacks pointing at the same repo, different compose paths —
+- **GitOps deployer**: two gitops stacks pointing at the same repo, different compose paths —
   prod (`prod/`, replaces the current stack 169 git URL) and QA (`qa/`, Spec 14).
-  NPM proxy hosts unchanged for prod (`payroll.stabpablo.eu`); QA gets its own host.
+  Reverse-proxy hosts unchanged for prod (`payroll.example.com`); QA gets its own host.
 
 ## 3. Release model — two gates, prod moves only on releases
 
@@ -50,14 +50,14 @@ repo only publishes artifacts; the stack repo PULLS updates to its own pins.**
 - **Stack repo owns its deployment lifecycle** via a scheduled workflow *in the stack
   repo* (`pin-update.yml`), using its own same-repo `GITHUB_TOKEN`:
   - **QA auto-follows `main`**: polls for the latest green `sha-*` image tag → bumps
-    `qa/docker-compose.yml` pin, commits `[skip ci]` → Portainer redeploys QA
+    `qa/docker-compose.yml` pin, commits `[skip ci]` → the GitOps deployment redeploys QA
     automatically. QA breakage is free.
   - **Prod follows tagged releases only**: polls for the newest `v*` release → opens a
-    **prod-pin PR** (gate 2) → owner merges → Portainer redeploys prod (migrate
+    **prod-pin PR** (gate 2) → owner merges → the GitOps deployment redeploys prod (migrate
     one-shot runs first, as today).
 - The stack repo holds one **read-only upstream credential** (`UPSTREAM_READ_TOKEN`:
   packages+contents read on `soult-io/payroll-app`) because the package/repo are
-  private — the same consumer-reads-upstream relationship the NUC already has pulling
+  private — the same consumer-reads-upstream relationship the home server already has pulling
   images from ghcr. Nothing upstream holds any credential for the stack repo.
 - Nothing in prod can move without a release PR merge and a prod-pin PR merge — two
   explicit owner approvals, both now on the correct side of the boundary.
@@ -67,7 +67,7 @@ repo only publishes artifacts; the stack repo PULLS updates to its own pins.**
 
 1. Create `nsoult-agentic/stack-payroll` (private) with prod compose extracted verbatim
    from the app repo (current pinned image) + README.
-2. Re-point Portainer stack 169 (`soult-io-payroll-app`) git URL to the new repo,
+2. Re-point GitOps stack 169 (`soult-io-payroll-app`) git URL to the new repo,
    path `prod/`. Verify a no-op redeploy.
 3. App repo: delete compose + self-pin bot, add example/docs, merge. (CI's pin-bot
    target switches to the stack repo in the same PR; QA pin lands with Spec 14.)

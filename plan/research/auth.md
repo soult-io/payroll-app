@@ -5,7 +5,7 @@
 - **Lucia is dead as a library.** Deprecated March 2025; lucia-auth.com is now a learning resource; maintained primitives are **Oslo** (crypto/session) and **Arctic** (OAuth). "Lucia-style" = copy the patterns, own the code. ([announcement](https://github.com/lucia-auth/lucia/discussions/1714))
 - **Auth.js (NextAuth) is in maintenance mode.** September 2025 stewardship handed to the Better Auth team; security patches only; official guidance is new projects should use Better Auth. Never a good fit outside Next.js anyway. ([announcement](https://github.com/nextauthjs/next-auth/discussions/13252))
 - **Better Auth is now the de facto TS auth library.** Framework-agnostic (plain Node/Hono/Express API + Vue SPA), plugin-based: first-party `twoFactor()` (TOTP + backup codes), `passkey()`, `admin()`, `organization()`; ~3 releases/week. Caveats: young, no built-in admin dashboard, advanced session hardening (token rotation, anti-CSRF) needs manual attention. ([better-auth.com](https://www.better-auth.com/docs/introduction))
-- **Keycloak does not fit the NUC.** Official sizing: **~1000–1250 MB RAM base per pod**, JVM, plus its own Postgres. ([Keycloak sizing docs](https://www.keycloak.org/high-availability/single-cluster/concepts-memory-and-cpu-sizing))
+- **Keycloak does not fit a home server.** Official sizing: **~1000–1250 MB RAM base per pod**, JVM, plus its own Postgres. ([Keycloak sizing docs](https://www.keycloak.org/high-availability/single-cluster/concepts-memory-and-cpu-sizing))
 - **Authentik is borderline.** 4 containers, idles ~500–700 MB combined, Python worker spikes hard. Great IdP for homelab SSO of many apps; oversized as auth for one app.
 - **Zitadel is the only full IdP that fits the constraints.** Go binary, **~512 MB RAM, <1 vCPU**, Postgres-backed. Caveats: vendor discourages docker-compose for prod; IdP down = login down.
 - **ASP.NET Core Identity improved materially.** .NET 10 (Nov 2025, LTS) added **built-in passkey support**; long-standing TOTP. SPA wiring is DIY.
@@ -13,7 +13,7 @@
 
 ## Decision matrix (1–5; criteria weighted in priority order)
 
-| Option | 1. Security | 2. NUC footprint | 3. Ops simplicity | 4. Invite+RBAC+email | 5. Product reuse | 6. Language flex |
+| Option | 1. Security | 2. home-server footprint | 3. Ops simplicity | 4. Invite+RBAC+email | 5. Product reuse | 6. Language flex |
 |---|---|---|---|---|---|---|
 | **Better Auth (TS)** | 4 — strong defaults, TOTP/passkey/admin plugins; young; CSRF partly on you | 5 — in-process | 4 — upgrade churn, pin versions | 5 — admin plugin, `signUp: disabled`, email flows built in | 5 — auth ships inside the app, one container | 1 — TypeScript only |
 | **ASP.NET Core Identity (.NET 10)** | 4 — battle-tested; passkeys built in, TOTP mature | 4 — in-process | 4 — boring, stable, LTS | 4 — more hand-assembly | 5 | 1 — .NET only |
@@ -27,13 +27,13 @@
 
 ## Recommendation
 
-**#1 — Embedded, library-integrated auth in whatever backend is chosen, with Better Auth as the reference implementation.** Deciding argument: product reuse + NUC footprint. A small business self-hosting the product gets `app container + Postgres` — nothing else to run, patch, or back up, and no "IdP down, payroll down" failure mode. Since all three candidate backends have a strong embedded option, **auth does not constrain the language choice** — but if the backend race is otherwise tied, Better Auth is the single best auth library in the field, a point in TypeScript's column.
+**#1 — Embedded, library-integrated auth in whatever backend is chosen, with Better Auth as the reference implementation.** Deciding argument: product reuse + home-server footprint. A small business self-hosting the product gets `app container + Postgres` — nothing else to run, patch, or back up, and no "IdP down, payroll down" failure mode. Since all three candidate backends have a strong embedded option, **auth does not constrain the language choice** — but if the backend race is otherwise tied, Better Auth is the single best auth library in the field, a point in TypeScript's column.
 
 **#2 — Zitadel, if and only if the product direction shifts toward customers with existing identity stacks** (SSO/OIDC/SAML demands). Treat as a possible v2 pivot, not a v1 need. A thin `getSession()`/identity abstraction now makes that pivot cheap later.
 
 ## Recommended v1 architecture (concrete)
 
-- **Session type:** Server-side sessions, opaque session ID in an `HttpOnly; Secure; SameSite=Lax` cookie, session table in Postgres. Same domain through Nginx Proxy Manager → no CORS surface. Instant revocation matters for payroll ("disable this employee *now*"). Avoid JWTs.
+- **Session type:** Server-side sessions, opaque session ID in an `HttpOnly; Secure; SameSite=Lax` cookie, session table in Postgres. Same domain through a reverse proxy → no CORS surface. Instant revocation matters for payroll ("disable this employee *now*"). Avoid JWTs.
 - **MFA: required at v1.** TOTP enrollment enforced at first login for **all** users. Internet-exposed payroll PII justifies it; costs one plugin call. Backup codes at enrollment. Passkeys fast-follow.
 - **Invite flow:** self-registration disabled at code level. Admin creates user with email → single-use, expiring (≤24h), hashed-at-rest setup token → email via SMTP → user sets password + enrolls TOTP in one forced onboarding flow. Same token machinery for password resets. First admin seeded via CLI command or env var at install.
 - **Password hashing:** Argon2id, OWASP parameters (m=19 MiB, t=2, p=1). (Better Auth defaults to scrypt — acceptable, configurable; ASP.NET Identity uses PBKDF2 — tune iterations up.)

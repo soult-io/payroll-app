@@ -1,6 +1,6 @@
 /**
  * Payslip PDF renderer (spec documents D5) — ported from
- * stack-finance/mcp-accounting/src/pdf/pdfmake-renderer.ts (paystub portion).
+ * an internal accounting project's pdfmake renderer (paystub portion).
  *
  * Renders EXCLUSIVELY from the frozen run_snapshot: frozen inputs, computed
  * results, and display fields copied in at issuance. Live config is never
@@ -12,7 +12,7 @@
  * The YTD block (template ≥1.1.0) shows gross, total withholdings, and net.
  *
  * No company logo: the original renderer fetched logo-black.png from
- * Nextcloud at runtime; no logo asset exists in the stack-finance repo, so
+ * the file store at runtime; no logo asset exists in the internal source repo, so
  * the payslip renders the company name as text (spec allows proceeding
  * without, noted in the step report).
  */

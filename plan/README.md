@@ -1,8 +1,7 @@
 # Payroll Webapp — Master Plan
 
 **Status: APPROVED by owner 2026-07-28 — all twelve decisions (D1–D12) and all nine specs
-signed off. Port amended twice: 8989 (2026-07-28) → 8927 (2026-07-29, 8989 collided with
-sonarr on the NUC; single port everywhere, no host:container mapping). Build is authorized.**
+signed off. Port amended twice: 8989 (2026-07-28) → 8927 (2026-07-29, 8989 collided with another service on the home server; single port everywhere, no host:container mapping). Build is authorized.**
 
 ## Project goal (from owner interview, 2026-07-28)
 
@@ -20,11 +19,11 @@ bug-free UX that meets the owner's needs and could serve other small businesses.
 | D2 | Frontend | Vue 3 + Vite SPA + PrimeVue 4.x (Material preset), no SSR |
 | D3 | Auth | Embedded, cookie sessions in Postgres, TOTP mandatory v1, invite-only, Argon2id, audit events |
 | D4 | Database | Dedicated Postgres container; one-time data copy; app is sole writer after cutover |
-| D5 | Payslips | Generated on-demand from frozen run snapshots; never stored; no Nextcloud |
+| D5 | Payslips | Generated on-demand from frozen run snapshots; never stored; no external file store |
 | D6 | Payroll workflow | Draft → approve → issue; configurable schedule, default 15th monthly; calc+payslip only |
 | D7 | Change requests | Address, W-4, bank, legal name; effective-dated; comment threads |
 | D8 | Notifications | SMTP, per-event, per-user toggles; no infra hardcoding |
-| D9 | Deployment | New repo, Portainer GitOps + NPM proxy; also deployable anywhere via compose |
+| D9 | Deployment | New repo, GitOps deployment + reverse proxy; also deployable anywhere via compose |
 | D10 | Futures | Time-off + 1099 designed into schema; bookkeeping export maybe later |
 | D11 | Roles | One app, admin/employee RBAC |
 | D12 | v1 exclusions | Payments, bookkeeping, mobile, 3rd-party API, multi-currency, time-off UI, invoicing |

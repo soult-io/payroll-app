@@ -5,7 +5,7 @@ Status: `DRAFT — awaiting owner sign-off` · Depends on: data-model, payroll-e
 ## Core decision (D5)
 
 **Data is the source of truth; PDFs are generated on demand and never stored.** No PDF files
-on disk, no blobs, no Nextcloud. The app is the complete archive because it holds every
+on disk, no blobs, no external file store. The app is the complete archive because it holds every
 issued run's frozen `run_snapshot`.
 
 ## Immutability guarantee
@@ -25,9 +25,8 @@ issued run's frozen `run_snapshot`.
 ## Renderer
 
 - **pdfmake** (D1 stack), porting the existing renderer from
-  `stack-finance/mcp-accounting/src/pdf/` — same document definition, adapted to read the
-  snapshot shape instead of tool args. Company logo bundled in the repo (not fetched from
-  Nextcloud — removes that dependency).
+  the internal accounting project's `src/pdf/` renderer — same document definition, adapted to read the
+  snapshot shape instead of tool args. Company logo bundled in the repo (not fetched from an external file store — removes that dependency).
 - Render time is trivial (<100 ms); caching is unnecessary. Generated in-memory, streamed
   to the response, discarded.
 
@@ -49,7 +48,7 @@ GET /api/admin/payroll-runs             admin: all runs incl. drafts/awaiting ap
 
 The migration spec imports 2025–2026 payroll history as issued runs with reconstructed
 snapshots, so every payslip ever issued is downloadable from the app on day one.
-Nextcloud `/Shared/Payroll/` remains as the old archive — untouched, but no longer canonical.
+The old file store's `/Shared/Payroll/` archive remains — untouched, but no longer canonical.
 
 ## Owner sign-off
 

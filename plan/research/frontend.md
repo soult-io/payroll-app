@@ -20,7 +20,7 @@
 | Criterion (weighted) | Vue 3 + Vite SPA | React 19 + Vite SPA | Svelte 5 / SvelteKit | SolidJS / SolidStart | Nuxt (SSR) | HTMX + Alpine |
 |---|---|---|---|---|---|---|
 | 1. Solo-dev productivity (form/table-heavy) | **5** — SFC templates excel at forms; owner already leans Vue; Pinia/Router boring-stable | 4 — more boilerplate per form; hooks footguns | 4 — least boilerplate; smaller pool | 3 — fine-grained reactivity easy to get wrong | 4 — SSR machinery is overhead here | 3 — CRUD fast; comment threads/approval flows awkward |
-| 2. Bundle/runtime weight | 4 — ~34–45 KB gzip runtime | 3 — ~45 KB react+react-dom | **5** — ~10 KB runtime | **5** — ~8 KB, fastest | 3 — hydration + Node server on the NUC | **5** — ~14 KB total |
+| 2. Bundle/runtime weight | 4 — ~34–45 KB gzip runtime | 3 — ~45 KB react+react-dom | **5** — ~10 KB runtime | **5** — ~8 KB, fastest | 3 — hydration + Node server on the home server | **5** — ~14 KB total |
 | 3. Maturity / 10-yr longevity | **5** — Vue 3 stable since 2020; explicit stability commitment | 4 — library solid; ecosystem churn avoidable via plain Vite | 3 — Svelte 5 only ~21 months old | 2 — **Solid 2.0 in beta right now** | 4 — another moving layer | 4 — frozen API, but niche |
 | 4. Design-system quality available | 4 — Vuetify/PrimeVue strong | **5** — MUI, Mantine, shadcn, AntD | 2 — thin; weak data tables | 1–2 — no complete admin suite | 4 — same as Vue | 1 — you build everything |
 | 5. OSS-product friendliness | 4 — big global community, all-MIT | **5** — largest contributor pool | 3 — passionate but small | 2 — small | 4 | 3 — unconventional for a sellable product |
@@ -28,7 +28,7 @@
 | **Weighted total** | **≈ 4.4** | ≈ 4.2 | ≈ 3.3 | ≈ 2.8 | ≈ 3.7 | ≈ 3.0 |
 
 ### On SSR: not needed
-Every v1 screen sits **behind a login**. No SEO surface, no public first-paint problem, and small scale doesn't justify a Node SSR process on a NUC. A Vite SPA served as static files is simpler, lighter, and backend-agnostic. **Verdict: plain SPA** — this also decouples the frontend from the backend decision entirely.
+Every v1 screen sits **behind a login**. No SEO surface, no public first-paint problem, and small scale doesn't justify a Node SSR process on a home server. A Vite SPA served as static files is simpler, lighter, and backend-agnostic. **Verdict: plain SPA** — this also decouples the frontend from the backend decision entirely.
 
 ### On HTMX: wrong constraint
 Fine for CRUD admin UIs and lightest by far — but requires the server to return **HTML fragments**, conflicting with the JSON/OpenAPI backend decision. Rejected on architecture, not quality.
@@ -69,7 +69,7 @@ Fine for CRUD admin UIs and lightest by far — but requires the server to retur
 - **PrimeVue 5.0.0 is brand new** — staying on 4.x defers; v3→v4 was a full theming rewrite, expect a non-trivial major.
 - **872 open issues** — expect to hit 1–2 component bugs during development.
 - **Vue 3.6/Vapor Mode at RC** — don't adopt 3.6 on release day; let PrimeVue compatibility confirm first.
-- **NUC constraint is a non-issue for all SPA options** — don't let bundle size override productivity.
+- **Home-server constraint is a non-issue for all SPA options** — don't let bundle size override productivity.
 
 ## 5. Key sources
 

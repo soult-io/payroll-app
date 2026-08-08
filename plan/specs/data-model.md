@@ -4,7 +4,7 @@ Status: `DRAFT — awaiting owner sign-off` · Depends on: D1–D12 · Feeds: al
 
 Database: dedicated Postgres 16+ instance, database `payroll`, least-privilege role `payroll`
 (owns all app tables). Migrations: Drizzle Kit, run as a one-shot container before app boot
-(same migrate-then-boot pattern as `stack-finance`).
+(same migrate-then-boot pattern as the internal accounting project).
 
 Two table families:
 - **Auth-owned** (managed by Better Auth migrations): `user`, `session`, `account`,

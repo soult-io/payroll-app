@@ -7,7 +7,7 @@ name: release
 # ghcr.io/soult-io/payroll-app:vX.Y.Z / vX.Y / latest + a GitHub release.
 # Deployment is the stack repo's job: nsoult-agentic/stack-payroll's own
 # scheduled workflow sees the new release and opens a prod-pin PR (owner merge =
-# the final gate → Portainer GitOps redeploys prod).
+# the final gate → the GitOps deployment redeploys prod).
 
 on:
   push:

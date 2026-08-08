@@ -12,7 +12,7 @@ Status: `DRAFT — awaiting owner sign-off` · Depends on: D3, data-model · Res
 ## Session model (D3)
 
 - Server-side sessions in Postgres; opaque ID in `HttpOnly; Secure; SameSite=Lax` cookie.
-- SPA + API on one domain (Nginx Proxy Manager) → no CORS surface; CSRF via SameSite + explicit
+- SPA + API on one domain (a reverse proxy) → no CORS surface; CSRF via SameSite + explicit
   Origin/Referer check middleware on mutating routes.
 - Absolute lifetime 7 days, idle 12 hours, rotation on privilege change; instant revocation
   (disable user → all sessions killed in the same transaction).

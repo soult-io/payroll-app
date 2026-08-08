@@ -4,7 +4,7 @@ Status: `DRAFT — awaiting owner sign-off` · Depends on: all specs · Confirms
 
 ## What moves
 
-One-time copy from `second_brain.accounting` → new `payroll` database:
+One-time copy from `legacy_accounting.accounting` → new `payroll` database:
 
 | Source (accounting schema) | Target | Notes |
 |---|---|---|
@@ -15,7 +15,7 @@ One-time copy from `second_brain.accounting` → new `payroll` database:
 | `payroll_runs` + `payroll_entries` | `payroll_runs` + `payroll_entries` | month/year → period_start/end/pay_date; status='issued'; **snapshot reconstructed** (below) |
 
 NOT migrated: `time_off` (empty/future), `compliance_filings`, `deposits`, `pay_stub_path`
-(files stay in Nextcloud as the old archive — D5: no file migration, data only).
+(files stay in the old file store as the archive — D5: no file migration, data only).
 
 ## Snapshot reconstruction (the delicate part)
 
@@ -31,7 +31,7 @@ importing a wrong snapshot. `engineVersion` recorded as `legacy-import`.
 
 1. Deploy app + DB with schema; run migration script (idempotent, dry-run mode first).
 2. Verify: row counts, golden differential all green, one historical payslip PDF visually
-   diffed against the Nextcloud original.
+   diffed against the file-store original.
 3. Create admin user (CLI), invite the employee user, enroll TOTP.
 4. **Sole-writer cutover (D4):** the app becomes the only writer for payroll data.
    - The old `accounting` payroll tables stay as read-only history (mcp-accounting's
@@ -41,7 +41,7 @@ importing a wrong snapshot. `engineVersion` recorded as `legacy-import`.
      nothing — the app's scheduler takes over from the next period (first live run:
      next 15th after deploy, or manual "generate draft now").
 5. Update agent docs (accountant AGENTS.md/STATE.md) to point at the app as source of truth.
-6. 30-day rollback plan: old routine and Nextcloud archive remain intact; if the app fails,
+6. 30-day rollback plan: old routine and the file-store archive remain intact; if the app fails,
    payroll falls back to the old MCP flow for that month.
 
 ## Post-cutover v1 checklist
@@ -49,7 +49,7 @@ importing a wrong snapshot. `engineVersion` recorded as `legacy-import`.
 - [ ] First scheduler-generated draft appears on the configured day (default 15th)
 - [ ] Admin approves → issues; employee receives email; PDF downloads correctly
 - [ ] Change request round-trip (submit → comment → approve → effective-dated apply)
-- [ ] Old Nextcloud archive untouched; agent routine confirmed silent
+- [ ] Old file-store archive untouched; agent routine confirmed silent
 
 ## Owner sign-off
 

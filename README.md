@@ -6,14 +6,15 @@ Stable, deterministic, authoritative payroll webapp for small business.
 employee self-service (payslips, profile, change requests with threaded
 review), notification outbox with SMTP, admin configuration (tax tables, pay
 schedule, company, users, audit viewers), and one-time legacy migration
-tooling for the cutover from `second_brain.accounting`.
+tooling for the cutover from `legacy_accounting.accounting`.
 
 ## Architecture (one paragraph)
 
 A Vue 3 + PrimeVue SPA (`apps/web`) talks to a Fastify API (`apps/server`,
 Node 22) that owns a dedicated Postgres 16 database via Drizzle migrations
 (`packages/db`). All withholding math lives in `packages/engine` — a verbatim
-vendored copy of the battle-tested `payroll.ts`/`money.ts` from `stack-finance`,
+vendored copy of the battle-tested `payroll.ts`/`money.ts` from an internal
+accounting codebase,
 pure and deterministic, with its original unit tests as the regression oracle.
 Shared Zod schemas live in `packages/shared`. Deployment is a single
 self-contained container image published to ghcr (`compose.example.yml` shows
@@ -58,15 +59,15 @@ are read as **files** from `SECRETS_DIR`, never as env values (spec 8).
 
 ## Legacy migration & cutover
 
-One-time import of payroll history from `second_brain.accounting`
+One-time import of payroll history from `legacy_accounting.accounting`
 (mcp-accounting), with snapshot reconstruction validated to the cent before
 any write. Dry-run by default; `--write` is idempotent (ledger table
 `legacy_migration_map`):
 
 ```sh
-SOURCE_DATABASE_URL=postgres://…@second-brain-db:5432/second_brain \
+SOURCE_DATABASE_URL=postgres://…@legacy-db:5432/legacy_accounting \
   pnpm migrate:legacy --dry-run --verbose   # analysis only, zero writes
-SOURCE_DATABASE_URL=postgres://…@second-brain-db:5432/second_brain \
+SOURCE_DATABASE_URL=postgres://…@legacy-db:5432/legacy_accounting \
   pnpm migrate:legacy --write               # perform (re-run = no-op)
 ```
 
@@ -113,7 +114,7 @@ QA) is documented in [docs/qa.md](docs/qa.md).
 apps/server/        Fastify API + serves built SPA (Node 22 LTS)
   src/migrate/      legacy cutover tooling (pnpm migrate:legacy)
 apps/web/           Vue 3 + Vite SPA (PrimeVue 4.x, Material preset)
-packages/engine/    vendored payroll.ts + money.ts + tests (from stack-finance)
+packages/engine/    vendored payroll.ts + money.ts + tests (from an internal accounting codebase)
 packages/db/        Drizzle schema + migrations
 packages/shared/    Zod schemas, types shared by server+web
 plan/               approved plan: decisions.md + specs/ (docs, not code)

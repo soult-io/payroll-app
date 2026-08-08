@@ -27,7 +27,7 @@ from `SECRETS_DIR`, never as environment values.
 ## Prerequisites
 
 - Docker with the compose plugin.
-- A reverse proxy for TLS (nginx, Caddy, Traefik, NPM — anything). The app
+- A reverse proxy for TLS (nginx, Caddy, Traefik — anything). The app
   speaks plain HTTP on one port and trusts the proxy to terminate TLS.
 
 ## Quickstart
@@ -175,7 +175,7 @@ no cross-repo credential.
    creates the GitHub release.
 4. The deployment repo (`nsoult-agentic/stack-payroll`) polls for new releases
    on a schedule and opens a **prod-pin PR** itself, using its own token.
-5. **Owner merges the pin PR** → the deployment automation (Portainer GitOps)
+5. **Owner merges the pin PR** → the deployment automation (GitOps)
    redeploys prod; the migrate one-shot runs first, as always.
 
 Emergency fix = the same flow with a smaller version bump.

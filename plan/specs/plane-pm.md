@@ -4,7 +4,7 @@ Status: `APPROVED 2026-08-03 — approved as written` · Owner direction 2026-08
 
 Self-hosted Plane Community Edition for project/feature tracking — the web UI for the
 owner, programmatic access for the agent. Follows the house convention: private gitops
-stack repo in `nsoult-agentic`, official published images, NPM proxy host.
+stack repo in `nsoult-agentic`, official published images, reverse-proxy host.
 
 ## 1. Stack
 
@@ -15,11 +15,11 @@ official self-host file, images **pinned by version** (no `:latest`):
 - `plane-db` (postgres:16-alpine, own volume), `plane-redis` (valkey or redis, own volume)
 - Data + uploads on `/srv/plane/`; secrets in `/srv/plane/secrets` (db password,
   secret key) — filesystem only, never committed
-- Resource budget: ~2 CPU / 4 GB — well within NUC headroom
+- Resource budget: ~2 CPU / 4 GB — well within home-server headroom
 
 ## 2. Access & exposure
 
-- `plane.stabpablo.eu` via NPM proxy (TLS as usual). Plane CE self-hosted has **no
+- `plane.example.com` via the reverse proxy (TLS as usual). Plane CE self-hosted has **no
   OIDC/SSO** — plain email/password accounts; acceptable at this scale (documented
   limitation, not a blocker).
 - Owner admin account + one **agent service account** (API key / PAT) used for
@@ -37,7 +37,7 @@ official self-host file, images **pinned by version** (no `:latest`):
 - GitHub integration (bidirectional issue sync) is available in CE — enable for
   `soult-io/payroll-app` so bugs filed on GitHub appear on the board.
 - Backup: DB + uploads covered by the same backup routine as other `/srv` stacks
-  (verify the existing NUC backup covers `/srv/plane`; add if not).
+  (verify the existing home server backup covers `/srv/plane`; add if not).
 
 ## 4. Non-goals
 
@@ -51,7 +51,7 @@ official self-host file, images **pinned by version** (no `:latest`):
 | # | Question | Proposal |
 |---|---|---|
 | D33 | `nsoult-agentic/stack-plane`, official images version-pinned, `/srv/plane` data | as above |
-| D34 | `plane.stabpablo.eu` via NPM; no SSO (CE limitation); invite-only accounts | as above |
+| D34 | `plane.example.com` via the reverse proxy; no SSO (CE limitation); invite-only accounts | as above |
 | D35 | Agent access via service-account API key (REST first; optional MCP server later) | as above |
 
 ## Owner sign-off

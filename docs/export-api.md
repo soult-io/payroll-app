@@ -30,7 +30,7 @@ The token lives at `$SECRETS_DIR/export-token` on the app container
 endpoint is **disabled** and returns `503 export_disabled` — deploying the
 credential is an explicit decision. Wrong/missing token → `401`.
 
-Generate and deploy (on the NUC) — ownership matters: compose bind-mounts
+Generate and deploy (on the home server) — ownership matters: compose bind-mounts
 preserve host ownership and the app runs as uid/gid **10001**, so the file
 must be `0600 10001:10001` like the other secrets:
 

@@ -5,7 +5,7 @@ Status: `DRAFT — awaiting owner sign-off` · Depends on: data-model · Feeds: 
 ## Core principle
 
 The calculation engine is **the existing tested code, reused verbatim**:
-`stack-finance/mcp-accounting/src/payroll.ts` + `money.ts` are vendored into the new repo as
+`payroll.ts` + `money.ts` from an internal accounting project are vendored into the new repo as
 `packages/engine/` (MIT, own code) with their unit tests. The engine stays **pure and
 deterministic**: fully-resolved inputs in, `PayrollResult` out, zero I/O.
 

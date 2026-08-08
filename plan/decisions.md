@@ -42,7 +42,7 @@ future library migration cheap. API client generated from the backend's OpenAPI 
 ## D4 — Database topology  `CONFIRMED 2026-07-28 (incl. sole-writer amendment)`
 
 Per owner: **dedicated Postgres instance for this app** (own container in the new repo's compose),
-self-contained, no dependency on `second-brain-db`. One-time migration copies payroll-relevant
+self-contained, no dependency on `legacy-db`. One-time migration copies payroll-relevant
 data (employees, compensation, w4_elections, tax_config, tax_brackets, payroll history) out of
 the `accounting` schema into the new app's schema. **Owner confirmed: the new app is the ONLY
 writer** for payroll config/tax data after cutover — old `accounting` payroll tables become
@@ -77,7 +77,7 @@ read-only history.
 
 ## D9 — Deployment topology  `CONFIRMED by owner (B6)`
 
-- New repository, new service; deployed via established Portainer GitOps + NPM proxy pattern
+- New repository, new service; deployed via established GitOps deployment + reverse proxy pattern
 - App must be deployable **without** that pattern too (reusable product) — compose file is
   one deployment artifact, not a hard dependency
 - Hardened container conventions (read-only rootfs, dropped caps, resource limits, secrets as files)
@@ -98,7 +98,7 @@ RBAC + server-side enforcement is the standard pattern.)
 ## D12 — Explicit v1 exclusions  `CONFIRMED by owner`
 
 Payments · bookkeeping · mobile app · third-party API · multi-currency · time-off UI ·
-invoicing · self-registration · payroll PDF file storage · Nextcloud integration of any kind
+invoicing · self-registration · payroll PDF file storage · external file-store integration of any kind
 
 ## D13–D18 — 1099 contractors  `CONFIRMED by owner 2026-08-02 ("approved as written")`
 
@@ -148,7 +148,7 @@ Per `specs/recurring-invoices.md` (Spec 12):
 Per `specs/stack-split.md` (Spec 13):
 
 - **D26** — New private `nsoult-agentic/stack-payroll` (house convention); prod/qa
-  compose paths; two Portainer gitops stacks from one repo; secrets stay on NUC fs
+  compose paths; two GitOps stacks from one repo; secrets stay on the home-server fs
 - **D27** — QA auto-follows `main` (pin-bot into stack repo); prod follows tagged
   releases only
 - **D28** — Release mechanics (AMENDED 2026-08-03, owner: consumer pulls, not producer
@@ -174,7 +174,7 @@ Per `specs/qa-environment.md` (Spec 14):
 Per `specs/plane-pm.md` (Spec 15):
 
 - **D33** — `nsoult-agentic/stack-plane`, official images version-pinned, `/srv/plane`
-- **D34** — `plane.stabpablo.eu` via NPM; no SSO (CE limitation); invite-only
+- **D34** — `plane.example.com` via the reverse proxy; no SSO (CE limitation); invite-only
 - **D35** — Agent access via service-account API key (REST first, MCP optional later)
 
 ---
@@ -189,7 +189,7 @@ Once D1–D4 are decided, the compartmentalized specs get written, one file each
 5. `specs/documents.md` — payslip rendering, immutability, download API
 6. `specs/notifications.md` — SMTP config, event catalog, templates
 7. `specs/frontend.md` — routes, screens, component inventory
-8. `specs/deployment.md` — repo layout, Dockerfile, compose, CI, NPM proxy
+8. `specs/deployment.md` — repo layout, Dockerfile, compose, CI, reverse proxy
 9. `specs/migration.md` — data copy from `accounting` schema, cutover, retiring the agent routine
 
 Each spec gets its own explicit owner approval before the build begins.

@@ -14,9 +14,8 @@ Verified by direct inspection (not recollection):
 - **No LICENSE file** — public without a license is "all rights reserved", not open source.
 - **Real PII/financials in the tree** — `plan/specs/recurring-invoices.md` names a real
   contractor with real contract amounts; `plan/specs/migration.md` + `docs/cutover.md`
-  document the real `second_brain` cutover, `/srv` secret paths, and mailbox setup.
-- **Internal infrastructure disclosure** — 20 `stabpablo.eu` references plus FRAME-DESK,
-  NUC, Portainer, tailscale, NPM mentions across `plan/`, `docs/`, `.github/workflows/`.
+  document the real `legacy_accounting` cutover, `/srv` secret paths, and mailbox setup.
+- **Internal infrastructure disclosure** — internal hostname references plus runner, server, and tooling mentions across `plan/`, `docs/`, `.github/workflows/`.
   `e2e-nightly.yml` hardcodes the live QA hostname.
 - **Git history** — 127 commits from day one contain all of the above; scrubbing working
   files alone does not remove it.
@@ -54,16 +53,15 @@ the scrubbed state:
 1. **PII**: `recurring-invoices.md` — replace the real contractor name/amounts with a
    generic persona ("a contractor on a monthly retainer"); sweep all `plan/` +
    `docs/` for real names, amounts, addresses. Test fixtures with obviously-fake
-   names ("Lucy Lastday") stay.
+   persona names stay.
 2. **Internal runbooks move to the ops repo**: `docs/cutover.md` and the internal
-   sections of `docs/qa.md` (FRAME-DESK runner runbook) move to
+   sections of `docs/qa.md` (the QA runner runbook) move to
    `nsoult-agentic/stack-payroll` — they describe OUR deployment, not the product.
    `docs/qa.md` keeps a public-generic QA description (APP_ENV, seed:qa, Mailpit,
    self-hosted runner pattern) without our hostnames.
-3. **Domain genericization**: `stabpablo.eu` → `payroll.example.com`-style
+3. **Domain genericization**: internal hostnames → `payroll.example.com`-style
    placeholders everywhere in the public tree (`docs/`, `compose.example.yml`,
-   e2e config, workflows, spec files). `second_brain`, `stack-finance`, Nextcloud,
-   FRAME-DESK, NUC, Portainer, tailscale references reworded to generic equivalents
+   e2e config, workflows, spec files). legacy-source, internal-project, file-store, runner, server, and tooling references reworded to generic equivalents
    ("the legacy accounting database", "a self-hosted runner inside the QA network").
 4. **README pass**: remove insider provenance, add License/Contributing/Security
    sections, keep the quickstart verifiable by an outsider (§6 verification).
@@ -79,7 +77,7 @@ the scrubbed state:
   (forks/contributors get green CI without our infra).
 - **Fork-PR guardrail (before flip, hard requirement)**: repo Settings → Actions →
   "Require approval for all outside collaborators". The nightly is schedule-only and
-  PR-triggered jobs run on GitHub-hosted runners, so the self-hosted FRAME-DESK
+  PR-triggered jobs run on GitHub-hosted runners, so the self-hosted QA
   runner is never reachable from fork code — this setting keeps it that way.
 - Branch protection on `main` (PR + green CI), already the de facto workflow.
 - ghcr package: link to repo, make the package public at flip (anonymous pulls);
@@ -98,9 +96,7 @@ the scrubbed state:
 
 ## 6. Verification before flip
 
-- Grep sweep on the public tree: zero hits for `stabpablo`, `second_brain`,
-  `stack-finance`, `nextcloud`, `frame-desk`, `nuc`, `portainer`, `tailscale`, real
-  names, real amounts.
+- Grep sweep on the public tree: zero hits for internal hostnames, the legacy source name, internal project and tooling names, real names, real amounts.
 - Fresh clone on a clean machine: `pnpm install` → unit tests green → biome 0
   errors → ephemeral e2e green.
 - Outsider deploy test: follow only README + `compose.example.yml` on a throwaway
