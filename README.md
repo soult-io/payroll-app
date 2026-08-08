@@ -71,8 +71,9 @@ SOURCE_DATABASE_URL=postgres://…@legacy-db:5432/legacy_accounting \
   pnpm migrate:legacy --write               # perform (re-run = no-op)
 ```
 
-The full owner-side procedure (secrets, deploy order, verification, rollback)
-is in [docs/cutover.md](docs/cutover.md).
+The full cutover procedure (secrets, deploy order, verification, rollback) is
+deployment-specific and intentionally not part of this repo — the migration
+CLI above is everything the codebase needs.
 
 ## Run it (Docker)
 
@@ -118,7 +119,7 @@ packages/engine/    vendored payroll.ts + money.ts + tests (from an internal acc
 packages/db/        Drizzle schema + migrations
 packages/shared/    Zod schemas, types shared by server+web
 plan/               approved plan: decisions.md + specs/ (docs, not code)
-docs/               operations docs (cutover runbook)
+docs/               operations docs (deployment, QA, export API)
 Dockerfile          multi-stage: build web → build server → runtime
 compose.example.yml reference deployment: app + migrate one-shot + postgres
 .github/workflows/  CI: test → build image → push ghcr (main); release.yml: tags → release images + GitHub release

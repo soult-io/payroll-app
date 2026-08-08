@@ -91,7 +91,7 @@ secrets below. The compose example already wires the bolded ones.
 | `EMAIL_MODE` | (auto) | `smtp` or `log`, overriding the auto-detection (`smtp` when `SMTP_HOST` set, else `log`). `log` prints emails to the server log and marks them sent — handy for evaluation. |
 | `APP_ENV` | `production` | Deployment environment label (spec 14). `qa` renders the web "QA — synthetic data" banner (via the public `GET /api/runtime-config`) and registers the QA-only `GET /api/qa/mailbox` endpoint (see `docs/qa.md`). Anything else is byte-identical to normal behavior. |
 | `MAILPIT_URL` | `http://localhost:8025` | Mailpit HTTP API base URL — only used by the QA-only mailbox endpoint. |
-| `SOURCE_DATABASE_URL` | (empty) | Legacy cutover only (`docs/cutover.md`): connection string for the old database, read solely by the one-time `migrate:legacy` tooling, never by the running app. |
+| `SOURCE_DATABASE_URL` | (empty) | Legacy cutover only: connection string for the old database, read solely by the one-time `migrate:legacy` tooling, never by the running app. |
 
 Compose-only variables (interpolation in `compose.example.yml`, not read by the
 app): `PAYROLL_PORT` (host-side bind port, default `8927`) and

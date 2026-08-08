@@ -7,7 +7,7 @@ and re-seedable; no production data ever lands here.**
 ## Topology
 
 - `payroll-qa` app container — same image as prod (auto-bumped pin per
-  spec 13), `APP_ENV=qa`, served at `https://payroll-qa.stabpablo.eu`.
+  spec 13), `APP_ENV=qa`, served at `https://payroll-qa.example.com`.
 - `payroll-qa-db` — own postgres:16-alpine container + volume; fully
   self-contained, never connected to the prod DB.
 - Mailpit — the app's only SMTP target in QA (captures all outbound mail; web
@@ -113,44 +113,30 @@ year through last month, issued through the real draft→approve→issue pipelin
 ## Nightly e2e
 
 `.github/workflows/e2e-nightly.yml` runs the Playwright suite at `17 5 * * *`
-UTC (plus `workflow_dispatch`) against `https://payroll-qa.stabpablo.eu`
-(`E2E_BASE_URL` disables the ephemeral boot; fixture journeys skip, the
-`qa.spec` specs run read-only against the seeded data). **No GitHub secrets
+UTC (plus `workflow_dispatch`) against the QA base URL from the
+`QA_E2E_BASE_URL` repo variable (`E2E_BASE_URL` disables the ephemeral boot;
+fixture journeys skip, the `qa.spec` specs run read-only against the seeded
+data). When the variable is unset — e.g. on forks — the job skips cleanly
+with a notice. **No GitHub secrets
 are needed** — the QA export token for the mailbox endpoint is the fixed
 documented value above (this repo intentionally holds no repo secrets).
 On failure (scheduled runs only) it opens or comments on an open issue
 labelled `e2e-nightly` instead of spamming duplicates.
 
-**Runner (spec 14 amendment 2026-08-06):** QA sits behind the NPM access list
-(LAN/tailnet only), so this job runs on the **repo-scoped self-hosted runner
-on FRAME-DESK** (label `qa-e2e`) — GitHub-hosted runners get 403. If
-FRAME-DESK is asleep at cron time the job queues (24h window) and runs on
-wake. Runner bring-up:
-
-1. Repo → Settings → Actions → Runners → **New self-hosted runner** (Linux
-   x64) — copy the one-time registration token.
-2. `ssh nsoult@172.16.10.45` (FRAME-DESK) — the embara-android runner runs as
-   host user `nsoult` (`/home/nsoult/actions-runner`, verified via
-   `systemctl cat actions.runner.soult-io-embara-android.FRAME-DESK.service`);
-   stay as `nsoult`, no user switch.
-3. In a NEW directory (this is a second instance — do not touch
-   `~/actions-runner`): `mkdir -p ~/actions-runner-payroll && cd ~/actions-runner-payroll`,
-   download + untar the runner package per the GitHub instructions, then:
-   `./config.sh --unattended --url https://github.com/soult-io/payroll-app --token <TOKEN> --name FRAME-DESK-qa --labels qa-e2e --work _work`
-4. SELinux (FRAME-DESK is Fedora 44, enforcing — same fix the embara runner
-   needed, SB #2115): `sudo chcon -R -t bin_t /home/nsoult/actions-runner-payroll`
-5. `sudo ./svc.sh install nsoult && sudo ./svc.sh start` (systemd service
-   `actions.runner.soult-io-payroll-app.FRAME-DESK-qa.service`).
-6. One-time Playwright system libraries — Fedora, so dnf (Playwright's
-   `install-deps` is apt-only; the workflow runs `playwright install
-   chromium` WITHOUT `--with-deps`):
-   `sudo dnf install -y nss nspr atk at-spi2-atk at-spi2-core cups-libs libdrm libxkbcommon libXcomposite libXdamage libXext libXfixes libXrandr mesa-libgbm alsa-lib pango cairo`
-7. Verify: repo → Settings → Actions → Runners shows `FRAME-DESK-qa` idle;
-   then Actions → e2e-nightly → Run workflow.
+**Runner (spec 14 amendment 2026-08-06):** QA sits behind a reverse-proxy
+access list (LAN/VPN only), so this job runs on a **repo-scoped self-hosted
+runner inside the QA network** (label `qa-e2e`) — GitHub-hosted runners get
+403. If the runner is asleep at cron time the job queues (24h window) and
+runs on wake. Playwright system libraries are pre-installed on the runner
+host (one-time setup), so the workflow runs `playwright install chromium`
+WITHOUT `--with-deps`. To reproduce this pattern: register a repo-scoped
+self-hosted runner with the `qa-e2e` label on a host that can reach your QA
+deployment, install the Playwright system dependencies once, and run the
+runner as a service.
 
 To run the suite against live QA by hand:
 
 ```sh
-E2E_BASE_URL=https://payroll-qa.stabpablo.eu \
+E2E_BASE_URL=https://payroll-qa.example.com \
 pnpm --filter @payroll/e2e e2e
 ```
