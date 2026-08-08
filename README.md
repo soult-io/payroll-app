@@ -12,10 +12,9 @@ tooling for the cutover from `legacy_accounting.accounting`.
 
 A Vue 3 + PrimeVue SPA (`apps/web`) talks to a Fastify API (`apps/server`,
 Node 22) that owns a dedicated Postgres 16 database via Drizzle migrations
-(`packages/db`). All withholding math lives in `packages/engine` — a verbatim
-vendored copy of the battle-tested `payroll.ts`/`money.ts` from an internal
-accounting codebase,
-pure and deterministic, with its original unit tests as the regression oracle.
+(`packages/db`). All withholding math lives in `packages/engine` — `payroll.ts`/
+`money.ts` vendored verbatim from a battle-tested internal accounting codebase,
+pure and deterministic, with their original unit tests as the regression oracle.
 Shared Zod schemas live in `packages/shared`. Deployment is a single
 self-contained container image published to ghcr (`compose.example.yml` shows
 a reference deployment: app + one-shot migrate + postgres); the full design —
@@ -59,10 +58,10 @@ are read as **files** from `SECRETS_DIR`, never as env values (spec 8).
 
 ## Legacy migration & cutover
 
-One-time import of payroll history from `legacy_accounting.accounting`
-(mcp-accounting), with snapshot reconstruction validated to the cent before
-any write. Dry-run by default; `--write` is idempotent (ledger table
-`legacy_migration_map`):
+One-time import of payroll history from a legacy accounting database
+(`legacy_accounting.accounting`), with snapshot reconstruction validated to
+the cent before any write. Dry-run by default; `--write` is idempotent
+(ledger table `legacy_migration_map`):
 
 ```sh
 SOURCE_DATABASE_URL=postgres://…@legacy-db:5432/legacy_accounting \
@@ -140,3 +139,17 @@ Major version is pinned (`postgres:16-alpine`). Upgrades are manual:
 `pg_dump` from the old container, bring up the new pinned image on an empty
 volume, restore, then point the app at it. Nightly backups: `pg_dump` sidecar
 or host backup job, 30-day retention (spec 8).
+
+## Contributing
+
+Contributions are welcome — see [CONTRIBUTING.md](CONTRIBUTING.md) for the
+dev setup, test/lint commands, and PR expectations.
+
+## Security
+
+Please report vulnerabilities privately via GitHub's private vulnerability
+reporting — see [SECURITY.md](SECURITY.md).
+
+## License
+
+[AGPL-3.0](LICENSE)
