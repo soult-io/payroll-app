@@ -61,7 +61,7 @@ admin may void a pre-issued run (status='void', reason) — regenerating creates
 - New: Pub 15-T worked examples for each W-4 field; property-based tests (fast-check) over
   bracket edges, wage-cap boundaries, rounding; golden-file differential test: 2025–2026
   real runs (from migration data) recomputed must match issued-history amounts to the cent
-  (the 2025 stub federal $250.13 case is already encoded in existing tests).
+  (a 2025 stub-period federal withholding edge case is already encoded in existing tests).
 
 ## Out of scope (v1)
 

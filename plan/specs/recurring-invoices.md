@@ -22,7 +22,7 @@ contractor_recurring_invoices (
   invoice_day_of_month INTEGER CHECK (invoice_day_of_month BETWEEN 1 AND 28),
                   -- required when invoice_day='fixed'; capped at 28, no Feb edge cases
   pay_day_of_month     INTEGER NOT NULL CHECK (pay_day_of_month BETWEEN 1 AND 28),
-                  -- day of the FOLLOWING month the payment is due (Lucy: 11)
+                  -- day of the FOLLOWING month the payment is due (e.g. 11)
   active          BOOLEAN NOT NULL DEFAULT TRUE,
   starts_on       DATE NOT NULL,        -- first period to generate for
   ends_on         DATE,                 -- contract end; NULL = open-ended
@@ -53,14 +53,16 @@ allowed only before its first generation; afterwards it's pause/end only (audit 
 - **Idempotent**: unique partial index on (template-generated) invoices per
   (template_id, period) — a re-run or double tick can never duplicate. Generation is
   recorded on the template (`last_generated_period`) as a second guard.
-- Admin notification on generation: "Recurring invoice for Lucy — $2,000, July 2026 —
-  awaiting approval" (same outbox/pg-boss machinery as payroll-draft notifications).
+- Admin notification on generation, e.g.: "Recurring invoice for Jane Contractor —
+  $1,500, June 2026 — awaiting approval" (same outbox/pg-boss machinery as
+  payroll-draft notifications).
 
 ## 3. Payment-due reminder
 
 On the template's `pay_day_of_month` (of the month following the invoice period), if the
-generated invoice is approved but has no payment recorded → admin notification:
-"Payment due today: Lucy — $2,000 (July retainer)". One per invoice per day, idempotent
+generated invoice is approved but has no payment recorded → admin notification,
+e.g.: "Payment due today: Jane Contractor — $1,500 (June retainer)". One per invoice
+per day, idempotent
 via outbox markers (same pattern as the W-8 expiry sweep). If the payment is recorded
 early, the reminder never fires. This replaces any external reminder setup.
 

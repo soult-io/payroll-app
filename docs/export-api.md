@@ -80,15 +80,15 @@ keyed on when wages were *paid*.
       "status": "issued",
       "snapshotHash": "<sha256 of the frozen run snapshot>",
       "entries": {
-        "gross_pay": "3500.00",
-        "federal_withholding": "250.13",
-        "social_security": "217.00",
-        "medicare": "50.75",
+        "gross_pay": "4200.00",
+        "federal_withholding": "400.00",
+        "social_security": "260.40",
+        "medicare": "60.90",
         "state_withholding": "0.00",
-        "net_pay": "2982.12",
-        "employer_social_security": "217.00",
-        "employer_medicare": "50.75",
-        "employer_futa": "21.00"
+        "net_pay": "3478.70",
+        "employer_social_security": "260.40",
+        "employer_medicare": "60.90",
+        "employer_futa": "25.20"
       }
     }
   ]
