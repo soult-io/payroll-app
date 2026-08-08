@@ -1,20 +1,25 @@
 name: e2e-nightly
 
 # Nightly e2e against live QA (spec 14 §3, amended 2026-08-06): the full
-# Playwright suite runs against https://payroll-qa.stabpablo.eu — real
-# Postgres, pg-boss schedulers, Mailpit. Failures open (or comment on) a
-# deduped GitHub issue.
+# Playwright suite runs against the QA deployment at the QA_E2E_BASE_URL repo
+# variable (non-secret config) — real Postgres, pg-boss schedulers, Mailpit.
+# Failures open (or comment on) a deduped GitHub issue.
+#
+# Fork-friendly: when QA_E2E_BASE_URL is unset (forks, contributors), the
+# e2e-qa job is skipped BEFORE a runner is allocated (job-level `if`) — no
+# self-hosted runner is ever requested — and the skip-notice job reports a
+# clean green success instead.
 #
 # QA credentials/TOTP AND the QA export token are NOT secrets: they are the
 # fixed, documented, fake values from the QA seed (docs/qa.md), hardcoded in
 # e2e/tests/qa.ts — this repo holds no GitHub secrets.
 #
-# Runner (amendment 2026-08-06): payroll-qa is scoped behind the NPM access
-# list (LAN/tailnet only) — GitHub-hosted runners get 403, so this job runs
-# on the repo-scoped self-hosted runner on FRAME-DESK (label: qa-e2e), which
-# is inside the allow list. If FRAME-DESK is asleep at cron time the job
+# Runner (amendment 2026-08-06): QA is scoped behind a reverse-proxy access
+# list (LAN/VPN only) — GitHub-hosted runners get 403, so this job runs on a
+# repo-scoped self-hosted runner inside the QA network (label: qa-e2e), which
+# is inside the allow list. If the runner is asleep at cron time the job
 # QUEUES and runs when it wakes (24h queue window) — the nightly becomes
-# "next time the desktop is on", which is acceptable for e2e.
+# "next time the runner is on", which is acceptable for e2e.
 # Playwright system libraries are pre-installed on the runner host (one-time
 # runbook step, docs/qa.md) — hence `playwright install chromium` WITHOUT
 # --with-deps (which would need sudo on every run).
@@ -30,6 +35,9 @@ permissions:
 
 jobs:
   e2e-qa:
+    # Skip before runner allocation when QA is not configured (forks) —
+    # a skipped job counts as success and never touches the self-hosted pool.
+    if: vars.QA_E2E_BASE_URL != ''
     runs-on: [self-hosted, qa-e2e]
     steps:
       - uses: actions/checkout@v4
@@ -54,7 +62,7 @@ jobs:
       # imports app dists.
       - name: E2E against live QA
         env:
-          E2E_BASE_URL: https://payroll-qa.stabpablo.eu
+          E2E_BASE_URL: ${{ vars.QA_E2E_BASE_URL }}
         run: pnpm --filter @payroll/e2e e2e
 
       - name: Upload Playwright report on failure
@@ -71,6 +79,8 @@ jobs:
       - name: Open or update failure issue
         if: failure() && github.event_name == 'schedule'
         uses: actions/github-script@v7
+        env:
+          QA_URL: ${{ vars.QA_E2E_BASE_URL }}
         with:
           script: |
             const label = "e2e-nightly";
@@ -78,7 +88,7 @@ jobs:
             const title = `Nightly e2e against QA failed ${date}`;
             const runUrl = `${context.serverUrl}/${context.repo.owner}/${context.repo.repo}/actions/runs/${context.runId}`;
             const body = [
-              `The nightly e2e suite against https://payroll-qa.stabpablo.eu failed.`,
+              `The nightly e2e suite against ${process.env.QA_URL} failed.`,
               ``,
               `- Run: ${runUrl}`,
               `- Commit: ${context.sha}`,
@@ -113,3 +123,12 @@ jobs:
               });
               core.info(`opened issue #${created.number}`);
             }
+
+  skip-notice:
+    # Forks / repos without QA configured: report a clean green skip.
+    if: vars.QA_E2E_BASE_URL == ''
+    runs-on: ubuntu-latest
+    steps:
+      - name: Notice
+        run: |
+          echo "::notice::QA_E2E_BASE_URL repo variable is not set — skipping the nightly e2e against live QA. This is expected on forks and is not a failure."

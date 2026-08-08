@@ -5,7 +5,8 @@
  *   in-memory PGlite by @payroll/server's e2e:serve script (migrations +
  *   seeds + fixtures; serves the built SPA from apps/web/dist).
  * - LIVE QA (E2E_BASE_URL set): no local server is booted — the suite runs
- *   against that URL (the nightly job targets https://payroll-qa.stabpablo.eu).
+ *   against that URL (the nightly job sets it from the QA_E2E_BASE_URL repo
+ *   variable; unset → ephemeral default).
  *   Fixture-driven specs branch: journeys are ephemeral-only; the qa.spec
  *   specs use the documented seeded QA credentials/TOTP and stay read-only.
  *
