@@ -6,7 +6,7 @@
 import { formatMoney } from "@payroll/shared";
 
 export function useMoney() {
-  /** 3463.12 → "$3,463.12". Accepts numeric strings from NUMERIC columns. */
+  /** 1234.56 → "$1,234.56". Accepts numeric strings from NUMERIC columns. */
   function money(amount: number | string | null | undefined): string {
     if (amount === null || amount === undefined) return "—";
     const n = typeof amount === "string" ? Number(amount) : amount;

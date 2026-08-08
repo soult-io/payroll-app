@@ -19,7 +19,7 @@ export const APP_TIMEZONE = "Europe/Madrid";
 /** Single display currency for v1 (multi-currency is a D12 exclusion). */
 export const CURRENCY = "USD";
 
-/** Format cents-precision numbers for display, e.g. 3463.12 → "$3,463.12". */
+/** Format cents-precision numbers for display, e.g. 1234.56 → "$1,234.56". */
 export function formatMoney(amount: number, currency: string = CURRENCY): string {
   return new Intl.NumberFormat("en-US", { style: "currency", currency }).format(amount);
 }
