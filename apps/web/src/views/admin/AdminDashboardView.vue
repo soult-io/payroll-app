@@ -1,0 +1,161 @@
+<script setup lang="ts">
+/**
+ * Admin dashboard (frontend spec): pending approvals inbox (payroll drafts +
+ * change requests) + outbox health card.
+ */
+import { onMounted, ref } from "vue";
+import Button from "primevue/button";
+import Skeleton from "primevue/skeleton";
+import PageHeader from "../../components/PageHeader.vue";
+import EmptyState from "../../components/EmptyState.vue";
+import StatusChip from "../../components/StatusChip.vue";
+import {
+  adminEmployeesApi,
+  adminPayrollApi,
+  adminNotificationsApi,
+  changeRequestsApi,
+  type PayrollRunRow,
+  type ChangeRequest,
+  type OutboxHealth,
+} from "../../lib/api";
+import { requestTypeLabel } from "../../composables/useRequestTypes";
+import { useDates } from "../../composables/useDates";
+import { useNotify } from "../../composables/useNotify";
+
+const { date, dateTime } = useDates();
+const notify = useNotify();
+
+const loading = ref(true);
+const draftRuns = ref<PayrollRunRow[]>([]);
+const pendingRequests = ref<ChangeRequest[]>([]);
+const outbox = ref<OutboxHealth | null>(null);
+const employeeNames = ref<Map<number, string>>(new Map());
+
+onMounted(async () => {
+  try {
+    const [runs, requests, health, employees] = await Promise.all([
+      adminPayrollApi.runs({ status: "awaiting_approval" }),
+      changeRequestsApi.list({ status: "pending" }),
+      adminNotificationsApi.outbox(),
+      adminEmployeesApi.list(),
+    ]);
+    draftRuns.value = runs.runs;
+    pendingRequests.value = requests.requests;
+    outbox.value = health;
+    employeeNames.value = new Map(employees.employees.map((e) => [e.id, e.legalName]));
+  } catch (err) {
+    notify.error(err, "Could not load dashboard");
+  } finally {
+    loading.value = false;
+  }
+});
+
+function employeeName(id: number): string {
+  return employeeNames.value.get(id) ?? `Employee #${id}`;
+}
+</script>
+
+<template>
+  <div class="page stack">
+    <PageHeader title="Admin dashboard" subtitle="Everything waiting on your decision." />
+
+    <div v-if="loading" class="grid-2">
+      <Skeleton height="12rem" />
+      <Skeleton height="12rem" />
+    </div>
+
+    <div v-else class="grid-2">
+      <section class="card">
+        <h3>Payroll drafts awaiting approval</h3>
+        <ul v-if="draftRuns.length > 0" class="inbox-list">
+          <li v-for="run in draftRuns" :key="run.publicId">
+            <div>
+              <RouterLink :to="{ name: 'admin-payroll-run', params: { publicId: run.publicId } }">
+                {{ employeeName(run.employeeId) }}
+              </RouterLink>
+              <p class="muted small">{{ date(run.periodStart) }} – {{ date(run.periodEnd) }} · pay {{ date(run.payDate) }}</p>
+            </div>
+            <StatusChip :status="run.status" />
+          </li>
+        </ul>
+        <EmptyState v-else icon="pi pi-check-circle" title="No drafts waiting" body="Generated drafts will queue here for approval." />
+      </section>
+
+      <section class="card">
+        <h3>Pending change requests</h3>
+        <ul v-if="pendingRequests.length > 0" class="inbox-list">
+          <li v-for="r in pendingRequests" :key="r.publicId">
+            <div>
+              <RouterLink :to="{ name: 'admin-request-detail', params: { publicId: r.publicId } }">
+                {{ r.employeeName ?? `Employee #${r.employeeId}` }} — {{ requestTypeLabel(r.requestType) }}
+              </RouterLink>
+              <p class="muted small">submitted {{ dateTime(r.submittedAt) }} · effective {{ date(r.effectiveFrom) }}</p>
+            </div>
+            <StatusChip :status="r.status" />
+          </li>
+        </ul>
+        <EmptyState v-else icon="pi pi-check-circle" title="Inbox zero" body="Employee change requests will queue here." />
+      </section>
+    </div>
+
+    <section v-if="outbox" class="card">
+      <div class="row" style="justify-content: space-between">
+        <h3 style="margin: 0">Email outbox</h3>
+        <RouterLink :to="{ name: 'admin-settings' }">
+          <Button label="Open settings" size="small" text icon="pi pi-arrow-right" icon-pos="right" />
+        </RouterLink>
+      </div>
+      <div class="row" style="margin-top: 0.75rem">
+        <span class="stat"><strong>{{ outbox.counts["pending"] ?? 0 }}</strong> pending</span>
+        <span class="stat"><strong>{{ outbox.counts["sent"] ?? 0 }}</strong> sent</span>
+        <span class="stat" :class="{ 'stat-bad': (outbox.counts['failed'] ?? 0) > 0 }">
+          <strong>{{ outbox.counts["failed"] ?? 0 }}</strong> failed
+        </span>
+        <span class="stat"><strong>{{ outbox.counts["suppressed"] ?? 0 }}</strong> suppressed</span>
+      </div>
+      <p v-if="!outbox.smtp.configured" class="muted small" style="margin-top: 0.5rem">
+        SMTP is not configured — emails are {{ outbox.emailMode === "log" ? "logged to the server console" : "queued" }}.
+      </p>
+      <ul v-if="outbox.recentFailures.length > 0" class="failure-list">
+        <li v-for="f in outbox.recentFailures.slice(0, 3)" :key="f.id" class="small">
+          <span class="mono">{{ f.eventType }}</span> — {{ f.lastError }}
+          <span class="muted">({{ dateTime(f.lastAttemptAt) }})</span>
+        </li>
+      </ul>
+    </section>
+  </div>
+</template>
+
+<style scoped>
+.inbox-list {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 0.75rem;
+}
+.inbox-list li {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: 1rem;
+}
+.inbox-list p {
+  margin: 0.15rem 0 0;
+}
+.stat {
+  padding: 0.5rem 1rem;
+  border: 1px solid var(--p-surface-border, #e4e4e7);
+  border-radius: 8px;
+}
+.stat-bad {
+  border-color: var(--p-red-300, #ef9a9a);
+  color: var(--p-red-600, #c62828);
+}
+.failure-list {
+  margin: 0.75rem 0 0;
+  padding-left: 1.25rem;
+  color: var(--p-red-600, #c62828);
+}
+</style>

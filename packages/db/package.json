@@ -1,0 +1,31 @@
+{
+  "name": "@payroll/db",
+  "version": "0.1.0",
+  "private": true,
+  "description": "Drizzle ORM schema + migrations for the payroll database (spec 1).",
+  "type": "module",
+  "main": "./dist/index.js",
+  "types": "./dist/index.d.ts",
+  "exports": {
+    ".": {
+      "types": "./dist/index.d.ts",
+      "import": "./dist/index.js"
+    }
+  },
+  "scripts": {
+    "build": "tsc -p tsconfig.json",
+    "typecheck": "tsc --noEmit -p tsconfig.test.json",
+    "generate": "drizzle-kit generate",
+    "migrate": "drizzle-kit migrate"
+  },
+  "dependencies": {
+    "@payroll/engine": "workspace:*",
+    "drizzle-kit": "~0.31.4",
+    "drizzle-orm": "~0.44.5",
+    "postgres": "~3.4.5"
+  },
+  "devDependencies": {
+    "@types/node": "~22.18.13",
+    "typescript": "~5.9.2"
+  }
+}

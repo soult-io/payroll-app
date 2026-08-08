@@ -1,0 +1,175 @@
+/**
+ * Scheduler (spec payroll-engine D6): pg-boss against the app DB.
+ *
+ * - A monthly cron (from the company-wide pay_schedules row, draft day,
+ *   default 15th) enqueues one job per auto-draft employee per period with
+ *   singletonKey = "<employeeId>:<periodStart>" so retries can never
+ *   double-generate (the DB UNIQUE(employee_id, period_start) is the second
+ *   belt).
+ * - Cron re-registers on boot and on pay-schedule change (syncSchedules).
+ * - The email outbox drain worker (spec 6) sends pending rows via nodemailer
+ *   (SMTP) or the dev log transport, with exponential backoff handled in
+ *   notify/outbox.ts.
+ *
+ * This module only wires pg-boss; all business logic lives in runs.ts and is
+ * integration-tested without pg-boss (which needs a real Postgres).
+ */
+
+import { PgBoss } from "pg-boss";
+import nodemailer from "nodemailer";
+import { eq, isNull } from "drizzle-orm";
+import { authUser, employees, paySchedules } from "@payroll/db";
+import type { Db } from "../db.js";
+import type { AppConfig } from "../config.js";
+import { generateDraftsForPeriod, monthlyPeriod } from "./runs.js";
+import { drainOutbox, type MailTransport } from "../notify/outbox.js";
+import { checkContractorFormExpiry } from "../contractors/service.js";
+
+const TICK_QUEUE = "payroll-draft-tick";
+const GENERATE_QUEUE = "payroll-generate-draft";
+const OUTBOX_QUEUE = "email-outbox-drain";
+const FORM_EXPIRY_QUEUE = "contractor-form-expiry";
+
+export interface Scheduler {
+  boss: PgBoss;
+  /** Re-read pay_schedules and re-register the cron (call after edits). */
+  syncSchedules: () => Promise<void>;
+  stop: () => Promise<void>;
+}
+
+function currentPeriod(): { year: number; month: number } {
+  const now = new Date();
+  return { year: now.getFullYear(), month: now.getMonth() + 1 };
+}
+
+export async function startScheduler(deps: {
+  db: Db;
+  config: AppConfig;
+  databaseUrl: string;
+}): Promise<Scheduler> {
+  const { db, config } = deps;
+  const boss = new PgBoss({
+    connectionString: deps.databaseUrl,
+    // Keep pg-boss's own schema out of the app's migration-managed schema.
+    schema: "pgboss",
+  });
+  await boss.start();
+  await boss.createQueue(TICK_QUEUE);
+  await boss.createQueue(GENERATE_QUEUE);
+  await boss.createQueue(OUTBOX_QUEUE);
+  await boss.createQueue(FORM_EXPIRY_QUEUE);
+
+  // Cron tick → enqueue per-employee generation jobs (singleton per period).
+  await boss.work(TICK_QUEUE, async () => {
+    const schedules = await db.select().from(paySchedules).where(isNull(paySchedules.employeeId));
+    const schedule = schedules[0];
+    if (!schedule?.active || !schedule.autoDraft) return;
+    const { year, month } = currentPeriod();
+    const period = monthlyPeriod(year, month, schedule.payDayOfMonth);
+
+    // Spec 10 §4: contractors never enter payroll_runs — W-2 employees only.
+    const activeEmployees = await db
+      .select({ id: employees.id })
+      .from(employees)
+      .where(eq(employees.employmentType, "w2"));
+    for (const employee of activeEmployees) {
+      await boss.send(
+        GENERATE_QUEUE,
+        { employeeId: employee.id, year, month },
+        { singletonKey: `${employee.id}:${period.periodStart}` },
+      );
+    }
+  });
+
+  // Per-employee generation — idempotent at the DB level as well.
+  await boss.work<{ employeeId: number; year: number; month: number }>(
+    GENERATE_QUEUE,
+    async (jobs) => {
+      for (const job of jobs) {
+        await generateDraftsForPeriod(
+          { db, config },
+          {
+            year: job.data.year,
+            month: job.data.month,
+            employeeId: job.data.employeeId,
+            autoDraftOnly: true,
+            createdBy: "scheduler",
+          },
+        );
+      }
+    },
+  );
+
+  // Outbox drain (spec 6): nodemailer over SMTP, or the dev log transport.
+  // Backoff / suppression / max-attempts all live in drainOutbox.
+  const transport: MailTransport | undefined =
+    config.emailMode === "smtp"
+      ? nodemailer.createTransport({
+          host: config.smtp.host,
+          port: config.smtp.port,
+          secure: config.smtp.secure,
+          ...(config.smtp.user
+            ? { auth: { user: config.smtp.user, pass: config.smtp.password ?? "" } }
+            : {}),
+        })
+      : undefined;
+
+  const resolveRecipientEmail = async (userId: string): Promise<string | null> => {
+    const rows = await db
+      .select({ email: authUser.email })
+      .from(authUser)
+      .where(eq(authUser.id, userId))
+      .limit(1);
+    return rows[0]?.email ?? null;
+  };
+
+  await boss.work(OUTBOX_QUEUE, async () => {
+    const result = await drainOutbox({
+      db,
+      config,
+      ...(transport ? { transport } : {}),
+      resolveRecipientEmail,
+      log: (msg) => console.log(msg),
+    });
+    if (result.sent + result.failed + result.suppressed + result.logged > 0) {
+      console.log(`[outbox] drain: ${JSON.stringify(result)}`);
+    }
+  });
+
+  // W-8 expiry sweep (spec 10 §4): admins are notified 30 days before a
+  // contractor's form expires and again at expiry (payment gate re-arms).
+  await boss.work(FORM_EXPIRY_QUEUE, async () => {
+    const result = await checkContractorFormExpiry({ db, config });
+    if (result.expiring + result.expired > 0) {
+      console.log(`[contractors] form expiry sweep: ${JSON.stringify(result)}`);
+    }
+  });
+
+  async function syncSchedules(): Promise<void> {
+    const schedules = await db.select().from(paySchedules).where(isNull(paySchedules.employeeId));
+    const schedule = schedules[0];
+    await boss.unschedule(TICK_QUEUE);
+    await boss.unschedule(OUTBOX_QUEUE);
+    await boss.unschedule(FORM_EXPIRY_QUEUE);
+    if (schedule?.active) {
+      // Draft day at 09:12 local (off-peak minute), display timezone per spec 1.
+      await boss.schedule(TICK_QUEUE, `12 9 ${schedule.draftDayOfMonth} * *`, null, {
+        tz: config.appTz,
+      });
+    }
+    // Outbox drain every minute (spec 6 outbox worker).
+    await boss.schedule(OUTBOX_QUEUE, "* * * * *", null, { tz: config.appTz });
+    // W-8 expiry sweep daily at 08:23 local (off-peak minute).
+    await boss.schedule(FORM_EXPIRY_QUEUE, "23 8 * * *", null, { tz: config.appTz });
+  }
+
+  await syncSchedules();
+
+  return {
+    boss,
+    syncSchedules,
+    stop: async () => {
+      await boss.stop({ graceful: true, timeout: 5000 });
+    },
+  };
+}

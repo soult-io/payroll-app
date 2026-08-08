@@ -1,0 +1,146 @@
+name: release
+
+# Release model (spec 13, D28 amended 2026-08-03): the app repo ONLY publishes
+# artifacts — it knows nothing about any deployment repo and holds no cross-repo
+# credential. Flow: release PR (CHANGELOG + version bump) → owner merges → tag
+# vX.Y.Z pushed → THIS workflow re-verifies and publishes
+# ghcr.io/soult-io/payroll-app:vX.Y.Z / vX.Y / latest + a GitHub release.
+# Deployment is the stack repo's job: nsoult-agentic/stack-payroll's own
+# scheduled workflow sees the new release and opens a prod-pin PR (owner merge =
+# the final gate → the GitOps deployment redeploys prod).
+
+on:
+  push:
+    tags:
+      - "v*.*.*"
+
+env:
+  REGISTRY: ghcr.io
+  IMAGE_NAME: ${{ github.repository }}
+
+jobs:
+  # Re-verify the tagged commit before publishing anything (lint/build/
+  # typecheck/unit+integration tests — same gate as CI's verify job). The tag
+  # normally points at a main commit that already passed full CI incl. e2e;
+  # this is the belt-and-suspenders check against tagging a bad commit.
+  verify:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: pnpm/action-setup@v4
+        with:
+          version: 11.17.0
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: pnpm
+
+      - name: Install
+        run: pnpm install --frozen-lockfile
+
+      - name: Lint + format (biome)
+        run: pnpm lint
+
+      # Build BEFORE typecheck: cross-package imports resolve to dist/*.d.ts,
+      # which must exist first (locally, stale dist dirs mask this).
+      - name: Build web + server + packages
+        run: pnpm -r run build
+
+      - name: Typecheck (all packages)
+        run: pnpm -r run typecheck
+
+      - name: Engine unit tests + coverage (regression oracle — spec 2)
+        run: pnpm --filter @payroll/engine exec vitest run --coverage
+
+      - name: Server integration tests + coverage (PGlite — spec 2/3/4/6)
+        run: pnpm --filter @payroll/server exec vitest run --coverage
+
+  push-image:
+    needs: [verify]
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read   # checkout
+      packages: write
+      security-events: write   # Trivy SARIF upload to code scanning
+    outputs:
+      release_tag: ${{ steps.version.outputs.release_tag }}
+      minor_tag: ${{ steps.version.outputs.minor_tag }}
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Compute image tags from the git tag
+        id: version
+        run: |
+          TAG="${GITHUB_REF_NAME}"            # e.g. v1.2.3
+          MINOR="${TAG%.*}"                   # e.g. v1.2
+          echo "release_tag=${TAG}" >> "$GITHUB_OUTPUT"
+          echo "minor_tag=${MINOR}" >> "$GITHUB_OUTPUT"
+          echo "Publishing ${TAG} + ${MINOR} + latest"
+
+      - uses: docker/setup-buildx-action@v3
+
+      - uses: docker/login-action@v3
+        with:
+          registry: ${{ env.REGISTRY }}
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - uses: docker/build-push-action@v6
+        with:
+          context: .
+          push: true
+          tags: |
+            ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}:${{ steps.version.outputs.release_tag }}
+            ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}:${{ steps.version.outputs.minor_tag }}
+            ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}:latest
+          cache-from: type=gha
+          cache-to: type=gha,mode=max
+
+      # Image vulnerability gate: fail on CRITICAL (fixed) findings. SARIF
+      # upload to code scanning only when GitHub Advanced Security is available.
+      - name: Trivy image scan
+        uses: aquasecurity/trivy-action@v0.36.0
+        with:
+          image-ref: ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}:${{ steps.version.outputs.release_tag }}
+          severity: CRITICAL
+          ignore-unfixed: true
+          exit-code: "1"
+          format: table
+
+      - name: Trivy image scan (SARIF for code scanning)
+        if: github.event.repository.visibility == 'public'
+        uses: aquasecurity/trivy-action@v0.36.0
+        with:
+          image-ref: ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}:${{ steps.version.outputs.release_tag }}
+          severity: CRITICAL
+          ignore-unfixed: true
+          exit-code: "0"
+          format: sarif
+          output: trivy-results.sarif
+
+      - name: Upload Trivy SARIF
+        if: github.event.repository.visibility == 'public'
+        uses: github/codeql-action/upload-sarif@v3
+        with:
+          sarif_file: trivy-results.sarif
+
+  github-release:
+    # Publish the GitHub release — the consumer-visible artifact that the stack
+    # repo's pin-update workflow polls for (spec 13, D28 amended 2026-08-03:
+    # consumer pulls; this repo holds no cross-repo credential).
+    needs: [push-image]
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Create GitHub release
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          RELEASE_TAG: ${{ needs.push-image.outputs.release_tag }}
+        run: gh release create "$RELEASE_TAG" --generate-notes --title "$RELEASE_TAG"

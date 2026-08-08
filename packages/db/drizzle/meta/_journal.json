@@ -1,0 +1,83 @@
+{
+  "version": "7",
+  "dialect": "postgresql",
+  "entries": [
+    {
+      "idx": 0,
+      "version": "7",
+      "when": 1785271033465,
+      "tag": "0000_abnormal_franklin_richards",
+      "breakpoints": true
+    },
+    {
+      "idx": 1,
+      "version": "7",
+      "when": 1785271100000,
+      "tag": "0001_compensation_exclusion_and_run_immutability",
+      "breakpoints": true
+    },
+    {
+      "idx": 2,
+      "version": "7",
+      "when": 1785272188441,
+      "tag": "0002_better_auth_tables",
+      "breakpoints": true
+    },
+    {
+      "idx": 3,
+      "version": "7",
+      "when": 1785272203659,
+      "tag": "0003_setup_tokens",
+      "breakpoints": true
+    },
+    {
+      "idx": 4,
+      "version": "7",
+      "when": 1785274271218,
+      "tag": "0004_snapshot_hash",
+      "breakpoints": true
+    },
+    {
+      "idx": 5,
+      "version": "7",
+      "when": 1785274967391,
+      "tag": "0005_void_releases_period_slot",
+      "breakpoints": true
+    },
+    {
+      "idx": 6,
+      "version": "7",
+      "when": 1785275254594,
+      "tag": "0006_notifications_outbox_devices",
+      "breakpoints": true
+    },
+    {
+      "idx": 7,
+      "version": "7",
+      "when": 1785278271595,
+      "tag": "0007_glorious_mandrill",
+      "breakpoints": true
+    },
+    {
+      "idx": 8,
+      "version": "7",
+      "when": 1785678744820,
+      "tag": "0008_complete_vin_gonzales",
+      "breakpoints": true
+    },
+    {
+      "idx": 9,
+      "version": "7",
+      "when": 1785711969323,
+      "tag": "0009_familiar_barracuda",
+      "breakpoints": true
+    },
+    {
+      "idx": 10,
+      "version": "7",
+      "when": 1785753179098,
+      "tag": "0010_lively_excalibur",
+      "breakpoints": true
+    }
+  ]
+}
