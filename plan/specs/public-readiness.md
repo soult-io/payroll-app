@@ -1,6 +1,6 @@
 # Spec 16 — Public readiness (open-source release)
 
-Status: `DRAFT 2026-08-08 — needs owner sign-off` · Direction: owner 2026-08-08 ("draft the spec, with the fresh-start history") · Independent of Specs 13–15; no code architecture changes
+Status: `APPROVED 2026-08-08 — approved as written` · Direction: owner 2026-08-08 ("draft the spec, with the fresh-start history" / "approve as written") · Independent of Specs 13–15; no code architecture changes
 
 Audit-driven plan to flip `soult-io/payroll-app` from private to public as a credible
 open-source project. The spec-13 split already achieved the structural groundwork
@@ -134,5 +134,5 @@ the scrubbed state:
 
 ## Owner sign-off
 
-- [ ] Approved as written —
+- [x] Approved as written — 2026-08-08
 - [ ] Approved with changes (list):
