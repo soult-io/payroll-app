@@ -1,6 +1,12 @@
 # Spec 16 — Public readiness (open-source release)
 
-Status: `APPROVED 2026-08-08 — approved as written` · Direction: owner 2026-08-08 ("draft the spec, with the fresh-start history" / "approve as written") · Independent of Specs 13–15; no code architecture changes
+Status: `EXECUTED 2026-08-09` — scrub verified (zero PII/infra hits in tracked sources), CI green, history archived, fresh-start root commit `bee59be` force-pushed to `main`. Remaining: owner repo-settings clicks (fork-PR guardrail, visibility flip). · Direction: owner 2026-08-08 ("draft the spec, with the fresh-start history" / "approve as written") · Independent of Specs 13–15; no code architecture changes
+
+**Execution note (D37 deviation):** the history mirror was created by the owner at
+`soult-io/payroll-app-history` (private) rather than `nsoult-agentic/payroll-app-history`.
+Functionally equivalent (private, invisible to the public); all 135 pre-public commits +
+all refs archived and verified at head `122a2a8`. Transfer to `nsoult-agentic` remains
+possible later if the house convention is preferred.
 
 Audit-driven plan to flip `soult-io/payroll-app` from private to public as a credible
 open-source project. The spec-13 split already achieved the structural groundwork
