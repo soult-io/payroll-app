@@ -21,7 +21,7 @@
     "pdfmake": "~0.3.7"
   },
   "devDependencies": {
-    "@types/node": "~22.18.13",
-    "typescript": "~5.9.2"
+    "@types/node": "~26.2.0",
+    "typescript": "~7.0.2"
   }
 }
