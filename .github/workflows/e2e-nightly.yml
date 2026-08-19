@@ -1,18 +1,22 @@
 name: e2e-nightly
 
-# Nightly e2e against live QA (spec 14 §3, amended 2026-08-06): the full
+# Nightly e2e against live QA (spec 14 §3, amended 2026-08-19): the full
 # Playwright suite runs against the QA deployment at the QA_E2E_BASE_URL repo
-# variable (non-secret config) — real Postgres, pg-boss schedulers, Mailpit.
+# SECRET (owner decision 2026-08-19: this is a public repo — a secret keeps the
+# URL masked in CI logs and invisible to the API; the URL is an address, not a
+# key, and the QA host is allowlist-scoped at NPM regardless) — real Postgres,
+# pg-boss schedulers, Mailpit.
 # Failures open (or comment on) a deduped GitHub issue.
 #
-# Fork-friendly: when QA_E2E_BASE_URL is unset (forks, contributors), the
-# e2e-qa job is skipped BEFORE a runner is allocated (job-level `if`) — no
-# self-hosted runner is ever requested — and the skip-notice job reports a
-# clean green success instead.
+# Fork-friendly: the e2e-qa job gates on `github.repository` (the job-level
+# `if` context list does NOT include `secrets`, so the gate is the repo
+# identity itself — forks never match `soult-io/payroll-app`). A fork's job is
+# skipped BEFORE a runner is allocated — no self-hosted runner is ever
+# requested — and the skip-notice job reports a clean green success instead.
 #
 # QA credentials/TOTP AND the QA export token are NOT secrets: they are the
 # fixed, documented, fake values from the QA seed (docs/qa.md), hardcoded in
-# e2e/tests/qa.ts — this repo holds no GitHub secrets.
+# e2e/tests/qa.ts. The ONE GitHub secret this repo holds is QA_E2E_BASE_URL.
 #
 # Runner (amendment 2026-08-06): QA is scoped behind a reverse-proxy access
 # list (LAN/VPN only) — GitHub-hosted runners get 403, so this job runs on a
@@ -37,7 +41,7 @@ jobs:
   e2e-qa:
     # Skip before runner allocation when QA is not configured (forks) —
     # a skipped job counts as success and never touches the self-hosted pool.
-    if: vars.QA_E2E_BASE_URL != ''
+    if: github.repository == 'soult-io/payroll-app'  # secrets. not allowed in job-level if; repo identity is the fork gate
     runs-on: [self-hosted, qa-e2e]
     steps:
       - uses: actions/checkout@v4
@@ -62,7 +66,7 @@ jobs:
       # imports app dists.
       - name: E2E against live QA
         env:
-          E2E_BASE_URL: ${{ vars.QA_E2E_BASE_URL }}
+          E2E_BASE_URL: ${{ secrets.QA_E2E_BASE_URL }}
         run: pnpm --filter @payroll/e2e e2e
 
       - name: Upload Playwright report on failure
@@ -80,7 +84,7 @@ jobs:
         if: failure() && github.event_name == 'schedule'
         uses: actions/github-script@v7
         env:
-          QA_URL: ${{ vars.QA_E2E_BASE_URL }}
+          QA_URL: ${{ secrets.QA_E2E_BASE_URL }}
         with:
           script: |
             const label = "e2e-nightly";
@@ -125,10 +129,10 @@ jobs:
             }
 
   skip-notice:
-    # Forks / repos without QA configured: report a clean green skip.
-    if: vars.QA_E2E_BASE_URL == ''
+    # Forks: report a clean green skip.
+    if: github.repository != 'soult-io/payroll-app'
     runs-on: ubuntu-latest
     steps:
       - name: Notice
         run: |
-          echo "::notice::QA_E2E_BASE_URL repo variable is not set — skipping the nightly e2e against live QA. This is expected on forks and is not a failure."
+          echo "::notice::Not soult-io/payroll-app — skipping the nightly e2e against live QA. This is expected on forks and is not a failure."
