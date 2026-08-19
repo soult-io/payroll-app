@@ -1,8 +1,8 @@
 {
   "name": "@payroll/web",
-  "version": "0.1.0",
+  "version": "1.0.0",
   "private": true,
-  "description": "Vue 3 + Vite SPA — PrimeVue 4.x (Material preset), Vue Router, Pinia.",
+  "description": "Vue 3 + Vite SPA \u2014 PrimeVue 4.x (Material preset), Vue Router, Pinia.",
   "type": "module",
   "scripts": {
     "dev": "vite",
