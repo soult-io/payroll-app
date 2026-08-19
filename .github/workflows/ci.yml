@@ -6,6 +6,12 @@ on:
     branches: [main]
   workflow_dispatch:
 
+# A newer run on the same ref cancels a stale in-progress one — a hung step
+# (e.g. a flaky apt mirror) never burns runner hours after a retrigger push.
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
 env:
   REGISTRY: ghcr.io
   IMAGE_NAME: ${{ github.repository }}
@@ -52,6 +58,14 @@ jobs:
   # chromium. Runs in parallel with verify; push-image waits for both.
   e2e:
     runs-on: ubuntu-latest
+    timeout-minutes: 20   # fail fast on hangs — never sit on the 6h default
+    # Official Playwright image matching the lockfile version: chromium AND its
+    # system libraries are baked in. This removes the two per-run network
+    # dependencies that hang under flaky infrastructure: `playwright install
+    # --with-deps` (apt against azure.archive.ubuntu.com — hung twice on
+    # 2026-08-19) and the browser CDN download.
+    container:
+      image: mcr.microsoft.com/playwright:v1.62.0-noble
     steps:
       - uses: actions/checkout@v4
 
@@ -70,8 +84,10 @@ jobs:
       - name: Build web + packages (SPA dist + workspace dists)
         run: pnpm -r run build
 
-      - name: Install Playwright chromium
-        run: pnpm --filter @payroll/e2e exec playwright install --with-deps chromium
+      # NO --with-deps: system libs are preinstalled in the image. This step
+      # only verifies the browser is present (no-op when versions match).
+      - name: Verify Playwright chromium
+        run: pnpm --filter @payroll/e2e exec playwright install chromium
 
       - name: E2E (Playwright journeys)
         run: pnpm --filter @payroll/e2e e2e
