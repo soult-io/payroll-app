@@ -1,8 +1,8 @@
 {
   "name": "@payroll/server",
-  "version": "0.1.0",
+  "version": "1.0.0",
   "private": true,
-  "description": "Fastify API server (Node 22 LTS) — serves the built SPA in production.",
+  "description": "Fastify API server (Node 22 LTS) \u2014 serves the built SPA in production.",
   "type": "module",
   "scripts": {
     "dev": "tsx watch src/index.ts",

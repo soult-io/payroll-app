@@ -1,8 +1,8 @@
 {
   "name": "payroll",
   "private": true,
-  "version": "0.0.0",
-  "description": "Payroll webapp — stable, deterministic payroll for small business (see plan/).",
+  "version": "1.0.0",
+  "description": "Payroll webapp \u2014 stable, deterministic payroll for small business (see plan/).",
   "engines": {
     "node": ">=22"
   },
