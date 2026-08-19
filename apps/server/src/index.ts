@@ -1,5 +1,10 @@
 /**
  * Payroll API server entrypoint.
+ *
+ * Note (2026-08-19): the ghcr package `soult-io/payroll-app` is PUBLIC, matching
+ * the repo — the published image is part of the open-source artifact surface and
+ * is pullable by anyone. The package was recreated this day after deleting the
+ * private pre-open-source one; CI-created packages inherit repo visibility.
  */
 
 import { buildApp } from "./app.js";
