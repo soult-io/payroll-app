@@ -82,7 +82,7 @@ jobs:
       # only — workflow_dispatch failures just fail the run.
       - name: Open or update failure issue
         if: failure() && github.event_name == 'schedule'
-        uses: actions/github-script@v7
+        uses: actions/github-script@v9
         env:
           QA_URL: ${{ secrets.QA_E2E_BASE_URL }}
         with:
