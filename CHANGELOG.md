@@ -4,6 +4,27 @@ All notable changes to this project will be documented here. Format follows
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/); versioning follows
 [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [1.0.1] - 2026-08-20
+
+Maintenance release: dependency updates across the board. No functional
+changes.
+
+### Changed
+
+- Production dependencies: primevue 4.5 → 5.0 (with strictly typed form
+  fields for the new InputNumber API), @primeuix/themes 3.0, pinia 4.0,
+  vue-router 5.2, pino 10, drizzle-orm 0.45, fastify 5.12, better-auth
+  1.6.29, zod 4.4.3, pg 8.23, nodemailer 9.0.5, pg-boss 12.27, and others.
+- Dev dependencies: vite 8.2, vitest 4.1, @playwright/test 1.62.1,
+  @types/node 26 (with explicit `types: ["node"]` in the affected packages),
+  tsx 4.23, vue-tsc 3.3.
+- GitHub Actions: pnpm/action-setup 6, upload-artifact 7,
+  build-push-action 7, login-action 4, github-script 9.
+- TypeScript intentionally held at 5.9.x (5.9.3); dependabot is configured
+  to ignore TypeScript semver-major bumps until the toolchain is ready.
+
+[1.0.1]: https://github.com/soult-io/payroll-app/releases/tag/v1.0.1
+
 ## [1.0.0] - 2026-08-19
 
 First public release.
