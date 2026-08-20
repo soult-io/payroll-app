@@ -7,6 +7,12 @@ updates:
     schedule:
       interval: weekly
     open-pull-requests-limit: 5
+    # typescript 7 (native compiler) dropped the JS API entrypoints that
+    # vue-tsc requires — hold the major until the Vue tooling ecosystem
+    # supports it. Minor/patch 5.x updates still flow.
+    ignore:
+      - dependency-name: typescript
+        update-types: ["version-update:semver-major"]
     groups:
       dev-dependencies:
         dependency-type: development

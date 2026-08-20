@@ -11,6 +11,7 @@
  * fields come from the company row (legal_name, decrypted ein, address).
  */
 
+import type { Buffer } from "node:buffer";
 import { round2 } from "@payroll/engine/money";
 
 // pdfmake 0.3.x — no TypeScript declarations, same untyped import idiom as

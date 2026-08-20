@@ -39,3 +39,4 @@ e2e/playwright-report/
 
 # Local data (dev postgres etc.)
 pgdata/
+.claude/

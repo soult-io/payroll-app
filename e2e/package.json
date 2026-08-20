@@ -2,7 +2,7 @@
   "name": "@payroll/e2e",
   "version": "0.1.0",
   "private": true,
-  "description": "Playwright browser E2E (hardening B) — drives the built SPA against the PGlite-backed server boot (@payroll/server e2e:serve).",
+  "description": "Playwright browser E2E (hardening B) \u2014 drives the built SPA against the PGlite-backed server boot (@payroll/server e2e:serve).",
   "type": "module",
   "scripts": {
     "e2e": "playwright test",
@@ -12,8 +12,8 @@
     "@better-auth/utils": "~0.4.2"
   },
   "devDependencies": {
-    "@playwright/test": "^1.62.0",
-    "@types/node": "~22.18.13",
-    "typescript": "~5.9.2"
+    "@playwright/test": "^1.62.1",
+    "@types/node": "~26.2.0",
+    "typescript": "~5.9.3"
   }
 }
