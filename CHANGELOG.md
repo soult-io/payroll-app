@@ -4,6 +4,28 @@ All notable changes to this project will be documented here. Format follows
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/); versioning follows
 [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [1.0.2] - 2026-08-21
+
+### Added
+
+- Contractor self-service **My Invoices** (PAY-7): contractors see their own
+  invoices like W-2 employees see payslips — a year-grouped `/my/invoices`
+  page (approved + paid invoices only, per D1), with status chips, per-year
+  paid/pending totals, and an on-demand invoice PDF per row (never stored).
+  New endpoints: `GET /api/my/invoices` (with the 1:1 payment join) and
+  `GET /api/my/invoices/:id/pdf` (404 on foreign or hidden invoices).
+- The contractor-facing invoice lifecycle emails (invoice reviewed / invoice
+  paid) are now user-toggleable in notification settings (D3).
+- QA seed: the Dave Placeholder contractor persona has a portal login for
+  self-service e2e (documented in docs/qa.md).
+
+### Fixed
+
+- `create-contractor-template` CLI accepts the documented kebab-case flags
+  (`--pay-day`, `--starts-on`, …) in addition to camelCase.
+
+[1.0.2]: https://github.com/soult-io/payroll-app/releases/tag/v1.0.2
+
 ## [1.0.1] - 2026-08-20
 
 Maintenance release: dependency updates across the board. No functional
