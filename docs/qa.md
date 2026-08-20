@@ -53,6 +53,7 @@ docker exec payroll-qa node dist/cli/seed-qa.js
 | --- | --- | --- | --- |
 | Admin | `qa-admin@example.test` | `qa-admin-passphrase-742` | raw: `QAADMIN0FIXED1TOTP2SECRET3SEED456` |
 | Employee | `qa-employee@example.test` | `qa-employee-passphrase-318` | raw: `QAEMPLOYEE0FIXED1TOTP2SECRET3SEED` |
+| Contractor (Dave) | `qa-contractor@example.test` | `qa-contractor-passphrase-519` | raw: `QACONTRACTOR0FIXED1TOTP2SEED345` |
 
 The **raw** TOTP secrets are what the app stores (and what
 `@better-auth/utils`' `createOTP(secret).totp()` computes codes from — the e2e
@@ -61,9 +62,12 @@ are:
 
 - admin: `KFAUCRCNJFHDARSJLBCUIMKUJ5KFAMSTIVBVERKUGNJUKRKEGQ2TM===`
 - employee: `KFAUKTKQJRHVSRKFGBDESWCFIQYVIT2UKAZFGRKDKJCVIM2TIVCUI===`
+- contractor: `KFAUGT2OKRJECQ2UJ5JDARSJLBCUIMKUJ5KFAMSTIVCUIMZUGU======`
 
-Both accounts are fully enrolled (password + TOTP verified, workflow
-notification defaults on). No backup codes are seeded.
+All three accounts are fully enrolled (password + TOTP verified, workflow
+notification defaults on). No backup codes are seeded. The contractor login
+is linked to Dave Placeholder's employee record (PAY-7 — contractor
+self-service e2e).
 
 **QA export token** (bearer for the QA export API + `/api/qa/mailbox`) is
 also fixed and documented — it guards synthetic data only, so it lives here
@@ -94,7 +98,7 @@ year through last month, issued through the real draft→approve→issue pipelin
 
 | Persona | Coverage |
 | --- | --- |
-| Dave Placeholder (US, W-9) | monthly $800 paid invoices this year — above the NEC threshold from March on (form required); recurring retainer template + one approved-but-unpaid generated invoice for the previous period (payment-due reminder fodder) |
+| Dave Placeholder (US, W-9) | monthly $800 paid invoices this year — above the NEC threshold from March on (form required); recurring retainer template + one approved-but-unpaid generated invoice for the previous period (payment-due reminder fodder); carries the `qa-contractor` login for the My Invoices self-service e2e (PAY-7) |
 | Erin Sampleton (US, W-9) | below the NEC threshold; backup withholding ON (24% withheld on her $400 payment); recurring template |
 | Frida Nullstadt (DE, W-8BEN) | clean W-8BEN — `form_required=false`, not expiring (valid through (collected+3)-12-31); recurring template |
 | Gustav Testenberg (SE, W-8BEN) | `us_days_log` entries → 1042-S review flag; W-8 expiring 20 days after seed date — inside the 30-day renewal-notification window (manual `form_expires_at` override; the app rule would always yield a Dec-31 expiry) |

@@ -4,8 +4,8 @@
  * - GET /api/my/profile — read-only current info with sensitive fields masked
  *   (bank account ••••1234, tax id last-4 only; tax ID is NOT requestable per
  *   spec 4 so it is display-only here).
- * - GET/PUT /api/my/notification-settings — the five toggleable workflow
- *   events only; security events are always on and rejected here.
+ * - GET/PUT /api/my/notification-settings — the toggleable workflow events
+ *   only (WORKFLOW_EVENTS); security events are always on and rejected here.
  */
 
 import type { FastifyInstance } from "fastify";

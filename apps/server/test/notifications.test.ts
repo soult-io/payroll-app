@@ -298,7 +298,7 @@ describe("template content rules", () => {
 });
 
 describe("per-user settings", () => {
-  it("activation seeds the five workflow events enabled by default", async () => {
+  it("activation seeds the workflow events enabled by default", async () => {
     const rows = await t.db
       .select()
       .from(notificationSettings)
@@ -320,7 +320,7 @@ describe("per-user settings", () => {
     });
     expect(get1.statusCode).toBe(200);
     const before = get1.json() as { settings: { eventType: string; enabled: boolean }[] };
-    expect(before.settings).toHaveLength(5);
+    expect(before.settings).toHaveLength(WORKFLOW_EVENTS.length);
 
     const put = await t.app.inject({
       method: "PUT",

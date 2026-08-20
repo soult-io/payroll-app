@@ -40,6 +40,24 @@ export interface PayslipDetail extends PayslipSummary {
   snapshot: RunSnapshot;
 }
 
+/** PAY-7: a contractor-visible invoice (approved/paid only — D1). */
+export interface MyInvoice {
+  id: number;
+  invoiceDate: string;
+  description: string;
+  amount: number;
+  currency: string;
+  status: "approved" | "paid";
+  recurringPeriod: string | null;
+  payment: {
+    payDate: string;
+    amount: number;
+    method: string;
+    reference: string | null;
+    backupWithheld: number;
+  } | null;
+}
+
 export interface RunSnapshot {
   inputs: {
     periodAmount: number;
@@ -431,6 +449,11 @@ export const payslipsApi = {
   list: () => get<{ payslips: PayslipSummary[] }>("/api/payslips"),
   detail: (publicId: string) => get<{ payslip: PayslipDetail }>(`/api/payslips/${publicId}`),
   pdfUrl: (publicId: string) => `/api/payslips/${publicId}/pdf`,
+};
+
+export const myInvoicesApi = {
+  list: () => get<{ invoices: MyInvoice[] }>("/api/my/invoices"),
+  pdfUrl: (id: number) => `/api/my/invoices/${id}/pdf`,
 };
 
 export const changeRequestsApi = {

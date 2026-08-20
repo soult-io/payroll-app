@@ -28,6 +28,13 @@ export const QA_EMPLOYEE = {
   totpSecret: "QAEMPLOYEE0FIXED1TOTP2SECRET3SEED",
 };
 
+/** Dave Placeholder's portal login (PAY-7) — linked to his contractor record. */
+export const QA_CONTRACTOR = {
+  email: "qa-contractor@example.test",
+  password: "qa-contractor-passphrase-519",
+  totpSecret: "QACONTRACTOR0FIXED1TOTP2SEED345",
+};
+
 /**
  * FIXED, DOCUMENTED QA export token — bearer for the QA-only mailbox endpoint
  * (and the QA export API). Like the logins/TOTP above it guards a

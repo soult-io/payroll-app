@@ -22,7 +22,7 @@
  *   fake — safe to publish in docs/qa.md and the nightly workflow).
  */
 
-import { and, eq, ne } from "drizzle-orm";
+import { and, eq, isNull, ne } from "drizzle-orm";
 import { symmetricEncrypt } from "better-auth/crypto";
 import {
   authUser,
@@ -67,6 +67,15 @@ export const QA_EMPLOYEE_LOGIN = {
   email: "qa-employee@example.test",
   password: "qa-employee-passphrase-318",
   totpSecret: "QAEMPLOYEE0FIXED1TOTP2SECRET3SEED",
+  role: "employee",
+} as const;
+
+/** Dave's portal login (PAY-7) — linked to his contractor employee record. */
+export const QA_CONTRACTOR_LOGIN = {
+  name: "Dave Placeholder",
+  email: "qa-contractor@example.test",
+  password: "qa-contractor-passphrase-519",
+  totpSecret: "QACONTRACTOR0FIXED1TOTP2SEED345",
   role: "employee",
 } as const;
 
@@ -126,7 +135,7 @@ interface QaDeps {
   config: AppConfig;
 }
 
-type QaUser = typeof QA_ADMIN | typeof QA_EMPLOYEE_LOGIN;
+type QaUser = typeof QA_ADMIN | typeof QA_EMPLOYEE_LOGIN | typeof QA_CONTRACTOR_LOGIN;
 
 async function ensureQaUser(deps: QaDeps, user: QaUser): Promise<{ id: string; created: boolean }> {
   const { db, auth, config } = deps;
@@ -877,6 +886,7 @@ export interface QaSeedSummary {
   users: {
     admin: { email: string; created: boolean };
     employee: { email: string; created: boolean };
+    contractor: { email: string; created: boolean };
   };
   w2: W2Ids;
   contractors: ContractorIds;
@@ -913,6 +923,13 @@ export async function seedQaDataset(
     today,
   );
   const contractors = await seedContractorPersonas(deps, companyId, today);
+  // PAY-7: Dave gets a portal login linked to his employee record so the QA
+  // suite can drive the contractor self-service pages (My Invoices).
+  const contractorLogin = await ensureQaUser(deps, QA_CONTRACTOR_LOGIN);
+  await deps.db
+    .update(employees)
+    .set({ userId: contractorLogin.id })
+    .where(and(eq(employees.id, contractors.dave), isNull(employees.userId)));
   await seedDaveFinancials(deps, contractors.dave, admin.id, today);
   await seedErinFinancials(deps, contractors.erin, admin.id, today);
   await seedFridaTemplate(deps.db, contractors.frida, today);
@@ -921,6 +938,7 @@ export async function seedQaDataset(
     users: {
       admin: { email: QA_ADMIN.email, created: admin.created },
       employee: { email: QA_EMPLOYEE_LOGIN.email, created: employeeLogin.created },
+      contractor: { email: QA_CONTRACTOR_LOGIN.email, created: contractorLogin.created },
     },
     w2,
     contractors,

@@ -38,6 +38,14 @@ const EVENT_LABELS: Record<string, { label: string; blurb: string }> = {
     blurb: "When one of your requests is approved",
   },
   change_request_denied: { label: "Request denied", blurb: "When one of your requests is denied" },
+  contractor_invoice_reviewed: {
+    label: "Invoice reviewed",
+    blurb: "When one of your invoices is approved or rejected (contractors)",
+  },
+  contractor_invoice_paid: {
+    label: "Invoice paid",
+    blurb: "When a payment is recorded against one of your invoices (contractors)",
+  },
 };
 const settings = ref<(NotificationSetting & { saving?: boolean })[]>([]);
 const settingsLoading = ref(true);

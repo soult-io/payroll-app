@@ -50,6 +50,7 @@ onMounted(async () => {
 const employeeNav = [
   { label: "Dashboard", name: "my-dashboard" },
   { label: "Payslips", name: "my-payslips" },
+  { label: "Invoices", name: "my-invoices" },
   { label: "Requests", name: "my-requests" },
   { label: "Profile", name: "my-profile" },
   { label: "Settings", name: "my-settings" },

@@ -426,3 +426,5 @@ export {
   type Nec1099Address,
   type Nec1099Input,
 } from "./nec-1099.js";
+
+export { renderInvoicePdf, type InvoicePdfInput } from "./invoice.js";
