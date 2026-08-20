@@ -52,7 +52,9 @@ function parseArgs(argv: string[]): Args {
     if (!key?.startsWith("--") || value === undefined) {
       throw new Error(`bad argument pair at ${key ?? "<end>"} — flags are --key value`);
     }
-    (args as Record<string, string>)[key.slice(2)] = value;
+    // Accept both --pay-day and --payDay (kebab-case is the documented form).
+    const normalized = key.slice(2).replace(/-([a-z])/g, (_, c: string) => c.toUpperCase());
+    (args as Record<string, string>)[normalized] = value;
   }
   return args;
 }
@@ -63,7 +65,8 @@ const missing = (["employee", "amount", "description", "payDay", "startsOn"] as 
   (k) => args[k] === undefined,
 );
 if (missing.length > 0) {
-  console.error(`missing required flag(s): ${missing.map((k) => `--${k}`).join(", ")}`);
+  const kebab = (s: string) => s.replace(/[A-Z]/g, (c) => `-${c.toLowerCase()}`);
+  console.error(`missing required flag(s): ${missing.map((k) => `--${kebab(k)}`).join(", ")}`);
   console.error("see the usage block at the top of src/cli/create-contractor-template.ts");
   process.exit(1);
 }
