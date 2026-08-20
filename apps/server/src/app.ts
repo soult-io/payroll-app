@@ -20,6 +20,7 @@ import { registerAdminPayrollRoutes } from "./routes/admin-payroll.js";
 import { registerPayslipRoutes } from "./routes/payslips.js";
 import { registerChangeRequestRoutes } from "./routes/change-requests.js";
 import { registerMyRoutes } from "./routes/my.js";
+import { registerMyInvoiceRoutes } from "./routes/my-invoices.js";
 import { registerAdminNotificationRoutes } from "./routes/admin-notifications.js";
 import { registerAdminEmployeeRoutes } from "./routes/admin-employees.js";
 import { registerAdminSettingsRoutes } from "./routes/admin-settings.js";
@@ -74,6 +75,7 @@ export async function buildApp(deps: BuildAppDeps = {}) {
   registerPayslipRoutes(app, { db, guards });
   registerChangeRequestRoutes(app, { db, config, guards });
   registerMyRoutes(app, { db, config, guards });
+  registerMyInvoiceRoutes(app, { db, guards });
   registerAdminNotificationRoutes(app, { db, config, guards });
   registerAdminEmployeeRoutes(app, { auth, db, config, guards });
   registerAdminSettingsRoutes(app, { db, config, guards });

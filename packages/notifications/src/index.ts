@@ -34,20 +34,29 @@ export const EVENT_TYPE = {
 
 export type EventType = (typeof EVENT_TYPE)[keyof typeof EVENT_TYPE];
 
-/** Toggleable workflow events (the five in settings UI); security + admin events are always on. */
+/**
+ * Toggleable workflow events (the settings UI surface); security + admin events
+ * are always on. PAY-7/D3 (2026-08-21): the contractor-facing invoice lifecycle
+ * events (reviewed / paid) are user-toggleable like the rest — admin-facing
+ * contractor events (submission notices, form expiry, recurring reminders)
+ * stay always-on compliance mail.
+ */
 export const WORKFLOW_EVENTS: readonly EventType[] = [
   EVENT_TYPE.payrollDraftReady,
   EVENT_TYPE.payslipIssued,
   EVENT_TYPE.changeRequestSubmitted,
   EVENT_TYPE.changeRequestApproved,
   EVENT_TYPE.changeRequestDenied,
+  EVENT_TYPE.contractorInvoiceReviewed,
+  EVENT_TYPE.contractorInvoicePaid,
 ];
 
 /**
  * Spec 10 contractor events — compliance notices to admins (form expiry,
- * payment gate) and contractor-facing invoice lifecycle mail. Always on: not
- * part of the five toggleable workflow events (the settings surface is
- * unchanged from spec 6).
+ * payment gate, recurring scheduler) and contractor-facing invoice lifecycle
+ * mail. The admin-facing ones are always on; the contractor-facing ones
+ * (invoice reviewed / paid) are user-toggleable via WORKFLOW_EVENTS
+ * (PAY-7/D3, 2026-08-21).
  */
 export const CONTRACTOR_EVENTS: readonly EventType[] = [
   EVENT_TYPE.contractorInvoiceSubmitted,

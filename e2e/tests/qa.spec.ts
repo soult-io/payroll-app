@@ -27,6 +27,7 @@ import {
   loginAs,
   newAuthedPage,
   QA_ADMIN,
+  QA_CONTRACTOR,
   QA_EMPLOYEE,
   QA_EXPORT_TOKEN,
 } from "./qa.js";
@@ -92,6 +93,41 @@ test("scheduler draft: seeded current-period run shows in admin approvals (read-
     // draft awaiting approval. Read-only assertion — never approve/void here.
     const row = page.locator("tr", { hasText: "Awaiting approval" }).first();
     await expect(row).toBeVisible();
+  } finally {
+    await page.context().close();
+  }
+});
+
+test("contractor My Invoices: Dave sees approved+paid invoices, PDF round-trips (PAY-7)", async ({
+  browser,
+}) => {
+  test.skip(!LIVE_QA, "live-QA only — needs the seeded contractor login (seed-qa Dave)");
+  const page = await newAuthedPage(browser, QA_CONTRACTOR);
+  try {
+    // UI surface: the list page shows Dave's seeded invoices with status chips.
+    await page.goto("/my/invoices");
+    const row = page.locator("tbody tr").first();
+    await expect(row).toBeVisible();
+    await expect(page.getByText("Paid").first()).toBeVisible();
+
+    // API surface (read-only): D1 visibility — only approved/paid leave the
+    // server; paid rows carry the payment join.
+    const list = await page.request.get("/api/my/invoices");
+    expect(list.status()).toBe(200);
+    const { invoices } = (await list.json()) as {
+      invoices: { id: number; status: string; payment: unknown }[];
+    };
+    expect(invoices.length).toBeGreaterThan(0);
+    expect(invoices.every((i) => ["approved", "paid"].includes(i.status))).toBe(true);
+    expect(invoices.some((i) => i.status === "paid" && i.payment !== null)).toBe(true);
+
+    // PDF round-trip on the first listed invoice.
+    const pdf = await page.request.get(`/api/my/invoices/${invoices[0]!.id}/pdf`);
+    expect(pdf.status()).toBe(200);
+    expect(pdf.headers()["content-type"]).toContain("application/pdf");
+    const body = await pdf.body();
+    expect(body.subarray(0, 5).toString()).toBe("%PDF-");
+    expect(body.length).toBeGreaterThan(1000);
   } finally {
     await page.context().close();
   }
