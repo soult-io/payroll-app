@@ -13,6 +13,7 @@
     "e2e:serve": "tsx src/e2e/serve.ts",
     "create-admin": "tsx src/cli/create-admin.ts",
     "fix-legacy-paydates": "tsx src/cli/fix-legacy-paydates.ts",
+    "create-contractor-template": "tsx src/cli/create-contractor-template.ts",
     "backfill-legacy-ytd": "tsx src/cli/backfill-legacy-ytd.ts",
     "migrate:legacy": "tsx src/migrate/cli.ts",
     "gen-auth-sql": "tsx scripts/gen-better-auth-sql.ts",
