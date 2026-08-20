@@ -4,7 +4,7 @@
  * by the wizard (top-level); this form fills the rest.
  */
 import { computed } from "vue";
-import { useForm } from "vee-validate";
+import { useField, useForm } from "vee-validate";
 import { toTypedSchema } from "@vee-validate/zod";
 import { w4Payload } from "@payroll/shared";
 import InputNumber from "primevue/inputnumber";
@@ -12,11 +12,17 @@ import Select from "primevue/select";
 import Checkbox from "primevue/checkbox";
 import DatePicker from "primevue/datepicker";
 import Textarea from "primevue/textarea";
+import type { z } from "zod";
 
 // Wizard injects effectiveFrom at submit time; validate the rest here.
 const schema = w4Payload.omit({ effectiveFrom: true });
+type W4FormValues = z.input<typeof schema>;
 
-const { handleSubmit, defineField, errors } = useForm({
+// Explicit generic + useField<number> for the amount fields: primevue 5
+// tightened InputNumber's v-model to Nullable<number>, and defineField
+// returns Ref<unknown> in this vee-validate version — useField<T> is the
+// typed registration path.
+const { handleSubmit, defineField, errors } = useForm<W4FormValues>({
   validationSchema: toTypedSchema(schema),
   initialValues: {
     taxYear: new Date().getFullYear(),
@@ -36,10 +42,10 @@ const [taxYear] = defineField("taxYear");
 const [filingStatus] = defineField("filingStatus");
 const [federalExempt] = defineField("federalExempt");
 const [multipleJobs] = defineField("multipleJobs");
-const [dependentsAmount] = defineField("dependentsAmount");
-const [otherIncome] = defineField("otherIncome");
-const [deductionsAmount] = defineField("deductionsAmount");
-const [extraWithholding] = defineField("extraWithholding");
+const { value: dependentsAmount } = useField<number>("dependentsAmount");
+const { value: otherIncome } = useField<number>("otherIncome");
+const { value: deductionsAmount } = useField<number>("deductionsAmount");
+const { value: extraWithholding } = useField<number>("extraWithholding");
 const [filedDateModel] = defineField("filedDate");
 const [note] = defineField("note");
 
@@ -56,7 +62,7 @@ const filedDate = computed({
   },
 });
 
-const filingOptions = [
+const filingOptions: { label: string; value: W4FormValues["filingStatus"] }[] = [
   { label: "Single", value: "single" },
   { label: "Married filing jointly", value: "married_joint" },
   { label: "Married filing separately", value: "married_separate" },
