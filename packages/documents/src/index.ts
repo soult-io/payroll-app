@@ -17,6 +17,7 @@
  * without, noted in the step report).
  */
 
+import type { Buffer } from "node:buffer";
 import type { PayrollResult } from "@payroll/engine";
 import { round2 } from "@payroll/engine/money";
 
