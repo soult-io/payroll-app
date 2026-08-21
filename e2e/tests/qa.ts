@@ -69,13 +69,30 @@ export async function loginAs(
   page: Page,
   user: { email: string; password: string; totpSecret: string },
 ): Promise<void> {
-  await page.goto("/login");
-  await page.locator("#email").fill(user.email);
-  await page.locator("#password input").fill(user.password);
-  await page.getByRole("button", { name: "Sign in", exact: true }).click();
-  await expect(page.locator("#totp")).toBeVisible();
-  await submitLoginTotp(page, user.totpSecret);
-  await expect(page.getByRole("heading", { name: "Dashboard" })).toBeVisible();
+  // The live-QA server rate-limits credential endpoints to 10 req/min and the
+  // UI renders a 429 as "Invalid email or password" — so a throttled sign-in
+  // looks exactly like wrong credentials (#totp never appears). With several
+  // seeded users logging in per suite run, the first login past the limit
+  // fails flakily (2026-08-07 + 2026-08-21 nightlies). Wait out the window
+  // and retry instead of failing the test.
+  for (let attempt = 0; attempt < 3; attempt++) {
+    await page.goto("/login");
+    await page.locator("#email").fill(user.email);
+    await page.locator("#password input").fill(user.password);
+    await page.getByRole("button", { name: "Sign in", exact: true }).click();
+    const challenged = await page
+      .locator("#totp")
+      .waitFor({ timeout: 5_000 })
+      .then(() => true)
+      .catch(() => false);
+    if (challenged) {
+      await submitLoginTotp(page, user.totpSecret);
+      await expect(page.getByRole("heading", { name: "Dashboard" })).toBeVisible();
+      return;
+    }
+    if (attempt < 2) await page.waitForTimeout(65_000);
+  }
+  throw new Error(`login as ${user.email} failed — #totp never appeared (credential rate limit?)`);
 }
 
 // ---------------------------------------------------------------------------
