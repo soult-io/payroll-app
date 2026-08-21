@@ -4,6 +4,26 @@ All notable changes to this project will be documented here. Format follows
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/); versioning follows
 [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [1.1.0] - 2026-08-21
+
+### Added
+
+- Role- and worker-type-scoped UI (PAY-8): the nav shows Payslips only to
+  W-2 employees and Invoices only to contractors, with matching route guards
+  (a wrong-type direct URL redirects to the dashboard). Notification settings
+  are scoped by a new per-event audience declaration (`EVENT_AUDIENCE`):
+  non-admins no longer see or set admin-only events, and worker-type events
+  only surface for the matching type. `PUT /api/my/notification-settings`
+  rejects out-of-audience events with `not_applicable`.
+
+### Fixed
+
+- Live-QA e2e: `loginAs` waits out the credential rate-limit window (429
+  rendered as "Invalid email or password") and retries, fixing the flaky
+  `#totp` login failures in the nightly suite.
+
+[1.1.0]: https://github.com/soult-io/payroll-app/releases/tag/v1.1.0
+
 ## [1.0.3] - 2026-08-21
 
 ### Fixed
