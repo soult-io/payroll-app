@@ -133,6 +133,37 @@ test("contractor My Invoices: Dave sees approved+paid invoices, PDF round-trips 
   }
 });
 
+test("PAY-8 scoped UI: contractor sees Invoices, not Payslips; /my/payslips redirects", async ({
+  browser,
+}) => {
+  test.skip(!LIVE_QA, "live-QA only — needs the seeded contractor login (seed-qa Dave)");
+  const page = await newAuthedPage(browser, QA_CONTRACTOR);
+  try {
+    await page.goto("/my/dashboard");
+    const nav = page.locator("nav .nav-link");
+    await expect(nav.getByText("Invoices")).toBeVisible();
+    await expect(nav.getByText("Payslips")).toHaveCount(0);
+
+    // Direct URL to the wrong-type feature redirects to the dashboard.
+    await page.goto("/my/payslips");
+    await expect(page).toHaveURL(/\/my\/dashboard$/);
+
+    // Admin-only notification events are not offered to a contractor.
+    const settings = await page.request.get("/api/my/notification-settings");
+    expect(settings.status()).toBe(200);
+    const { settings: rows } = (await settings.json()) as {
+      settings: { eventType: string }[];
+    };
+    const eventTypes = rows.map((r) => r.eventType);
+    expect(eventTypes).not.toContain("payroll_draft_ready");
+    expect(eventTypes).not.toContain("change_request_submitted");
+    expect(eventTypes).not.toContain("payslip_issued");
+    expect(eventTypes).toContain("contractor_invoice_paid");
+  } finally {
+    await page.context().close();
+  }
+});
+
 test("email capture: admin test email lands in Mailpit (via /api/qa/mailbox)", async ({
   browser,
 }) => {

@@ -38,19 +38,19 @@ export const router = createRouter({
       path: "/my/payslips",
       name: "my-payslips",
       component: () => import("./views/my/MyPayslipsView.vue"),
-      meta: { requiresAuth: true },
+      meta: { requiresAuth: true, workerType: "w2" },
     },
     {
       path: "/my/payslips/:publicId",
       name: "my-payslip-detail",
       component: () => import("./views/my/MyPayslipDetailView.vue"),
-      meta: { requiresAuth: true },
+      meta: { requiresAuth: true, workerType: "w2" },
     },
     {
       path: "/my/invoices",
       name: "my-invoices",
       component: () => import("./views/my/MyInvoicesView.vue"),
-      meta: { requiresAuth: true },
+      meta: { requiresAuth: true, workerType: "1099" },
     },
     {
       path: "/my/profile",
@@ -171,6 +171,15 @@ router.beforeEach(async (to) => {
   }
   if (to.meta.requiresAdmin && !auth.isAdmin) {
     return { name: "my-dashboard" };
+  }
+  // PAY-8: worker-type-bound routes (Payslips = W-2, Invoices = contractors).
+  // A direct URL from the wrong type redirects to the dashboard, matching the
+  // scoped nav — no empty pages for features that can never apply.
+  if (to.meta.workerType) {
+    await auth.ensureEmployee();
+    if (auth.employmentType !== to.meta.workerType) {
+      return { name: "my-dashboard" };
+    }
   }
   return true;
 });

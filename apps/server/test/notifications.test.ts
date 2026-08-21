@@ -13,7 +13,9 @@ import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import { and, eq } from "drizzle-orm";
 import {
   authUser,
+  company,
   emailOutbox,
+  employees,
   notificationSettings,
   seedDatabase,
   userDevices,
@@ -26,6 +28,7 @@ import {
   EVENT_TYPE,
   payslipIssued,
   WORKFLOW_EVENTS,
+  workflowEventsFor,
 } from "@payroll/notifications";
 import { createTestApp, type TestContext } from "./helpers.js";
 import { inviteAndOnboard, login, sessionHeader, TEST_PASSWORD } from "./flow-helpers.js";
@@ -320,7 +323,12 @@ describe("per-user settings", () => {
     });
     expect(get1.statusCode).toBe(200);
     const before = get1.json() as { settings: { eventType: string; enabled: boolean }[] };
-    expect(before.settings).toHaveLength(WORKFLOW_EVENTS.length);
+    // PAY-8: a non-admin without a linked employee record sees every
+    // non-admin workflow event (worker-type events stay visible until the
+    // record exists); admin events never surface for non-admins.
+    expect(before.settings.map((s) => s.eventType).sort()).toEqual(
+      [...workflowEventsFor({ isAdmin: false, employmentType: null })].sort(),
+    );
 
     const put = await t.app.inject({
       method: "PUT",
@@ -348,6 +356,98 @@ describe("per-user settings", () => {
       payload: { settings: [{ eventType: EVENT_TYPE.securityInvite, enabled: false }] },
     });
     expect(reject.statusCode).toBe(400);
+  });
+});
+
+describe("PAY-8 audience scoping", () => {
+  let w2Cookie: string;
+  let contractorCookie: string;
+
+  beforeAll(async () => {
+    const w2 = await inviteAndOnboard(t, { email: "notif-w2@example.com", role: "employee" });
+    const contractor = await inviteAndOnboard(t, {
+      email: "notif-1099@example.com",
+      role: "employee",
+    });
+    const companyRows = await t.db.select({ id: company.id }).from(company).limit(1);
+    await t.db.insert(employees).values([
+      {
+        companyId: companyRows[0]!.id,
+        employmentType: "w2",
+        legalName: "Wanda W2",
+        hireDate: "2026-01-05",
+        userId: w2.userId,
+      },
+      {
+        companyId: companyRows[0]!.id,
+        employmentType: "1099",
+        legalName: "Carl Contractor",
+        hireDate: "2026-01-05",
+        userId: contractor.userId,
+      },
+    ]);
+    w2Cookie = (await login(t, w2.email, TEST_PASSWORD)).sessionCookie;
+    contractorCookie = (await login(t, contractor.email, TEST_PASSWORD)).sessionCookie;
+  });
+
+  async function getSettings(cookie: string): Promise<string[]> {
+    const res = await t.app.inject({
+      method: "GET",
+      url: "/api/my/notification-settings",
+      headers: sessionHeader(cookie),
+    });
+    expect(res.statusCode).toBe(200);
+    const body = res.json() as { settings: { eventType: string }[] };
+    return body.settings.map((s) => s.eventType);
+  }
+
+  it("a W-2 employee sees w2 + shared events — never admin or contractor events", async () => {
+    const events = await getSettings(w2Cookie);
+    expect(events).toContain(EVENT_TYPE.payslipIssued);
+    expect(events).toContain(EVENT_TYPE.changeRequestApproved);
+    expect(events).toContain(EVENT_TYPE.changeRequestDenied);
+    expect(events).not.toContain(EVENT_TYPE.payrollDraftReady);
+    expect(events).not.toContain(EVENT_TYPE.changeRequestSubmitted);
+    expect(events).not.toContain(EVENT_TYPE.contractorInvoiceReviewed);
+    expect(events).not.toContain(EVENT_TYPE.contractorInvoicePaid);
+  });
+
+  it("a contractor sees contractor + shared events — never admin or w2 events", async () => {
+    const events = await getSettings(contractorCookie);
+    expect(events).toContain(EVENT_TYPE.contractorInvoiceReviewed);
+    expect(events).toContain(EVENT_TYPE.contractorInvoicePaid);
+    expect(events).toContain(EVENT_TYPE.changeRequestApproved);
+    expect(events).toContain(EVENT_TYPE.changeRequestDenied);
+    expect(events).not.toContain(EVENT_TYPE.payrollDraftReady);
+    expect(events).not.toContain(EVENT_TYPE.changeRequestSubmitted);
+    expect(events).not.toContain(EVENT_TYPE.payslipIssued);
+  });
+
+  it("an admin still sees the full workflow list", async () => {
+    const events = await getSettings(adminCookie);
+    expect(events.sort()).toEqual([...WORKFLOW_EVENTS].sort());
+  });
+
+  it("a non-admin cannot toggle an admin event (not_applicable)", async () => {
+    const put = await t.app.inject({
+      method: "PUT",
+      url: "/api/my/notification-settings",
+      headers: sessionHeader(w2Cookie),
+      payload: { settings: [{ eventType: EVENT_TYPE.payrollDraftReady, enabled: false }] },
+    });
+    expect(put.statusCode).toBe(400);
+    expect(put.json()).toMatchObject({ error: "not_applicable" });
+  });
+
+  it("a W-2 employee cannot toggle a contractor event (not_applicable)", async () => {
+    const put = await t.app.inject({
+      method: "PUT",
+      url: "/api/my/notification-settings",
+      headers: sessionHeader(w2Cookie),
+      payload: { settings: [{ eventType: EVENT_TYPE.contractorInvoicePaid, enabled: false }] },
+    });
+    expect(put.statusCode).toBe(400);
+    expect(put.json()).toMatchObject({ error: "not_applicable" });
   });
 });
 

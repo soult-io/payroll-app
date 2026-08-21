@@ -52,6 +52,46 @@ export const WORKFLOW_EVENTS: readonly EventType[] = [
 ];
 
 /**
+ * PAY-8: per-event audience — who a workflow event can ever fire for.
+ * "admin" events notify admins only; "w2"/"contractor" are bound to the
+ * recipient's employment type; "all" can fire for any user. The settings
+ * surface (GET/PUT /api/my/notification-settings) is scoped by this map so
+ * users never see toggles for events that cannot apply to them.
+ */
+export type EventAudience = "admin" | "w2" | "contractor" | "all";
+
+export const EVENT_AUDIENCE: Partial<Record<EventType, EventAudience>> = {
+  [EVENT_TYPE.payrollDraftReady]: "admin",
+  [EVENT_TYPE.changeRequestSubmitted]: "admin",
+  [EVENT_TYPE.payslipIssued]: "w2",
+  [EVENT_TYPE.contractorInvoiceReviewed]: "contractor",
+  [EVENT_TYPE.contractorInvoicePaid]: "contractor",
+  [EVENT_TYPE.changeRequestApproved]: "all",
+  [EVENT_TYPE.changeRequestDenied]: "all",
+};
+
+/**
+ * The workflow events relevant to a viewer. Admins keep the full list
+ * (admin views are unaffected by PAY-8). A user with no linked employee
+ * record yet (employmentType null) sees every non-admin event — the
+ * worker-type-bound events become relevant the moment the record exists.
+ */
+export function workflowEventsFor(viewer: {
+  isAdmin: boolean;
+  employmentType?: string | null;
+}): readonly EventType[] {
+  if (viewer.isAdmin) return WORKFLOW_EVENTS;
+  return WORKFLOW_EVENTS.filter((eventType) => {
+    const audience = EVENT_AUDIENCE[eventType] ?? "all";
+    if (audience === "all") return true;
+    if (audience === "admin") return false;
+    if (viewer.employmentType == null) return true;
+    if (audience === "w2") return viewer.employmentType === "w2";
+    return viewer.employmentType === "1099";
+  });
+}
+
+/**
  * Spec 10 contractor events — compliance notices to admins (form expiry,
  * payment gate, recurring scheduler) and contractor-facing invoice lifecycle
  * mail. The admin-facing ones are always on; the contractor-facing ones

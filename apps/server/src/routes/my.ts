@@ -12,7 +12,7 @@ import type { FastifyInstance } from "fastify";
 import { desc, eq } from "drizzle-orm";
 import { z } from "zod";
 import { authTwoFactor, notificationSettings, w4Elections } from "@payroll/db";
-import { WORKFLOW_EVENTS } from "@payroll/notifications";
+import { WORKFLOW_EVENTS, workflowEventsFor } from "@payroll/notifications";
 import type { Db } from "../db.js";
 import type { AppConfig } from "../config.js";
 import type { Guards } from "../plugins/guards.js";
@@ -128,9 +128,16 @@ export function registerMyRoutes(app: FastifyInstance, deps: Deps): void {
       .from(notificationSettings)
       .where(eq(notificationSettings.userId, req.authUser!.id));
     const byEvent = new Map(rows.map((r) => [r.eventType, r.enabled]));
+    // PAY-8: only surface events that can ever fire for this caller —
+    // admin events for admins, worker-type events for the matching type.
+    const employee = await employeeForUser(db, req.authUser!.id);
+    const visible = workflowEventsFor({
+      isAdmin: req.authUser!.role === "admin",
+      employmentType: employee?.employmentType ?? null,
+    });
     // Default enabled (spec): a missing row means on.
     return {
-      settings: WORKFLOW_EVENTS.map((eventType) => ({
+      settings: visible.map((eventType) => ({
         eventType,
         enabled: byEvent.get(eventType) ?? true,
       })),
@@ -148,11 +155,23 @@ export function registerMyRoutes(app: FastifyInstance, deps: Deps): void {
         .safeParse(req.body);
       if (!body.success) return reply.code(400).send({ error: "invalid_body" });
 
-      const toggleable = new Set<string>(WORKFLOW_EVENTS);
+      const employee = await employeeForUser(db, req.authUser!.id);
+      const toggleable = new Set<string>(
+        workflowEventsFor({
+          isAdmin: req.authUser!.role === "admin",
+          employmentType: employee?.employmentType ?? null,
+        }),
+      );
+      const known = new Set<string>(WORKFLOW_EVENTS);
       for (const item of body.data.settings) {
         // Security events are always on — not settable (spec notifications).
-        if (!toggleable.has(item.eventType)) {
+        if (!known.has(item.eventType)) {
           return reply.code(400).send({ error: "not_toggleable", eventType: item.eventType });
+        }
+        // PAY-8: a workflow event outside the caller's audience (e.g. an
+        // admin event toggled by a non-admin) is not settable either.
+        if (!toggleable.has(item.eventType)) {
+          return reply.code(400).send({ error: "not_applicable", eventType: item.eventType });
         }
       }
       for (const item of body.data.settings) {
