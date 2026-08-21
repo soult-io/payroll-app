@@ -4,6 +4,18 @@ All notable changes to this project will be documented here. Format follows
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/); versioning follows
 [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [1.0.3] - 2026-08-21
+
+### Fixed
+
+- Reverted primevue 5.0 → 4.5.x and @primeuix/themes 3.0 → 2.0.x: PrimeVue 5
+  left MIT for the commercial PrimeUI license and bundles
+  `@primeui/license-manager`, which showed an "invalid PrimeUI license"
+  notice to end users. dependabot now ignores primevue and `@primeuix/*`
+  semver-major updates so this cannot regress.
+
+[1.0.3]: https://github.com/soult-io/payroll-app/releases/tag/v1.0.3
+
 ## [1.0.2] - 2026-08-21
 
 ### Added
