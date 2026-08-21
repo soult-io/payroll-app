@@ -4,6 +4,18 @@ All notable changes to this project will be documented here. Format follows
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/); versioning follows
 [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [1.2.0] - 2026-08-21
+
+### Added
+
+- Session-expiry redirect (PAY-6): an expired or revoked session now
+  redirects straight to the login page (preserving the attempted path for
+  post-login return) instead of surfacing error toasts from in-flight API
+  calls. Both API clients report unexpected 401s through a single
+  session-expired hook; onboarding and pre-auth flows are unaffected.
+
+[1.2.0]: https://github.com/soult-io/payroll-app/releases/tag/v1.2.0
+
 ## [1.1.0] - 2026-08-21
 
 ### Added
