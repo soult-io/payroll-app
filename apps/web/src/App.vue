@@ -18,7 +18,7 @@ import Toast from "primevue/toast";
 import ConfirmDialog from "primevue/confirmdialog";
 import { useAuthStore } from "./stores/auth";
 import { pinia } from "./stores/pinia";
-import { changeRequestsApi, myApi } from "./lib/api";
+import { changeRequestsApi } from "./lib/api";
 
 const route = useRoute();
 const router = useRouter();
@@ -26,7 +26,7 @@ const auth = useAuthStore(pinia);
 const signedIn = computed(() => Boolean(auth.user));
 const pendingCount = ref(0);
 /** True when the signed-in user has a linked employee record (admins may not). */
-const hasEmployee = ref(false);
+const hasEmployee = computed(() => auth.employeeLoaded && auth.employmentType !== null);
 const myMenu = ref<InstanceType<typeof Menu>>();
 
 /**
@@ -47,14 +47,22 @@ onMounted(async () => {
   }
 });
 
-const employeeNav = [
-  { label: "Dashboard", name: "my-dashboard" },
-  { label: "Payslips", name: "my-payslips" },
-  { label: "Invoices", name: "my-invoices" },
-  { label: "Requests", name: "my-requests" },
-  { label: "Profile", name: "my-profile" },
-  { label: "Settings", name: "my-settings" },
-];
+/**
+ * PAY-8: worker-type-scoped nav — Payslips only for W-2 employees, Invoices
+ * only for contractors. Until the employee record has loaded (or if none
+ * exists) neither worker-type-bound item renders.
+ */
+const employeeNav = computed(() => {
+  const items = [{ label: "Dashboard", name: "my-dashboard" }];
+  if (auth.employmentType === "w2") items.push({ label: "Payslips", name: "my-payslips" });
+  if (auth.employmentType === "1099") items.push({ label: "Invoices", name: "my-invoices" });
+  items.push(
+    { label: "Requests", name: "my-requests" },
+    { label: "Profile", name: "my-profile" },
+    { label: "Settings", name: "my-settings" },
+  );
+  return items;
+});
 
 const adminNav = [
   { label: "Dashboard", name: "admin-dashboard" },
@@ -67,10 +75,12 @@ const adminNav = [
 ];
 
 /** Employee-area links, shown to admins inside the "My payroll" dropdown. */
-const myMenuItems = employeeNav.map((item) => ({
-  label: item.label,
-  command: () => void router.push({ name: item.name }),
-}));
+const myMenuItems = computed(() =>
+  employeeNav.value.map((item) => ({
+    label: item.label,
+    command: () => void router.push({ name: item.name }),
+  })),
+);
 
 /** Active-state for the dropdown button when any employee-area route is shown. */
 const myRouteActive = computed(() => route.name?.toString().startsWith("my-") ?? false);
@@ -92,18 +102,12 @@ async function refreshBadge() {
   }
 }
 
-/** Probe once per user: does a linked employee record exist? */
+/** Probe once per user: employment type drives the scoped nav (PAY-8). */
 watch(
   () => auth.user?.id,
   async (id) => {
-    hasEmployee.value = false;
     if (!id) return;
-    try {
-      await myApi.profile();
-      hasEmployee.value = true;
-    } catch {
-      // No linked employee record (e.g. a pure admin) — hide the dropdown.
-    }
+    await auth.ensureEmployee(true);
   },
   { immediate: true },
 );
