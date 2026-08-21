@@ -8,6 +8,20 @@ import "./style.css";
 import App from "./App.vue";
 import { router } from "./router";
 import { pinia } from "./stores/pinia";
+import { useAuthStore } from "./stores/auth";
+import { setSessionExpiredHandler } from "./lib/session-expired";
+
+// PAY-6: any unexpected 401 (expired/revoked session) redirects straight to
+// the login page, preserving the current path for post-login return. No-op
+// when nobody is signed in (login/onboarding flows keep their local errors).
+setSessionExpiredHandler(() => {
+  const auth = useAuthStore(pinia);
+  if (!auth.user) return;
+  auth.user = null;
+  const current = router.currentRoute.value;
+  if (current.name === "login") return;
+  void router.push({ name: "login", query: { redirect: current.fullPath } });
+});
 
 const app = createApp(App);
 

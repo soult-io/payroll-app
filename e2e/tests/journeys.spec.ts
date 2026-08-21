@@ -256,3 +256,23 @@ test("journey 3: address change request round-trip (employee → admin approve �
   await expect(page.getByText(NEW_ADDRESS.city)).toBeVisible();
   await empCtx.close();
 });
+
+test("journey 4: session expiry mid-session redirects to login (PAY-6)", async ({ browser }) => {
+  // Employee session from journey 1; clearing cookies simulates the session
+  // expiring (or being revoked) while the SPA is already open.
+  const ctx = await browser.newContext({ storageState: EMPLOYEE_SESSION });
+  const page = await ctx.newPage();
+  await page.goto("/my/dashboard");
+  await expect(page.getByRole("heading", { name: "Dashboard" })).toBeVisible();
+
+  await ctx.clearCookies();
+
+  // SPA navigation fires an authed API call with the dead session → 401 →
+  // the handler redirects straight to /login instead of toasting errors.
+  await page.getByRole("link", { name: "Payslips", exact: true }).click();
+  await page.waitForURL("**/login**");
+  await expect(page.locator("#email")).toBeVisible();
+  // The attempted path is preserved for post-login return.
+  expect(page.url()).toContain("redirect=/my/payslips");
+  await ctx.close();
+});

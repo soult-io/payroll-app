@@ -379,6 +379,8 @@ export interface Paged<T> {
 // Fetch core
 // ---------------------------------------------------------------------------
 
+import { notifySessionExpired } from "./session-expired";
+
 export class ApiError extends Error {
   constructor(
     public status: number,
@@ -398,6 +400,13 @@ async function request<T>(method: string, path: string, body?: unknown): Promise
   }
   const res = await fetch(path, init);
   if (!res.ok) {
+    // PAY-6: a 401 on a session-gated endpoint means the session expired
+    // (idle 12h / absolute 7d, or revoked) — redirect to login instead of
+    // letting every in-flight call toast an error. Onboarding endpoints are
+    // token-based (no session), so their 401s stay local.
+    if (res.status === 401 && !path.startsWith("/api/onboarding/")) {
+      notifySessionExpired();
+    }
     let code = "request_failed";
     let message = `Request failed (${res.status})`;
     let details: unknown;
