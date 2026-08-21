@@ -13,6 +13,13 @@ updates:
     ignore:
       - dependency-name: typescript
         update-types: ["version-update:semver-major"]
+      # PrimeVue 5 replaced the MIT license with the commercial PrimeUI
+      # license (runtime license notice without a key). We stay on the
+      # 4.5.x MIT line — hold primevue and @primeuix/* majors.
+      - dependency-name: primevue
+        update-types: ["version-update:semver-major"]
+      - dependency-name: "@primeuix/*"
+        update-types: ["version-update:semver-major"]
     groups:
       dev-dependencies:
         dependency-type: development
