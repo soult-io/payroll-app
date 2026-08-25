@@ -67,6 +67,7 @@ const employeeNav = computed(() => {
 const adminNav = [
   { label: "Dashboard", name: "admin-dashboard" },
   { label: "Payroll", name: "admin-payroll" },
+  { label: "Tax deposits", name: "admin-deposits" },
   { label: "Employees", name: "admin-employees" },
   { label: "Contractors", name: "admin-contractors" },
   { label: "Requests", name: "admin-requests", badge: true },

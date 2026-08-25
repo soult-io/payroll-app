@@ -30,6 +30,8 @@ export const EVENT_TYPE = {
   /** Spec 12 — recurring invoice generation + payment-due reminder. */
   contractorRecurringGenerated: "contractor_recurring_generated",
   contractorRecurringPaymentDue: "contractor_recurring_payment_due",
+  /** PAY-9 — monthly federal tax deposit due-date reminder (admin). */
+  taxDepositDue: "tax_deposit_due",
 } as const;
 
 export type EventType = (typeof EVENT_TYPE)[keyof typeof EVENT_TYPE];
@@ -49,6 +51,7 @@ export const WORKFLOW_EVENTS: readonly EventType[] = [
   EVENT_TYPE.changeRequestDenied,
   EVENT_TYPE.contractorInvoiceReviewed,
   EVENT_TYPE.contractorInvoicePaid,
+  EVENT_TYPE.taxDepositDue,
 ];
 
 /**
@@ -63,6 +66,7 @@ export type EventAudience = "admin" | "w2" | "contractor" | "all";
 export const EVENT_AUDIENCE: Partial<Record<EventType, EventAudience>> = {
   [EVENT_TYPE.payrollDraftReady]: "admin",
   [EVENT_TYPE.changeRequestSubmitted]: "admin",
+  [EVENT_TYPE.taxDepositDue]: "admin",
   [EVENT_TYPE.payslipIssued]: "w2",
   [EVENT_TYPE.contractorInvoiceReviewed]: "contractor",
   [EVENT_TYPE.contractorInvoicePaid]: "contractor",
@@ -410,5 +414,29 @@ export function contractorRecurringPaymentDue(
     "contractor payment due today",
     body,
     `Payment due today: ${data.contractorName} — ${data.amountLabel} (${data.description}). The invoice is approved but no payment is recorded. Log in to record the payment: ${ctx.appUrl}`,
+  );
+}
+
+// ---------------------------------------------------------------------------
+// PAY-9 — monthly federal tax deposits (admin reminder)
+// ---------------------------------------------------------------------------
+
+/**
+ * Admin: a monthly deposit's configured reminder offset landed today.
+ * Informational/record-only (D3): EFTPS has no API — the email points the
+ * admin at eftps.gov and the app's deposit list; the actual payment always
+ * happens on eftps.gov.
+ */
+export function taxDepositDue(
+  ctx: TemplateContext,
+  data: { jurisdiction: string; periodLabel: string; amountLabel: string; dueDate: string },
+): RenderedEmail {
+  const jurisdiction = data.jurisdiction === "federal" ? "Federal" : data.jurisdiction;
+  const body = `<p>The <strong>${escapeHtml(jurisdiction)}</strong> payroll tax deposit for <strong>${escapeHtml(data.periodLabel)}</strong> — ${escapeHtml(data.amountLabel)} — is due on <strong>${data.dueDate}</strong>.</p><p>Make the payment on eftps.gov, then <a href="${ctx.appUrl}">log in to record the deposit and EFTPS confirmation number</a>.</p>`;
+  return email(
+    ctx,
+    `tax deposit due ${data.dueDate}`,
+    body,
+    `The ${jurisdiction} payroll tax deposit for ${data.periodLabel} (${data.amountLabel}) is due on ${data.dueDate}. Make the payment on eftps.gov, then log in to record it: ${ctx.appUrl}`,
   );
 }

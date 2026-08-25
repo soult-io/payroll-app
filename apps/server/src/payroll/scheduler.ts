@@ -24,11 +24,13 @@ import type { AppConfig } from "../config.js";
 import { generateDraftsForPeriod, monthlyPeriod } from "./runs.js";
 import { drainOutbox, type MailTransport } from "../notify/outbox.js";
 import { checkContractorFormExpiry } from "../contractors/service.js";
+import { sendDepositReminders, syncDeposits } from "../deposits/service.js";
 
 const TICK_QUEUE = "payroll-draft-tick";
 const GENERATE_QUEUE = "payroll-generate-draft";
 const OUTBOX_QUEUE = "email-outbox-drain";
 const FORM_EXPIRY_QUEUE = "contractor-form-expiry";
+const DEPOSIT_TICK_QUEUE = "tax-deposit-tick";
 
 export interface Scheduler {
   boss: PgBoss;
@@ -58,6 +60,7 @@ export async function startScheduler(deps: {
   await boss.createQueue(GENERATE_QUEUE);
   await boss.createQueue(OUTBOX_QUEUE);
   await boss.createQueue(FORM_EXPIRY_QUEUE);
+  await boss.createQueue(DEPOSIT_TICK_QUEUE);
 
   // Cron tick → enqueue per-employee generation jobs (singleton per period).
   await boss.work(TICK_QUEUE, async () => {
@@ -145,12 +148,27 @@ export async function startScheduler(deps: {
     }
   });
 
+  // PAY-9 daily deposit tick: sync the computed schedule (upsert pending rows,
+  // recompute pending amounts, flip overdue), then mail due-date reminders.
+  // Both halves are idempotent — re-ticks never duplicate rows or emails.
+  await boss.work(DEPOSIT_TICK_QUEUE, async () => {
+    const sync = await syncDeposits({ db, config });
+    if (sync.created + sync.recomputed + sync.flippedOverdue > 0) {
+      console.log(`[deposits] sync: ${JSON.stringify(sync)}`);
+    }
+    const reminders = await sendDepositReminders({ db, config });
+    if (reminders.sent > 0) {
+      console.log(`[deposits] reminders: ${JSON.stringify(reminders)}`);
+    }
+  });
+
   async function syncSchedules(): Promise<void> {
     const schedules = await db.select().from(paySchedules).where(isNull(paySchedules.employeeId));
     const schedule = schedules[0];
     await boss.unschedule(TICK_QUEUE);
     await boss.unschedule(OUTBOX_QUEUE);
     await boss.unschedule(FORM_EXPIRY_QUEUE);
+    await boss.unschedule(DEPOSIT_TICK_QUEUE);
     if (schedule?.active) {
       // Draft day at 09:12 local (off-peak minute), display timezone per spec 1.
       await boss.schedule(TICK_QUEUE, `12 9 ${schedule.draftDayOfMonth} * *`, null, {
@@ -161,6 +179,8 @@ export async function startScheduler(deps: {
     await boss.schedule(OUTBOX_QUEUE, "* * * * *", null, { tz: config.appTz });
     // W-8 expiry sweep daily at 08:23 local (off-peak minute).
     await boss.schedule(FORM_EXPIRY_QUEUE, "23 8 * * *", null, { tz: config.appTz });
+    // PAY-9 deposit sync + reminders daily at 07:41 local (off-peak minute).
+    await boss.schedule(DEPOSIT_TICK_QUEUE, "41 7 * * *", null, { tz: config.appTz });
   }
 
   await syncSchedules();
