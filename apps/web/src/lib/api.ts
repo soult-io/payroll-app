@@ -850,3 +850,36 @@ export const adminContractorsApi = {
   recurringDelete: (templateId: number) =>
     request<{ ok: true }>("DELETE", `/api/admin/recurring/${templateId}`),
 };
+
+// ---------------------------------------------------------------------------
+// PAY-9 — monthly federal tax deposits (admin, record-only)
+// ---------------------------------------------------------------------------
+
+export type TaxDepositStatus = "pending" | "deposited" | "overdue";
+
+export interface TaxDepositRow {
+  id: number;
+  jurisdiction: string;
+  /** First of the deposit month ("2026-08-01" = the August deposit). */
+  periodStart: string;
+  amount: string;
+  dueDate: string;
+  status: TaxDepositStatus;
+  depositedOn: string | null;
+  eftpsConfirmation: string | null;
+  remindersSent: number[];
+  createdAt: string | null;
+  updatedAt: string | null;
+}
+
+export const adminDepositsApi = {
+  list: () => get<{ deposits: TaxDepositRow[] }>("/api/admin/tax-deposits"),
+  markDeposited: (id: number, input: { depositedOn: string; eftpsConfirmation: string }) =>
+    post<{ deposit: TaxDepositRow }>(`/api/admin/tax-deposits/${id}/deposit`, input),
+  reminderSchedule: () =>
+    get<{ offsets: number[]; defaultOffsets: number[] }>(
+      "/api/admin/tax-deposits/reminder-schedule",
+    ),
+  putReminderSchedule: (offsets: number[]) =>
+    put<{ offsets: number[] }>("/api/admin/tax-deposits/reminder-schedule", { offsets }),
+};

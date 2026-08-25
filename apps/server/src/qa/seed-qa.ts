@@ -48,6 +48,7 @@ import type { AppConfig } from "../config.js";
 import { encryptField } from "../crypto/field-encryption.js";
 import type { Db } from "../db.js";
 import { generateDraft, monthlyPeriod, transitionRun, type Period } from "../payroll/runs.js";
+import { syncDeposits } from "../deposits/service.js";
 
 // ---------------------------------------------------------------------------
 // Fixed QA credentials (FAKE — QA-only, documented in docs/qa.md)
@@ -915,6 +916,9 @@ export async function seedQaDataset(
 
   const w2 = await seedW2People(deps, companyId, employeeLogin.id, today);
   const payroll = await seedPayrollHistory(deps, w2, admin.id, today);
+  // PAY-9: compute the deposit schedule from the issued history so the admin
+  // Tax deposits page has rows immediately (the daily tick keeps it fresh).
+  await syncDeposits(deps, { today });
   const changeRequestCreated = await seedChangeRequestThread(
     deps,
     w2.carol,

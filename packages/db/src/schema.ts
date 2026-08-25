@@ -660,6 +660,63 @@ export const contractorReportingConfig = pgTable(
 );
 
 // ---------------------------------------------------------------------------
+// 8b. PAY-9 — monthly federal tax deposits (admin tracking, record-only)
+// ---------------------------------------------------------------------------
+
+/**
+ * One row per (jurisdiction, period): the monthly depositor's Form 941 deposit
+ * for the month — employee federal_withholding + social_security + medicare +
+ * employer_social_security + employer_medicare across ISSUED payroll runs with
+ * pay_date in the period (employer_futa is Form 940 territory, excluded).
+ * jurisdiction is 'federal' today; state codes activate with PAY-13.
+ *
+ * period_start is the first of the deposit month (same date-typed period
+ * convention as payroll_runs). amount is recomputed from issued-run entries
+ * while status='pending' so a late-issued run corrects it; once 'deposited'
+ * the row is the frozen record (EFTPS confirmation + deposit date).
+ *
+ * reminders_sent records which configured days-before-due offsets have already
+ * fired (e.g. [5, 0]) — the daily sweep never double-mails.
+ */
+export const taxDeposits = pgTable(
+  "tax_deposits",
+  {
+    id: serial("id").primaryKey(),
+    jurisdiction: text("jurisdiction").notNull().default("federal"),
+    /** First of the deposit month ("2026-08-01" = the August deposit). */
+    periodStart: date("period_start").notNull(),
+    amount: money("amount").notNull().default("0"),
+    /** 15th of the following month, rolled forward off weekends. */
+    dueDate: date("due_date").notNull(),
+    status: text("status").notNull().default("pending"),
+    depositedOn: date("deposited_on"),
+    eftpsConfirmation: text("eftps_confirmation"),
+    /** Days-before-due offsets already mailed (dedupe belt for the sweep). */
+    remindersSent: jsonb("reminders_sent").notNull().default(sql`'[]'::jsonb`),
+    /** 'scheduler' or user.id. */
+    createdBy: text("created_by"),
+    createdAt: createdAt(),
+    updatedAt: updatedAt(),
+  },
+  (t) => [
+    unique("tax_deposits_jurisdiction_period_uniq").on(t.jurisdiction, t.periodStart),
+    check("tax_deposits_status_check", sql`${t.status} IN ('pending','deposited','overdue')`),
+  ],
+);
+
+/**
+ * Generic admin-editable app settings (key → JSONB value). Introduced for
+ * PAY-9's deposit reminder offsets (key 'tax_deposit_reminder_offsets',
+ * value int[] of days-before-due); a missing row means the code default.
+ * company stays the org PROFILE — knobs that are not profile data live here.
+ */
+export const appSettings = pgTable("app_settings", {
+  key: text("key").primaryKey(),
+  value: jsonb("value").notNull(),
+  updatedAt: updatedAt(),
+});
+
+// ---------------------------------------------------------------------------
 // 9. Step-2: setup tokens (spec 3 — invite/reset machinery)
 // ---------------------------------------------------------------------------
 

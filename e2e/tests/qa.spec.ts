@@ -164,6 +164,40 @@ test("PAY-8 scoped UI: contractor sees Invoices, not Payslips; /my/payslips redi
   }
 });
 
+test("tax deposits: admin sees the computed schedule incl. last month (PAY-9)", async ({
+  browser,
+}) => {
+  test.skip(!LIVE_QA, "live-QA only — deposit rows come from the seeded QA payroll history");
+  const page = await newAuthedPage(browser, QA_ADMIN);
+  try {
+    await page.goto("/admin/deposits");
+    await expect(page.getByRole("heading", { name: "Tax deposits" })).toBeVisible();
+
+    // The QA seed syncs deposits from 2 years of issued payroll history — the
+    // previous calendar month must be listed (read-only assertion).
+    const now = new Date();
+    const prev = new Date(Date.UTC(now.getUTCFullYear(), now.getUTCMonth() - 1, 1));
+    const label = `${prev.toLocaleString("en-US", { month: "long", timeZone: "UTC" })} ${prev.getUTCFullYear()}`;
+    await expect(page.locator("tbody tr", { hasText: label }).first()).toBeVisible();
+
+    // Jurisdiction + reminder schedule editor render.
+    await expect(page.locator("tbody").getByText("federal").first()).toBeVisible();
+    await expect(page.getByRole("heading", { name: "Reminder schedule" })).toBeVisible();
+
+    // API surface (read-only): newest period first, federal jurisdiction.
+    const list = await page.request.get("/api/admin/tax-deposits");
+    expect(list.status()).toBe(200);
+    const { deposits } = (await list.json()) as {
+      deposits: { periodStart: string; jurisdiction: string; amount: string }[];
+    };
+    expect(deposits.length).toBeGreaterThan(0);
+    expect(deposits.every((d) => d.jurisdiction === "federal")).toBe(true);
+    expect(Number(deposits[0]!.amount)).toBeGreaterThan(0);
+  } finally {
+    await page.context().close();
+  }
+});
+
 test("email capture: admin test email lands in Mailpit (via /api/qa/mailbox)", async ({
   browser,
 }) => {

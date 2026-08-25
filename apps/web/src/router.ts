@@ -103,6 +103,12 @@ export const router = createRouter({
       meta: { requiresAuth: true, requiresAdmin: true },
     },
     {
+      path: "/admin/deposits",
+      name: "admin-deposits",
+      component: () => import("./views/admin/AdminDepositsView.vue"),
+      meta: { requiresAuth: true, requiresAdmin: true },
+    },
+    {
       path: "/admin/employees",
       name: "admin-employees",
       component: () => import("./views/admin/AdminEmployeesView.vue"),
