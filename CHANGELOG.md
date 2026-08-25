@@ -4,6 +4,24 @@ All notable changes to this project will be documented here. Format follows
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/); versioning follows
 [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [1.3.0] - 2026-08-25
+
+### Added
+
+- Monthly federal tax deposits (PAY-9): the app now computes each month's
+  941 deposit (employee federal withholding + both sides of Social Security
+  and Medicare, from issued-run snapshots — deterministic to the cent),
+  schedules it for the 15th of the following month with weekend roll, and
+  tracks it through pending → deposited/overdue on a new admin "Tax
+  deposits" page with a mark-as-deposited action (date + EFTPS confirmation
+  number). A daily scheduler tick syncs the computed schedule and emails
+  due-date reminders on an admin-configurable offset schedule (default: 5
+  days before + on the due date) via the new admin-only `tax_deposit_due`
+  notification event. The schema is jurisdiction-ready for state deposits
+  (PAY-13). Record-only: payments still happen on eftps.gov.
+
+[1.3.0]: https://github.com/soult-io/payroll-app/releases/tag/v1.3.0
+
 ## [1.2.0] - 2026-08-21
 
 ### Added
