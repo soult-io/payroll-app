@@ -224,24 +224,26 @@ export interface SyncResult {
 }
 
 /**
- * Upsert pending deposit rows for every completed month with issued payroll
- * history, then flip past-due pending rows to 'overdue'. Idempotent: the
- * (jurisdiction, period_start) unique constraint is the belt; amounts are
- * recomputed while status='pending' so a late-issued run corrects the figure,
- * and 'deposited'/'overdue' rows are never rewritten.
+ * Upsert pending deposit rows for every month with issued payroll history —
+ * INCLUDING the current month (PAY-14): the row appears as soon as a run
+ * issues in the month, because the FTD is typically paid right after payroll,
+ * weeks before the due date. Then flip past-due pending rows to 'overdue'.
+ * Idempotent: the (jurisdiction, period_start) unique constraint is the belt;
+ * amounts are recomputed while status='pending' so a late-issued run corrects
+ * the figure, and 'deposited'/'overdue' rows are never rewritten. Due dates,
+ * the overdue flip, and reminders are all relative to the 15th of the
+ * FOLLOWING month, so a current-month row is never overdue and never reminds.
  */
 export async function syncDeposits(deps: Deps, opts: { today?: string } = {}): Promise<SyncResult> {
   const { db } = deps;
   const today = opts.today ?? todayIso();
-  const currentMonthStart = `${today.slice(0, 7)}-01`;
 
-  // Completed months having at least one issued run (pay_date month < current).
   const months = await db
     .selectDistinct({
       periodStart: sql<string>`to_char(date_trunc('month', ${payrollRuns.payDate})::date, 'YYYY-MM-DD')`,
     })
     .from(payrollRuns)
-    .where(and(eq(payrollRuns.status, "issued"), lt(payrollRuns.payDate, currentMonthStart)))
+    .where(eq(payrollRuns.status, "issued"))
     .orderBy(sql`1`);
 
   const result: SyncResult = { created: 0, recomputed: 0, flippedOverdue: 0 };

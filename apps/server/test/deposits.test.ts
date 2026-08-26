@@ -250,11 +250,12 @@ describe("computeDepositAmount", () => {
 // ---------------------------------------------------------------------------
 
 describe("syncDeposits", () => {
-  it("upserts pending rows for completed months and is idempotent", async () => {
-    // 2026-03 has issued runs from the tests above; on 2026-04-10 it is the
-    // only completed month and not yet due (due 2026-04-15).
+  it("upserts pending rows for completed months AND the current month, idempotently", async () => {
+    // 2026-03 (completed) and 2026-04 (current on 2026-04-10) both have issued
+    // runs from the tests above — PAY-14: the current month's row appears as
+    // soon as a run issues in it, no month-end wait.
     const first = await syncDeposits({ db: t.db, config: t.config }, { today: "2026-04-10" });
-    expect(first.created).toBe(1);
+    expect(first.created).toBe(2);
 
     const march = await depositRow("2026-03-01");
     expect(march).toBeDefined();
@@ -263,12 +264,19 @@ describe("syncDeposits", () => {
     expect(march!.dueDate).toBe("2026-04-15");
     expect(march!.jurisdiction).toBe("federal");
 
+    const april = await depositRow("2026-04-01");
+    expect(april).toBeDefined();
+    expect(april!.status).toBe("pending");
+    expect(april!.amount).toBe(await expectedAmount(2026, 4));
+    expect(april!.dueDate).toBe("2026-05-15");
+
     // Second run: no new rows, no rewrites — one row per (jurisdiction, period).
     const second = await syncDeposits({ db: t.db, config: t.config }, { today: "2026-04-10" });
     expect(second.created).toBe(0);
     expect(second.recomputed).toBe(0);
     const all = await t.db.select().from(taxDeposits);
     expect(all.filter((d) => d.periodStart === "2026-03-01")).toHaveLength(1);
+    expect(all.filter((d) => d.periodStart === "2026-04-01")).toHaveLength(1);
   });
 
   it("recomputes the amount of a pending row when a late run issues", async () => {
@@ -284,10 +292,12 @@ describe("syncDeposits", () => {
   });
 
   it("flips pending rows to overdue once the due date passes", async () => {
-    // On 2026-05-01, April is now a completed month too and March is past due.
+    // April's row already exists (PAY-14: created while April was the current
+    // month) and May has no issued runs, so nothing new is created. March is
+    // past due (due 2026-04-15) and flips.
     const sync = await syncDeposits({ db: t.db, config: t.config }, { today: "2026-05-01" });
-    expect(sync.created).toBe(1); // April
-    expect(sync.flippedOverdue).toBe(1); // March (due 2026-04-15)
+    expect(sync.created).toBe(0);
+    expect(sync.flippedOverdue).toBe(1); // March
     const march = await depositRow("2026-03-01");
     expect(march!.status).toBe("overdue");
     const april = await depositRow("2026-04-01");
@@ -506,5 +516,73 @@ describe("sendDepositReminders", () => {
     // April was due 2026-05-15 — replaying that date must not fire for it.
     const res = await sendDepositReminders({ db: t.db, config: t.config }, { today: "2026-05-15" });
     expect(res.sent).toBe(0);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// PAY-14 — the current month's row exists as soon as a run issues in it
+// ---------------------------------------------------------------------------
+
+describe("PAY-14 current-month rows", () => {
+  it("creates the row mid-month, never flips it overdue, recomputes on a second run", async () => {
+    // July 2026 has no runs yet; issue one and sync with `today` still inside
+    // July. (This also flips the still-pending May/June rows overdue — their
+    // due dates have passed — which no later test depends on.)
+    const f = await createEmployee();
+    await addCompensation(f, 7000);
+    await issueRun(f, 2026, 7);
+
+    const first = await syncDeposits({ db: t.db, config: t.config }, { today: "2026-07-20" });
+    expect(first.created).toBeGreaterThanOrEqual(1);
+    const july = await depositRow("2026-07-01");
+    expect(july).toBeDefined();
+    expect(july!.status).toBe("pending");
+    // Due date is relative to the FOLLOWING month; 2026-08-15 is a Saturday.
+    expect(july!.dueDate).toBe("2026-08-17");
+    expect(july!.amount).toBe(await expectedAmount(2026, 7));
+
+    // A second run issuing in the SAME current month recomputes the pending row.
+    const g = await createEmployee();
+    await addCompensation(g, 7000);
+    await issueRun(g, 2026, 7);
+    const second = await syncDeposits({ db: t.db, config: t.config }, { today: "2026-07-21" });
+    expect(second.created).toBe(0);
+    expect(second.recomputed).toBe(1);
+    const julyAfter = await depositRow("2026-07-01");
+    expect(julyAfter!.amount).toBe(await expectedAmount(2026, 7));
+    expect(julyAfter!.status).toBe("pending");
+
+    // The current-month pending row never reminds: its fire dates
+    // (2026-08-12 and 2026-08-17 under the default [5, 0]) are in the future,
+    // and everything earlier is deposited or already past its fire dates.
+    const reminders = await sendDepositReminders(
+      { db: t.db, config: t.config },
+      { today: "2026-07-21" },
+    );
+    expect(reminders.sent).toBe(0);
+    expect((await depositRow("2026-07-01"))!.remindersSent).toEqual([]);
+  });
+
+  it("never rewrites a deposited current-month row when more runs issue", async () => {
+    // The owner's pattern: the FTD is paid the day payroll runs. Mark July
+    // deposited, then issue a third July run — the recorded row must stay
+    // exactly as entered (amount, date, confirmation).
+    const july = await depositRow("2026-07-01");
+    const res = await api("POST", `/api/admin/tax-deposits/${july!.id}/deposit`, {
+      depositedOn: "2026-07-15",
+      eftpsConfirmation: "EFTPS-CURRENT-MONTH",
+    });
+    expect(res.statusCode, res.body).toBe(200);
+
+    const h = await createEmployee();
+    await addCompensation(h, 7000);
+    await issueRun(h, 2026, 7);
+    const sync = await syncDeposits({ db: t.db, config: t.config }, { today: "2026-07-22" });
+    expect(sync.recomputed).toBe(0);
+    const after = await depositRow("2026-07-01");
+    expect(after!.status).toBe("deposited");
+    expect(after!.amount).toBe(july!.amount);
+    expect(after!.depositedOn).toBe("2026-07-15");
+    expect(after!.eftpsConfirmation).toBe("EFTPS-CURRENT-MONTH");
   });
 });
