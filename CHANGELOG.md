@@ -4,6 +4,20 @@ All notable changes to this project will be documented here. Format follows
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/); versioning follows
 [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [1.4.0] - 2026-08-26
+
+### Added
+
+- Current-month tax deposit rows (PAY-14): the Tax Deposits page now shows
+  the current month's deposit as soon as a payroll run issues in it,
+  instead of waiting for the month to close. Due dates, overdue marking,
+  and reminder emails stay relative to the 15th of the following month, so
+  a current-month row is never overdue and never reminds, and a deposit
+  recorded early (e.g. paid the day payroll runs) is never rewritten by
+  later recomputation.
+
+[1.4.0]: https://github.com/soult-io/payroll-app/releases/tag/v1.4.0
+
 ## [1.3.0] - 2026-08-25
 
 ### Added
