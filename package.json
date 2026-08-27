@@ -20,6 +20,6 @@
     "migrate:legacy": "pnpm --filter @payroll/server run migrate:legacy"
   },
   "devDependencies": {
-    "@biomejs/biome": "2.5.8"
+    "@biomejs/biome": "2.5.10"
   }
 }
