@@ -296,9 +296,29 @@ export async function syncDeposits(deps: Deps, opts: { today?: string } = {}): P
 // Admin queries + the mark-deposited mutation
 // ---------------------------------------------------------------------------
 
-/** All deposits, newest period first (admin list). */
-export async function listDeposits(db: Db): Promise<TaxDepositRow[]> {
-  return db.select().from(taxDeposits).orderBy(desc(taxDeposits.periodStart), desc(taxDeposits.id));
+/** Deposits, newest period first (admin list). PAY-15: optional year/status filters. */
+export async function listDeposits(
+  db: Db,
+  filter: {
+    year?: number | undefined;
+    status?: "pending" | "deposited" | "overdue" | undefined;
+  } = {},
+): Promise<TaxDepositRow[]> {
+  const conditions = [];
+  if (filter.year) {
+    conditions.push(
+      and(
+        sql`${taxDeposits.periodStart} >= ${`${filter.year}-01-01`}`,
+        sql`${taxDeposits.periodStart} <= ${`${filter.year}-12-31`}`,
+      ),
+    );
+  }
+  if (filter.status) conditions.push(eq(taxDeposits.status, filter.status));
+  return db
+    .select()
+    .from(taxDeposits)
+    .where(conditions.length ? and(...conditions) : undefined)
+    .orderBy(desc(taxDeposits.periodStart), desc(taxDeposits.id));
 }
 
 export interface MarkDepositedInput {

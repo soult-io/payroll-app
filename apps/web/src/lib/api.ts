@@ -873,7 +873,8 @@ export interface TaxDepositRow {
 }
 
 export const adminDepositsApi = {
-  list: () => get<{ deposits: TaxDepositRow[] }>("/api/admin/tax-deposits"),
+  list: (filter: { year?: number; status?: "pending" | "deposited" | "overdue" } = {}) =>
+    get<{ deposits: TaxDepositRow[] }>(`/api/admin/tax-deposits${qs(filter)}`),
   markDeposited: (id: number, input: { depositedOn: string; eftpsConfirmation: string }) =>
     post<{ deposit: TaxDepositRow }>(`/api/admin/tax-deposits/${id}/deposit`, input),
   reminderSchedule: () =>

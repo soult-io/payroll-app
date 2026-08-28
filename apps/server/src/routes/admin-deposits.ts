@@ -55,8 +55,17 @@ export function registerAdminDepositRoutes(app: FastifyInstance, deps: Deps): vo
   const { db, config, guards } = deps;
   const admin = guards.requireRole("admin");
 
-  app.get("/api/admin/tax-deposits", { preHandler: admin }, async () => {
-    const deposits = await listDeposits(db);
+  app.get("/api/admin/tax-deposits", { preHandler: admin }, async (req, reply) => {
+    // PAY-15: optional year/status filters, same shape as the payroll-runs list.
+    const q = z
+      .object({
+        year: z.coerce.number().int().min(2020).max(2100).optional(),
+        status: z.enum(["pending", "deposited", "overdue"]).optional(),
+      })
+      .safeParse(req.query);
+    if (!q.success)
+      return reply.code(400).send({ error: "invalid_query", details: q.error.issues });
+    const deposits = await listDeposits(db, q.data);
     return { deposits };
   });
 
