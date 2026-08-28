@@ -32,6 +32,8 @@ export const EVENT_TYPE = {
   contractorRecurringPaymentDue: "contractor_recurring_payment_due",
   /** PAY-9 — monthly federal tax deposit due-date reminder (admin). */
   taxDepositDue: "tax_deposit_due",
+  /** PAY-10 — quarterly filing (Form 941) due-date reminder (admin). */
+  taxFilingDue: "tax_filing_due",
 } as const;
 
 export type EventType = (typeof EVENT_TYPE)[keyof typeof EVENT_TYPE];
@@ -52,6 +54,7 @@ export const WORKFLOW_EVENTS: readonly EventType[] = [
   EVENT_TYPE.contractorInvoiceReviewed,
   EVENT_TYPE.contractorInvoicePaid,
   EVENT_TYPE.taxDepositDue,
+  EVENT_TYPE.taxFilingDue,
 ];
 
 /**
@@ -67,6 +70,7 @@ export const EVENT_AUDIENCE: Partial<Record<EventType, EventAudience>> = {
   [EVENT_TYPE.payrollDraftReady]: "admin",
   [EVENT_TYPE.changeRequestSubmitted]: "admin",
   [EVENT_TYPE.taxDepositDue]: "admin",
+  [EVENT_TYPE.taxFilingDue]: "admin",
   [EVENT_TYPE.payslipIssued]: "w2",
   [EVENT_TYPE.contractorInvoiceReviewed]: "contractor",
   [EVENT_TYPE.contractorInvoicePaid]: "contractor",
@@ -438,5 +442,27 @@ export function taxDepositDue(
     `tax deposit due ${data.dueDate}`,
     body,
     `The ${jurisdiction} payroll tax deposit for ${data.periodLabel} (${data.amountLabel}) is due on ${data.dueDate}. Make the payment on eftps.gov, then log in to record it: ${ctx.appUrl}`,
+  );
+}
+
+// ---------------------------------------------------------------------------
+// PAY-10 — quarterly filing (Form 941) due-date reminder (admin)
+// ---------------------------------------------------------------------------
+
+/**
+ * Admin: a quarterly filing's configured reminder offset landed today.
+ * Record-only (D2): the app computes the worksheet and tracks the filing;
+ * the admin files by mail (Letterstream) or e-file and marks it filed here.
+ */
+export function taxFilingDue(
+  ctx: TemplateContext,
+  data: { formLabel: string; periodLabel: string; dueDate: string },
+): RenderedEmail {
+  const body = `<p><strong>${escapeHtml(data.formLabel)}</strong> for <strong>${escapeHtml(data.periodLabel)}</strong> is due on <strong>${data.dueDate}</strong> and has not been marked as filed.</p><p>File the return, then <a href="${ctx.appUrl}">log in to record the filing date and reference</a>.</p>`;
+  return email(
+    ctx,
+    `${data.formLabel} for ${data.periodLabel} due ${data.dueDate}`,
+    body,
+    `${data.formLabel} for ${data.periodLabel} is due on ${data.dueDate} and has not been marked as filed. File the return, then log in to record it: ${ctx.appUrl}`,
   );
 }

@@ -427,6 +427,7 @@ const get = <T>(path: string) => request<T>("GET", path);
 const post = <T>(path: string, body?: unknown) => request<T>("POST", path, body ?? {});
 const put = <T>(path: string, body: unknown) => request<T>("PUT", path, body);
 const patch = <T>(path: string, body: unknown) => request<T>("PATCH", path, body);
+const del = <T>(path: string) => request<T>("DELETE", path);
 
 function qs(params: Record<string, string | number | boolean | undefined>): string {
   const search = new URLSearchParams();
@@ -883,4 +884,110 @@ export const adminDepositsApi = {
     ),
   putReminderSchedule: (offsets: number[]) =>
     put<{ offsets: number[] }>("/api/admin/tax-deposits/reminder-schedule", { offsets }),
+};
+
+// ---------------------------------------------------------------------------
+// PAY-10 — quarterly Form 941 filings (admin, record-only)
+// ---------------------------------------------------------------------------
+
+export type TaxFilingStatus = "not_started" | "ready" | "filed";
+export type TaxFormType = "941" | "940" | "w2_w3";
+
+export interface Worksheet941 {
+  form: "941";
+  year: number;
+  quarter: number;
+  line1Employees: number;
+  line2Wages: string;
+  line3FederalWithheld: string;
+  line5aTaxableSsWages: string;
+  line5aTax: string;
+  line5cTaxableMedicareWages: string;
+  line5cTax: string;
+  line5dAdditionalMedicare: string;
+  line5eTotal: string;
+  line6TotalTaxes: string;
+  line7FractionsOfCents: string;
+  /** The computed rounding delta (line 7's value when no admin override). */
+  line7Computed: string;
+  line10TotalAfterAdjustments: string;
+  line11ResearchCredit: string;
+  line12TotalAfterCredits: string;
+  line13Deposits: string;
+  line14BalanceDue: string;
+  line15Overpayment: string;
+  line16: { month1: string; month2: string; month3: string; deMinimis: boolean };
+}
+
+export interface TaxFilingRow {
+  id: number;
+  formType: TaxFormType;
+  year: number;
+  /** 1-4 for quarterly forms; 0 for annual forms. */
+  quarter: number;
+  dueDate: string;
+  status: TaxFilingStatus;
+  worksheet: Worksheet941 | null;
+  worksheetHash: string | null;
+  fractionsOfCents: string;
+  filedOn: string | null;
+  filingMethod: string | null;
+  filingReference: string | null;
+  remindersSent: number[];
+  createdAt: string | null;
+  updatedAt: string | null;
+}
+
+export interface TaxAdjustmentRow {
+  id: number;
+  filingId: number;
+  kind: string;
+  noticeDate: string | null;
+  amountDue: string;
+  abatedAmount: string;
+  amountPaid: string;
+  paidOn: string | null;
+  eftpsConfirmation: string | null;
+  note: string;
+  createdAt: string | null;
+  updatedAt: string | null;
+}
+
+export interface AdjustmentInput {
+  kind: string;
+  noticeDate?: string;
+  amountDue: string;
+  abatedAmount?: string;
+  amountPaid?: string;
+  paidOn?: string;
+  eftpsConfirmation?: string;
+  note?: string;
+}
+
+export const adminFilingsApi = {
+  list: (filter: { year?: number; status?: TaxFilingStatus; formType?: TaxFormType } = {}) =>
+    get<{ filings: TaxFilingRow[] }>(`/api/admin/tax-filings${qs(filter)}`),
+  detail: (id: number) =>
+    get<{ filing: TaxFilingRow; adjustments: TaxAdjustmentRow[] }>(`/api/admin/tax-filings/${id}`),
+  markFiled: (
+    id: number,
+    input: { filedOn: string; filingMethod: string; filingReference: string },
+  ) => post<{ filing: TaxFilingRow }>(`/api/admin/tax-filings/${id}/file`, input),
+  setFractionsOfCents: (id: number, amount: string) =>
+    put<{ filing: TaxFilingRow }>(`/api/admin/tax-filings/${id}/fractions-of-cents`, { amount }),
+  addAdjustment: (id: number, input: AdjustmentInput) =>
+    post<{ adjustment: TaxAdjustmentRow }>(`/api/admin/tax-filings/${id}/adjustments`, input),
+  updateAdjustment: (id: number, adjId: number, input: AdjustmentInput) =>
+    put<{ adjustment: TaxAdjustmentRow }>(
+      `/api/admin/tax-filings/${id}/adjustments/${adjId}`,
+      input,
+    ),
+  deleteAdjustment: (id: number, adjId: number) =>
+    del<{ ok: true }>(`/api/admin/tax-filings/${id}/adjustments/${adjId}`),
+  reminderSchedule: () =>
+    get<{ offsets: number[]; defaultOffsets: number[] }>(
+      "/api/admin/tax-filings/reminder-schedule",
+    ),
+  putReminderSchedule: (offsets: number[]) =>
+    put<{ offsets: number[] }>("/api/admin/tax-filings/reminder-schedule", { offsets }),
 };
