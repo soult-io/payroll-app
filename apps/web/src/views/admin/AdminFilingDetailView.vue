@@ -1,0 +1,491 @@
+<script setup lang="ts">
+/**
+ * Admin filing detail (PAY-10): the frozen Form 941 worksheet (line-by-line,
+ * with the per-month liability breakdown and snapshot hash), the
+ * adjustment/notice records for the quarter (D3 — add/edit/delete), the
+ * admin-editable line-7 fractions-of-cents (D4), the mark-as-filed action
+ * (D2 track-only — date + method + reference), and the "How to file" help
+ * dialog with self-filing instructions.
+ */
+import { computed, onMounted, ref } from "vue";
+import { useRoute } from "vue-router";
+import Button from "primevue/button";
+import DataTable from "primevue/datatable";
+import Column from "primevue/column";
+import Dialog from "primevue/dialog";
+import InputText from "primevue/inputtext";
+import DatePicker from "primevue/datepicker";
+import Select from "primevue/select";
+import Textarea from "primevue/textarea";
+import Skeleton from "primevue/skeleton";
+import Message from "primevue/message";
+import PageHeader from "../../components/PageHeader.vue";
+import StatusChip from "../../components/StatusChip.vue";
+import {
+  adminFilingsApi,
+  type AdjustmentInput,
+  type TaxAdjustmentRow,
+  type TaxFilingRow,
+} from "../../lib/api";
+import { useDates } from "../../composables/useDates";
+import { useMoney } from "../../composables/useMoney";
+import { useNotify } from "../../composables/useNotify";
+
+const route = useRoute();
+const { date, toIso } = useDates();
+const { money } = useMoney();
+const notify = useNotify();
+
+const filingId = Number(route.params.id);
+
+const loading = ref(true);
+const filing = ref<TaxFilingRow | null>(null);
+const adjustments = ref<TaxAdjustmentRow[]>([]);
+
+const filed = computed(() => filing.value?.status === "filed");
+
+function periodLabel(): string {
+  const f = filing.value;
+  if (!f) return "";
+  return f.quarter === 0 ? String(f.year) : `Q${f.quarter} ${f.year}`;
+}
+
+async function load() {
+  loading.value = true;
+  try {
+    const res = await adminFilingsApi.detail(filingId);
+    filing.value = res.filing;
+    adjustments.value = res.adjustments;
+  } catch (err) {
+    notify.error(err, "Could not load the filing");
+  } finally {
+    loading.value = false;
+  }
+}
+
+// ------------------------------------------------------------- worksheet rows
+interface WorksheetLine {
+  line: string;
+  label: string;
+  value: string;
+}
+
+const worksheetLines = computed<WorksheetLine[]>(() => {
+  const w = filing.value?.worksheet;
+  if (!w) return [];
+  return [
+    {
+      line: "1",
+      label: "Employees paid (pay period incl. the 12th of month 1)",
+      value: String(w.line1Employees),
+    },
+    { line: "2", label: "Wages, tips, and other compensation", value: money(w.line2Wages) },
+    { line: "3", label: "Federal income tax withheld", value: money(w.line3FederalWithheld) },
+    {
+      line: "5a",
+      label: `Taxable Social Security wages (${money(w.line5aTaxableSsWages)} × 12.4%)`,
+      value: money(w.line5aTax),
+    },
+    {
+      line: "5c",
+      label: `Taxable Medicare wages (${money(w.line5cTaxableMedicareWages)} × 2.9%)`,
+      value: money(w.line5cTax),
+    },
+    {
+      line: "5d",
+      label: "Additional Medicare withholding",
+      value: money(w.line5dAdditionalMedicare),
+    },
+    { line: "5e", label: "Total Social Security and Medicare taxes", value: money(w.line5eTotal) },
+    { line: "6", label: "Total taxes (line 3 + line 5e)", value: money(w.line6TotalTaxes) },
+    {
+      line: "7",
+      label: "Fractions of cents (admin-editable below)",
+      value: money(w.line7FractionsOfCents),
+    },
+    {
+      line: "10",
+      label: "Total taxes after adjustments",
+      value: money(w.line10TotalAfterAdjustments),
+    },
+    {
+      line: "11",
+      label: "Qualified small business R&D credit",
+      value: money(w.line11ResearchCredit),
+    },
+    { line: "12", label: "Total taxes after credits", value: money(w.line12TotalAfterCredits) },
+    { line: "13", label: "Total deposits + adjustment payments", value: money(w.line13Deposits) },
+    { line: "14", label: "Balance due", value: money(w.line14BalanceDue) },
+    { line: "15", label: "Overpayment", value: money(w.line15Overpayment) },
+  ];
+});
+
+// ------------------------------------------------------ fractions of cents (D4)
+const fractionsText = ref("");
+const fractionsBusy = ref(false);
+const fractionsValid = computed(() => /^-?\d{1,10}(\.\d{1,2})?$/.test(fractionsText.value.trim()));
+
+async function saveFractions() {
+  if (!fractionsValid.value) return;
+  fractionsBusy.value = true;
+  try {
+    await adminFilingsApi.setFractionsOfCents(filingId, fractionsText.value.trim());
+    notify.success("Line 7 saved", "The worksheet totals were re-rendered with the new value.");
+    await load();
+  } catch (err) {
+    notify.error(err, "Could not save line 7");
+  } finally {
+    fractionsBusy.value = false;
+  }
+}
+
+// ------------------------------------------------------------ mark as filed (D2)
+const fileDialog = ref(false);
+const fileBusy = ref(false);
+const filedOn = ref<Date | null>(new Date());
+const filingMethod = ref<string>("letterstream");
+const filingReference = ref("");
+const methodOptions = [
+  { label: "Mail (Letterstream)", value: "letterstream" },
+  { label: "E-file (IRS authorized provider)", value: "efile" },
+  { label: "Other", value: "other" },
+];
+
+async function submitFiled() {
+  const iso = toIso(filedOn.value);
+  if (!iso) return;
+  fileBusy.value = true;
+  try {
+    await adminFilingsApi.markFiled(filingId, {
+      filedOn: iso,
+      filingMethod: filingMethod.value,
+      filingReference: filingReference.value.trim(),
+    });
+    notify.success("Filing recorded", `${periodLabel()} marked as filed.`);
+    fileDialog.value = false;
+    await load();
+  } catch (err) {
+    notify.error(err, "Could not record the filing");
+  } finally {
+    fileBusy.value = false;
+  }
+}
+
+// ---------------------------------------------------------- "How to file" (D2)
+const helpDialog = ref(false);
+
+// ------------------------------------------------------------------ adjustments
+const adjDialog = ref(false);
+const adjBusy = ref(false);
+const adjTarget = ref<TaxAdjustmentRow | null>(null);
+const adjKind = ref("");
+const adjNoticeDate = ref<Date | null>(null);
+const adjAmountDue = ref("");
+const adjAbated = ref("");
+const adjAmountPaid = ref("");
+const adjPaidOn = ref<Date | null>(null);
+const adjEftps = ref("");
+const adjNote = ref("");
+
+const KIND_SUGGESTIONS = ["CP220", "CP161", "penalty", "interest", "other"];
+
+function openAdjDialog(row: TaxAdjustmentRow | null) {
+  adjTarget.value = row;
+  adjKind.value = row?.kind ?? "";
+  adjNoticeDate.value = row?.noticeDate ? new Date(`${row.noticeDate}T00:00:00`) : null;
+  adjAmountDue.value = row?.amountDue ?? "";
+  adjAbated.value = row?.abatedAmount ?? "";
+  adjAmountPaid.value = row?.amountPaid ?? "";
+  adjPaidOn.value = row?.paidOn ? new Date(`${row.paidOn}T00:00:00`) : null;
+  adjEftps.value = row?.eftpsConfirmation ?? "";
+  adjNote.value = row?.note ?? "";
+  adjDialog.value = true;
+}
+
+const adjValid = computed(
+  () => adjKind.value.trim() !== "" && /^\d{1,10}(\.\d{1,2})?$/.test(adjAmountDue.value.trim()),
+);
+
+async function submitAdjustment() {
+  if (!adjValid.value) return;
+  adjBusy.value = true;
+  const input: AdjustmentInput = {
+    kind: adjKind.value.trim(),
+    amountDue: adjAmountDue.value.trim(),
+  };
+  const noticeIso = toIso(adjNoticeDate.value);
+  if (noticeIso) input.noticeDate = noticeIso;
+  if (adjAbated.value.trim()) input.abatedAmount = adjAbated.value.trim();
+  if (adjAmountPaid.value.trim()) input.amountPaid = adjAmountPaid.value.trim();
+  const paidIso = toIso(adjPaidOn.value);
+  if (paidIso) input.paidOn = paidIso;
+  if (adjEftps.value.trim()) input.eftpsConfirmation = adjEftps.value.trim();
+  if (adjNote.value.trim()) input.note = adjNote.value.trim();
+  try {
+    if (adjTarget.value) {
+      await adminFilingsApi.updateAdjustment(filingId, adjTarget.value.id, input);
+      notify.success("Adjustment updated");
+    } else {
+      await adminFilingsApi.addAdjustment(filingId, input);
+      notify.success("Adjustment added", "The worksheet's line 13 now includes the payment.");
+    }
+    adjDialog.value = false;
+    await load();
+  } catch (err) {
+    notify.error(err, "Could not save the adjustment");
+  } finally {
+    adjBusy.value = false;
+  }
+}
+
+async function removeAdjustment(row: TaxAdjustmentRow) {
+  try {
+    await adminFilingsApi.deleteAdjustment(filingId, row.id);
+    notify.success("Adjustment removed");
+    await load();
+  } catch (err) {
+    notify.error(err, "Could not remove the adjustment");
+  }
+}
+
+onMounted(async () => {
+  await load();
+  fractionsText.value = filing.value?.fractionsOfCents ?? "";
+});
+</script>
+
+<template>
+  <div class="page stack">
+    <Skeleton v-if="loading" height="16rem" />
+    <template v-else-if="filing">
+      <PageHeader
+        :title="`Form ${filing.formType} — ${periodLabel()}`"
+        :subtitle="`Due ${date(filing.dueDate)} · worksheet hash ${filing.worksheetHash?.slice(0, 12) ?? '—'}`"
+      >
+        <Button label="How to file" icon="pi pi-question-circle" text size="small" @click="helpDialog = true" />
+        <Button
+          v-if="!filed"
+          label="Mark as filed"
+          icon="pi pi-check"
+          size="small"
+          @click="fileDialog = true"
+        />
+      </PageHeader>
+
+      <Message v-if="filed" severity="success" :closable="false">
+        Filed {{ date(filing.filedOn) }}<template v-if="filing.filingMethod"> via {{ filing.filingMethod }}</template><template v-if="filing.filingReference"> · ref {{ filing.filingReference }}</template>.
+        The worksheet is frozen.
+      </Message>
+
+      <section class="card table-scroll">
+        <h3>Worksheet <StatusChip :status="filing.status" style="margin-left: 0.5rem" /></h3>
+        <DataTable :value="worksheetLines" data-key="line" striped-rows>
+          <Column field="line" header="Line" style="width: 4rem" />
+          <Column field="label" header="Description" />
+          <Column field="value" header="Amount" style="width: 10rem; text-align: right" />
+        </DataTable>
+
+        <h4 style="margin-top: 1rem">Line 16 — monthly liability</h4>
+        <p class="muted small">
+          Liability by pay month (not deposits made).
+          <template v-if="filing.worksheet?.line16.deMinimis">
+            Line 12 is under $2,500 — the de minimis rule applies (no monthly breakdown owed on the form).
+          </template>
+        </p>
+        <DataTable
+          v-if="filing.worksheet"
+          :value="[
+            { month: 'Month 1', amount: filing.worksheet.line16.month1 },
+            { month: 'Month 2', amount: filing.worksheet.line16.month2 },
+            { month: 'Month 3', amount: filing.worksheet.line16.month3 },
+          ]"
+          data-key="month"
+        >
+          <Column field="month" header="Month" style="width: 8rem" />
+          <Column header="Liability">
+            <template #body="{ data }">{{ money(data.amount) }}</template>
+          </Column>
+        </DataTable>
+
+        <form v-if="!filed" class="row" style="margin-top: 1rem" @submit.prevent="saveFractions">
+          <label for="fractions" class="muted small" style="align-self: center">
+            Line 7 — fractions of cents (default is the computed rounding delta):
+          </label>
+          <InputText
+            id="fractions"
+            v-model="fractionsText"
+            size="small"
+            style="width: 7rem"
+            :invalid="!fractionsValid"
+          />
+          <Button
+            type="submit"
+            label="Save"
+            icon="pi pi-check"
+            size="small"
+            :loading="fractionsBusy"
+            :disabled="!fractionsValid"
+          />
+        </form>
+      </section>
+
+      <section class="card stack">
+        <div class="row" style="justify-content: space-between">
+          <h3 style="margin: 0">Adjustments &amp; notices</h3>
+          <Button
+            v-if="!filed"
+            label="Add adjustment"
+            icon="pi pi-plus"
+            size="small"
+            text
+            @click="openAdjDialog(null)"
+          />
+        </div>
+        <p class="muted small">
+          IRS notices, penalties, and interest for this quarter (e.g. a CP220). Payments recorded
+          here count toward line 13 so the quarter reconciles to your IRS account.
+        </p>
+        <DataTable :value="adjustments" data-key="id" striped-rows>
+          <template #empty><p class="muted">No adjustments recorded for this quarter.</p></template>
+          <Column field="kind" header="Kind" style="width: 7rem" />
+          <Column header="Notice date" style="width: 8rem">
+            <template #body="{ data }">{{ data.noticeDate ? date(data.noticeDate) : "—" }}</template>
+          </Column>
+          <Column header="Amount due" style="width: 8rem">
+            <template #body="{ data }">{{ money(data.amountDue) }}</template>
+          </Column>
+          <Column header="Abated" style="width: 8rem">
+            <template #body="{ data }">{{ money(data.abatedAmount) }}</template>
+          </Column>
+          <Column header="Paid" style="width: 12rem">
+            <template #body="{ data }">
+              <template v-if="Number(data.amountPaid) > 0">
+                {{ money(data.amountPaid) }}<template v-if="data.paidOn"> · {{ date(data.paidOn) }}</template>
+              </template>
+              <span v-else class="muted">—</span>
+            </template>
+          </Column>
+          <Column field="note" header="Note" />
+          <Column v-if="!filed" header="" style="width: 8rem">
+            <template #body="{ data }">
+              <Button icon="pi pi-pencil" text size="small" aria-label="Edit" @click="openAdjDialog(data)" />
+              <Button icon="pi pi-trash" text size="small" severity="danger" aria-label="Delete" @click="removeAdjustment(data)" />
+            </template>
+          </Column>
+        </DataTable>
+      </section>
+
+      <Dialog v-model:visible="fileDialog" modal header="Mark as filed" :style="{ width: '26rem' }">
+        <div class="stack">
+          <p class="muted small">
+            File Form {{ filing.formType }} for {{ periodLabel() }} first — by mail or e-file — then
+            record it here.
+          </p>
+          <div class="field">
+            <label for="filedOn">Filing date</label>
+            <DatePicker id="filedOn" v-model="filedOn" date-format="yy-mm-dd" show-icon />
+          </div>
+          <div class="field">
+            <label for="filingMethod">Method</label>
+            <Select id="filingMethod" v-model="filingMethod" :options="methodOptions" option-label="label" option-value="value" />
+          </div>
+          <div class="field">
+            <label for="filingReference">Reference (e.g. Letterstream Job ID)</label>
+            <InputText id="filingReference" v-model="filingReference" maxlength="100" />
+          </div>
+          <div class="row dialog-actions">
+            <Button label="Cancel" text severity="secondary" @click="fileDialog = false" />
+            <Button
+              label="Record filing"
+              icon="pi pi-check"
+              :loading="fileBusy"
+              :disabled="!filedOn"
+              @click="submitFiled"
+            />
+          </div>
+        </div>
+      </Dialog>
+
+      <Dialog v-model:visible="helpDialog" modal header="How to file Form 941" :style="{ width: '30rem' }">
+        <div class="stack">
+          <ol style="margin: 0; padding-left: 1.25rem" class="stack">
+            <li>Copy the worksheet figures above onto the official <strong>Form 941</strong> (Rev. March 2026) — the IRS fillable PDF at irs.gov/forms-pubs works well.</li>
+            <li><strong>Sign</strong> the form in Part 5 — a paper return needs a handwritten signature.</li>
+            <li>
+              File it:
+              <ul style="padding-left: 1.25rem">
+                <li><strong>By mail</strong> — upload the signed PDF to Letterstream; note the Job ID.</li>
+                <li><strong>E-file</strong> — through an IRS-authorized e-file provider (irs.gov/e-file-providers).</li>
+              </ul>
+            </li>
+            <li>Come back and choose <strong>Mark as filed</strong> with the date and reference.</li>
+          </ol>
+          <p class="muted small">
+            Deposits are separate from the filing — pay those monthly on eftps.gov (see Tax deposits).
+          </p>
+        </div>
+      </Dialog>
+
+      <Dialog
+        v-model:visible="adjDialog"
+        modal
+        :header="adjTarget ? 'Edit adjustment' : 'Add adjustment'"
+        :style="{ width: '30rem' }"
+      >
+        <div class="stack">
+          <div class="field">
+            <label for="adjKind">Kind (notice type)</label>
+            <InputText id="adjKind" v-model="adjKind" list="adj-kinds" maxlength="50" required />
+            <datalist id="adj-kinds">
+              <option v-for="k in KIND_SUGGESTIONS" :key="k" :value="k" />
+            </datalist>
+          </div>
+          <div class="field">
+            <label for="adjNoticeDate">Notice date</label>
+            <DatePicker id="adjNoticeDate" v-model="adjNoticeDate" date-format="yy-mm-dd" show-icon />
+          </div>
+          <div class="field">
+            <label for="adjAmountDue">Amount due</label>
+            <InputText id="adjAmountDue" v-model="adjAmountDue" required :invalid="!adjValid" />
+          </div>
+          <div class="field">
+            <label for="adjAbated">Abated amount</label>
+            <InputText id="adjAbated" v-model="adjAbated" />
+          </div>
+          <div class="field">
+            <label for="adjAmountPaid">Amount paid</label>
+            <InputText id="adjAmountPaid" v-model="adjAmountPaid" />
+          </div>
+          <div class="field">
+            <label for="adjPaidOn">Paid on</label>
+            <DatePicker id="adjPaidOn" v-model="adjPaidOn" date-format="yy-mm-dd" show-icon />
+          </div>
+          <div class="field">
+            <label for="adjEftps">EFTPS confirmation</label>
+            <InputText id="adjEftps" v-model="adjEftps" maxlength="100" />
+          </div>
+          <div class="field">
+            <label for="adjNote">Note</label>
+            <Textarea id="adjNote" v-model="adjNote" rows="2" auto-resize maxlength="2000" />
+          </div>
+          <div class="row dialog-actions">
+            <Button label="Cancel" text severity="secondary" @click="adjDialog = false" />
+            <Button
+              label="Save"
+              icon="pi pi-check"
+              :loading="adjBusy"
+              :disabled="!adjValid"
+              @click="submitAdjustment"
+            />
+          </div>
+        </div>
+      </Dialog>
+    </template>
+  </div>
+</template>
+
+<style scoped>
+.dialog-actions {
+  justify-content: flex-end;
+}
+</style>

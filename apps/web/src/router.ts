@@ -109,6 +109,18 @@ export const router = createRouter({
       meta: { requiresAuth: true, requiresAdmin: true },
     },
     {
+      path: "/admin/filings",
+      name: "admin-filings",
+      component: () => import("./views/admin/AdminFilingsView.vue"),
+      meta: { requiresAuth: true, requiresAdmin: true },
+    },
+    {
+      path: "/admin/filings/:id",
+      name: "admin-filing",
+      component: () => import("./views/admin/AdminFilingDetailView.vue"),
+      meta: { requiresAuth: true, requiresAdmin: true },
+    },
+    {
       path: "/admin/employees",
       name: "admin-employees",
       component: () => import("./views/admin/AdminEmployeesView.vue"),

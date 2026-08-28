@@ -25,6 +25,7 @@ import { generateDraftsForPeriod, monthlyPeriod } from "./runs.js";
 import { drainOutbox, type MailTransport } from "../notify/outbox.js";
 import { checkContractorFormExpiry } from "../contractors/service.js";
 import { sendDepositReminders, syncDeposits } from "../deposits/service.js";
+import { sendFilingReminders, syncFilings } from "../filings/service.js";
 
 const TICK_QUEUE = "payroll-draft-tick";
 const GENERATE_QUEUE = "payroll-generate-draft";
@@ -150,7 +151,9 @@ export async function startScheduler(deps: {
 
   // PAY-9 daily deposit tick: sync the computed schedule (upsert pending rows,
   // recompute pending amounts, flip overdue), then mail due-date reminders.
-  // Both halves are idempotent — re-ticks never duplicate rows or emails.
+  // PAY-10 folds the quarterly-filing sync + filing reminders into the same
+  // daily tick. All four halves are idempotent — re-ticks never duplicate
+  // rows or emails.
   await boss.work(DEPOSIT_TICK_QUEUE, async () => {
     const sync = await syncDeposits({ db, config });
     if (sync.created + sync.recomputed + sync.flippedOverdue > 0) {
@@ -159,6 +162,14 @@ export async function startScheduler(deps: {
     const reminders = await sendDepositReminders({ db, config });
     if (reminders.sent > 0) {
       console.log(`[deposits] reminders: ${JSON.stringify(reminders)}`);
+    }
+    const filingSync = await syncFilings({ db, config });
+    if (filingSync.created + filingSync.refreshed > 0) {
+      console.log(`[filings] sync: ${JSON.stringify(filingSync)}`);
+    }
+    const filingReminders = await sendFilingReminders({ db, config });
+    if (filingReminders.sent > 0) {
+      console.log(`[filings] reminders: ${JSON.stringify(filingReminders)}`);
     }
   });
 

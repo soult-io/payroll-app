@@ -26,6 +26,9 @@ const LABELS: Record<string, string> = {
   suppressed: "Suppressed",
   deposited: "Deposited",
   overdue: "Overdue",
+  not_started: "Not started",
+  ready: "Ready",
+  filed: "Filed",
 };
 
 const SEVERITIES: Record<
@@ -48,6 +51,9 @@ const SEVERITIES: Record<
   suppressed: "secondary",
   deposited: "success",
   overdue: "danger",
+  not_started: "secondary",
+  ready: "warn",
+  filed: "success",
 };
 
 const chipLabel = computed(

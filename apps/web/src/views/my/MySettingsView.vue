@@ -46,6 +46,14 @@ const EVENT_LABELS: Record<string, { label: string; blurb: string }> = {
     label: "Invoice paid",
     blurb: "When a payment is recorded against one of your invoices (contractors)",
   },
+  tax_deposit_due: {
+    label: "Tax deposit due",
+    blurb: "Reminder before a monthly federal tax deposit due date (admins)",
+  },
+  tax_filing_due: {
+    label: "Tax filing due",
+    blurb: "Reminder before a quarterly filing due date, e.g. Form 941 (admins)",
+  },
 };
 const settings = ref<(NotificationSetting & { saving?: boolean })[]>([]);
 const settingsLoading = ref(true);

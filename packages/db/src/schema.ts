@@ -717,6 +717,90 @@ export const appSettings = pgTable("app_settings", {
 });
 
 // ---------------------------------------------------------------------------
+// 8c. PAY-10 — quarterly Form 941 filings (worksheet + tracking, record-only)
+// ---------------------------------------------------------------------------
+
+/**
+ * One row per (form_type, year, quarter): a filing the company must make.
+ * '941' is quarterly (quarter 1-4); annual forms ('940', 'w2_w3') use
+ * quarter 0. Status flow: not_started → ready (quarter ended, worksheet
+ * computed) → filed (admin records date + method + reference, e.g. the
+ * Letterstream Job ID). Record-only: the app never files; the admin files
+ * by mail/e-file and records it here.
+ *
+ * worksheet is the frozen line-by-line 941 computation (JSON) and
+ * worksheet_hash its SHA-256 — figures are provably derived from issued-run
+ * entry snapshots, recomputed while unfiled, never rewritten once filed.
+ * fractions_of_cents (Form 941 line 7) defaults to the computed delta and is
+ * admin-editable while unfiled (D4). reminders_sent dedupes the due-date
+ * sweep exactly like tax_deposits.
+ */
+export const taxFilings = pgTable(
+  "tax_filings",
+  {
+    id: serial("id").primaryKey(),
+    formType: text("form_type").notNull(),
+    year: integer("year").notNull(),
+    /** 1-4 for quarterly forms; 0 for annual forms. */
+    quarter: integer("quarter").notNull().default(0),
+    dueDate: date("due_date").notNull(),
+    status: text("status").notNull().default("not_started"),
+    /** Frozen line-by-line worksheet (JSON), recomputed while unfiled. */
+    worksheet: jsonb("worksheet"),
+    /** SHA-256 of the canonical worksheet JSON. */
+    worksheetHash: text("worksheet_hash"),
+    /** Form 941 line 7 — admin-editable, defaults to the computed delta. */
+    fractionsOfCents: money("fractions_of_cents").notNull().default("0"),
+    filedOn: date("filed_on"),
+    /** e.g. 'letterstream'. */
+    filingMethod: text("filing_method"),
+    /** e.g. the Letterstream Job ID. */
+    filingReference: text("filing_reference"),
+    /** Days-before-due offsets already mailed (dedupe belt for the sweep). */
+    remindersSent: jsonb("reminders_sent").notNull().default(sql`'[]'::jsonb`),
+    createdBy: text("created_by"),
+    createdAt: createdAt(),
+    updatedAt: updatedAt(),
+  },
+  (t) => [
+    unique("tax_filings_form_year_quarter_uniq").on(t.formType, t.year, t.quarter),
+    check("tax_filings_form_type_check", sql`${t.formType} IN ('941','940','w2_w3')`),
+    check("tax_filings_quarter_check", sql`${t.quarter} BETWEEN 0 AND 4`),
+    check("tax_filings_status_check", sql`${t.status} IN ('not_started','ready','filed')`),
+  ],
+);
+
+/**
+ * PAY-10/D3: per-filing notice / penalty / interest records (the CP220
+ * lesson) — notices arrive, get partially abated, and are paid separately
+ * from deposits. Linked to the filing they belong to; amount_paid feeds the
+ * worksheet's line-13 reconciliation so the quarter view matches the actual
+ * IRS account state.
+ */
+export const taxAdjustments = pgTable(
+  "tax_adjustments",
+  {
+    id: serial("id").primaryKey(),
+    filingId: integer("filing_id")
+      .notNull()
+      .references(() => taxFilings.id, { onDelete: "cascade" }),
+    /** Notice kind, e.g. 'CP220', 'CP161', 'penalty', 'interest', 'other'. */
+    kind: text("kind").notNull(),
+    noticeDate: date("notice_date"),
+    amountDue: money("amount_due").notNull().default("0"),
+    abatedAmount: money("abated_amount").notNull().default("0"),
+    amountPaid: money("amount_paid").notNull().default("0"),
+    paidOn: date("paid_on"),
+    eftpsConfirmation: text("eftps_confirmation"),
+    note: text("note").notNull().default(""),
+    createdBy: text("created_by"),
+    createdAt: createdAt(),
+    updatedAt: updatedAt(),
+  },
+  (t) => [index("tax_adjustments_filing_idx").on(t.filingId)],
+);
+
+// ---------------------------------------------------------------------------
 // 9. Step-2: setup tokens (spec 3 — invite/reset machinery)
 // ---------------------------------------------------------------------------
 
