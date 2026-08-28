@@ -7,13 +7,14 @@
  * admin-editable reminder schedule (D1). The app never pays; deposits happen
  * on eftps.gov and are recorded here.
  */
-import { computed, onMounted, ref } from "vue";
+import { computed, onMounted, ref, watch } from "vue";
 import Button from "primevue/button";
 import DataTable from "primevue/datatable";
 import Column from "primevue/column";
 import Dialog from "primevue/dialog";
 import InputText from "primevue/inputtext";
 import DatePicker from "primevue/datepicker";
+import Select from "primevue/select";
 import Skeleton from "primevue/skeleton";
 import Message from "primevue/message";
 import PageHeader from "../../components/PageHeader.vue";
@@ -52,10 +53,28 @@ function periodLabel(periodStart: string): string {
 const loading = ref(true);
 const rows = ref<TaxDepositRow[]>([]);
 
+// PAY-15: year paging + status filter, same pattern as the payroll-runs list.
+const statusFilter = ref<"pending" | "deposited" | "overdue" | null>(null);
+const statusOptions = [
+  { label: "All statuses", value: null },
+  { label: "Pending", value: "pending" },
+  { label: "Deposited", value: "deposited" },
+  { label: "Overdue", value: "overdue" },
+];
+
+const yearFilter = ref<number | null>(new Date().getFullYear());
+/** Year options derived from the DATA (never hardcoded), plus the current year. */
+const yearOptions = ref<{ label: string; value: number | null }[]>([
+  { label: "All years", value: null },
+]);
+
 async function load() {
   loading.value = true;
   try {
-    const { deposits } = await adminDepositsApi.list();
+    const filter: { status?: "pending" | "deposited" | "overdue"; year?: number } = {};
+    if (statusFilter.value) filter.status = statusFilter.value;
+    if (yearFilter.value) filter.year = yearFilter.value;
+    const { deposits } = await adminDepositsApi.list(filter);
     rows.value = deposits;
   } catch (err) {
     notify.error(err, "Could not load tax deposits");
@@ -63,6 +82,8 @@ async function load() {
     loading.value = false;
   }
 }
+
+watch([statusFilter, yearFilter], load);
 
 const today = new Date().toISOString().slice(0, 10);
 function isOverdue(row: TaxDepositRow): boolean {
@@ -158,9 +179,23 @@ async function saveSchedule() {
   }
 }
 
-onMounted(() => {
-  void load();
-  void loadSchedule();
+onMounted(async () => {
+  try {
+    // Unfiltered list: the source of the dynamic year options.
+    const { deposits: all } = await adminDepositsApi.list();
+    const years = [...new Set(all.map((d) => Number(d.periodStart.slice(0, 4))))].sort(
+      (a, b) => b - a,
+    );
+    const current = new Date().getFullYear();
+    if (!years.includes(current)) years.unshift(current);
+    yearOptions.value = [
+      { label: "All years", value: null },
+      ...years.map((y) => ({ label: String(y), value: y })),
+    ];
+  } catch (err) {
+    notify.error(err, "Could not load tax deposits");
+  }
+  await Promise.all([load(), loadSchedule()]);
 });
 </script>
 
@@ -169,7 +204,10 @@ onMounted(() => {
     <PageHeader
       title="Tax deposits"
       subtitle="Monthly federal payroll tax deposits — computed from issued payroll runs, due the 15th of the following month. Record-only: pay on eftps.gov, then record the confirmation here."
-    />
+    >
+      <Select v-model="yearFilter" :options="yearOptions" option-label="label" option-value="value" size="small" />
+      <Select v-model="statusFilter" :options="statusOptions" option-label="label" option-value="value" size="small" />
+    </PageHeader>
 
     <section class="card table-scroll">
       <Skeleton v-if="loading" height="10rem" />
@@ -178,7 +216,7 @@ onMounted(() => {
           <EmptyState
             icon="pi pi-calendar"
             title="No deposits yet"
-            body="Deposit rows appear once a month with issued payroll runs completes — the daily scheduler syncs the schedule."
+            body="Deposit rows appear as soon as a month has issued payroll runs — the daily scheduler syncs the schedule."
           />
         </template>
         <Column header="Period" style="width: 10rem">

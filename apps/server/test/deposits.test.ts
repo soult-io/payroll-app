@@ -586,3 +586,68 @@ describe("PAY-14 current-month rows", () => {
     expect(after!.eftpsConfirmation).toBe("EFTPS-CURRENT-MONTH");
   });
 });
+
+// ---------------------------------------------------------------------------
+// PAY-15 — list filters: year paging + status
+// ---------------------------------------------------------------------------
+
+describe("admin deposit list filters (PAY-15)", () => {
+  it("filters by year, status, and rejects invalid queries", async () => {
+    // A prior-year row so the year filter has something to exclude.
+    await t.db.insert(taxDeposits).values({
+      jurisdiction: "federal",
+      periodStart: "2025-12-01",
+      amount: "785.63",
+      dueDate: "2026-01-15",
+      status: "deposited",
+      depositedOn: "2025-12-18",
+      eftpsConfirmation: "EFTPS-2025",
+      createdBy: "test",
+    });
+
+    type Row = typeof taxDeposits.$inferSelect;
+    const all = ((await api("GET", "/api/admin/tax-deposits")).json() as { deposits: Row[] })
+      .deposits;
+    expect(all.some((d) => d.periodStart.startsWith("2025-"))).toBe(true);
+    expect(all.some((d) => d.periodStart.startsWith("2026-"))).toBe(true);
+
+    // Year filter: only that year's rows, none from other years.
+    const y2026 = (
+      (await api("GET", "/api/admin/tax-deposits?year=2026")).json() as { deposits: Row[] }
+    ).deposits;
+    expect(y2026.length).toBe(all.length - 1);
+    expect(y2026.every((d) => d.periodStart.startsWith("2026-"))).toBe(true);
+
+    const y2025 = (
+      (await api("GET", "/api/admin/tax-deposits?year=2025")).json() as { deposits: Row[] }
+    ).deposits;
+    expect(y2025).toHaveLength(1);
+    expect(y2025[0]!.periodStart).toBe("2025-12-01");
+
+    // Status filter: every returned row carries the requested status.
+    const deposited = (
+      (await api("GET", "/api/admin/tax-deposits?status=deposited")).json() as {
+        deposits: Row[];
+      }
+    ).deposits;
+    expect(deposited.length).toBeGreaterThan(0);
+    expect(deposited.every((d) => d.status === "deposited")).toBe(true);
+
+    // Combined: 2025 + deposited → just the seeded row.
+    const combined = (
+      (await api("GET", "/api/admin/tax-deposits?year=2025&status=deposited")).json() as {
+        deposits: Row[];
+      }
+    ).deposits;
+    expect(combined).toHaveLength(1);
+    expect(combined[0]!.eftpsConfirmation).toBe("EFTPS-2025");
+
+    // Invalid queries 400.
+    const badYear = await api("GET", "/api/admin/tax-deposits?year=abc");
+    expect(badYear.statusCode).toBe(400);
+    expect(badYear.json()).toMatchObject({ error: "invalid_query" });
+    const badStatus = await api("GET", "/api/admin/tax-deposits?status=nope");
+    expect(badStatus.statusCode).toBe(400);
+    expect(badStatus.json()).toMatchObject({ error: "invalid_query" });
+  });
+});
