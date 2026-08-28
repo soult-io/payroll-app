@@ -4,6 +4,18 @@ All notable changes to this project will be documented here. Format follows
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/); versioning follows
 [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [1.5.0] - 2026-08-28
+
+### Added
+
+- Tax deposits year paging + status filter (PAY-15): the admin Tax
+  Deposits page now pages by year (options derived from the data, current
+  year included even with no rows) and filters by status
+  (pending/deposited/overdue), matching the payroll-runs list. The list
+  endpoint accepts optional `year` and `status` query params.
+
+[1.5.0]: https://github.com/soult-io/payroll-app/releases/tag/v1.5.0
+
 ## [1.4.0] - 2026-08-26
 
 ### Added
