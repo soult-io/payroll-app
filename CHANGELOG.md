@@ -4,6 +4,26 @@ All notable changes to this project will be documented here. Format follows
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/); versioning follows
 [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [1.6.0] - 2026-08-29
+
+### Added
+
+- Quarterly Form 941 package (PAY-10): when a quarter with issued payroll
+  runs ends, the app computes a deterministic line-by-line 941 worksheet
+  from frozen issued-run entry snapshots (SHA-256 hashed; lines 1–16 incl.
+  line 13 deposit reconciliation and the line 16 monthly liability
+  breakdown with de minimis evaluation) and tracks the filing through
+  ready → filed on a new admin "Tax filings" page. Mark-as-filed records
+  date + method + reference (e.g. the Letterstream Job ID) with a "How to
+  file" help dialog; filed worksheets freeze forever. Line 7 fractions of
+  cents defaults to the computed rounding delta and is admin-editable while
+  unfiled. First-class adjustment/notice records per filing (CP220-style
+  notices, abatements, payments) feed line 13. Due-date reminder emails
+  (`tax_filing_due`) on an admin-configurable offset schedule (default
+  14/7/0 days). Record-only: filing still happens by mail or e-file.
+
+[1.6.0]: https://github.com/soult-io/payroll-app/releases/tag/v1.6.0
+
 ## [1.5.0] - 2026-08-28
 
 ### Added
