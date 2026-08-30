@@ -4,6 +4,29 @@ All notable changes to this project will be documented here. Format follows
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/); versioning follows
 [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [1.8.0] - 2026-08-30
+
+### Added
+
+- Annual forms package (PAY-11): when a calendar year with issued payroll
+  runs ends, the app computes a deterministic **Form 940 (FUTA) worksheet**
+  from frozen issued-run entries — lines 3/7/8/12 with the per-employee
+  $7,000 FUTA wage cap from the year's tax config, the frozen-entry
+  accrued-liability truth reconciled to the cent via a documented rounding
+  delta (941 line-7 doctrine), and the $500 quarterly deposit rule with the
+  crossing quarter and due date. **W-2/W-3 generation**: per-employee W-2
+  box figures (contractors excluded) and the W-3 transmittal aggregate, with
+  on-demand PDFs rendered server-side — SSN/address/EIN decrypted at render
+  time only, never persisted or exposed over JSON. W-2s become available to
+  employees in **January of the following year** via self-service download on
+  the payslips page, announced by a once-per-year `w2_available` email (year
+  + log-in only, no amounts). Annual filings reuse the PAY-10 tax_filings
+  infrastructure (no migration): refresh-unfiled-on-read, freeze-when-filed,
+  due-date reminder emails, and mark-as-filed with per-form e-file help
+  (IRS-authorized e-file for 940, SSA Business Services Online for W-2/W-3).
+
+[1.8.0]: https://github.com/soult-io/payroll-app/releases/tag/v1.8.0
+
 ## [1.7.0] - 2026-08-30
 
 ### Added
