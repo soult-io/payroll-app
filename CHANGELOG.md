@@ -4,6 +4,25 @@ All notable changes to this project will be documented here. Format follows
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/); versioning follows
 [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [1.7.0] - 2026-08-30
+
+### Added
+
+- Back navigation preserving list filter state (PAY-17): every detail page
+  (filing, payroll run review, employee, contractor, request review/thread,
+  payslip) now has a back arrow button in the header. List filters are
+  encoded in the route query (`?year=`, `?status=`, `?form=`, `?tab=`) via a
+  new `useQueryFilters` composable, so filtered lists are bookmarkable and
+  browser-back restores them; lists pass their query onto detail URLs and
+  the back button returns to the list with the same filters applied. Covers
+  the admin filings / deposits / payroll runs / employees / contractors
+  (incl. year-end tab) / requests lists and the employee payslips (year
+  selector), invoices, and requests lists. The admin requests "All" filter
+  is an explicit `?status=all` sentinel so it doesn't collide with the
+  "pending" default.
+
+[1.7.0]: https://github.com/soult-io/payroll-app/releases/tag/v1.7.0
+
 ## [1.6.0] - 2026-08-29
 
 ### Added
