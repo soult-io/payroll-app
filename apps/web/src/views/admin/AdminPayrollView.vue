@@ -4,7 +4,7 @@
  * filterable) with row-expansion entries breakdown; row → review page.
  */
 import { onMounted, ref, watch } from "vue";
-import { useRouter } from "vue-router";
+import { useRoute, useRouter } from "vue-router";
 import DataTable from "primevue/datatable";
 import Column from "primevue/column";
 import Select from "primevue/select";
@@ -20,7 +20,9 @@ import {
 import { useMoney } from "../../composables/useMoney";
 import { useDates } from "../../composables/useDates";
 import { useNotify } from "../../composables/useNotify";
+import { useQueryEnum, useQueryNumber } from "../../composables/useQueryFilters";
 
+const route = useRoute();
 const router = useRouter();
 const { money } = useMoney();
 const { date } = useDates();
@@ -31,7 +33,15 @@ const runs = ref<PayrollRunRow[]>([]);
 const expandedRows = ref<Record<string, boolean>>({});
 const employeeNames = ref<Map<number, string>>(new Map());
 
-const statusFilter = ref<RunStatus | null>(null);
+// PAY-17: filters live in the route query (?year=&status=) so list state is
+// bookmarkable and survives detail → back navigation.
+const statusFilter = useQueryEnum<RunStatus>("status", null, [
+  "draft",
+  "awaiting_approval",
+  "approved",
+  "issued",
+  "void",
+]);
 const statusOptions = [
   { label: "All statuses", value: null },
   { label: "Draft", value: "draft" },
@@ -41,7 +51,7 @@ const statusOptions = [
   { label: "Void", value: "void" },
 ];
 
-const yearFilter = ref<number | null>(new Date().getFullYear());
+const yearFilter = useQueryNumber("year", new Date().getFullYear());
 /**
  * Year options derived from the DATA (never hardcoded — the original
  * [2026, 2025, 2024] list would silently rot every January), plus the
@@ -83,7 +93,12 @@ async function load() {
 }
 
 function open(event: { data: PayrollRunRow }) {
-  void router.push({ name: "admin-payroll-run", params: { publicId: event.data.publicId } });
+  // Carry the filter query onto the detail URL so its back button can restore it.
+  void router.push({
+    name: "admin-payroll-run",
+    params: { publicId: event.data.publicId },
+    query: route.query,
+  });
 }
 
 watch([statusFilter, yearFilter], load);
@@ -100,6 +115,12 @@ onMounted(async () => {
     );
     const current = new Date().getFullYear();
     if (!years.includes(current)) years.unshift(current);
+    // A year from the URL query may have no runs at all — keep it selectable.
+    const fromQuery = yearFilter.value;
+    if (fromQuery !== null && !years.includes(fromQuery)) {
+      years.push(fromQuery);
+      years.sort((a, b) => b - a);
+    }
     yearOptions.value = [
       { label: "All years", value: null },
       ...years.map((y) => ({ label: String(y), value: y })),

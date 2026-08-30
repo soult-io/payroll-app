@@ -17,6 +17,7 @@ import DatePicker from "primevue/datepicker";
 import Textarea from "primevue/textarea";
 import ToggleSwitch from "primevue/toggleswitch";
 import PageHeader from "../../components/PageHeader.vue";
+import BackButton from "../../components/BackButton.vue";
 import StatusChip from "../../components/StatusChip.vue";
 import EmptyState from "../../components/EmptyState.vue";
 import {
@@ -401,9 +402,7 @@ onMounted(load);
 <template>
   <div class="page stack">
     <PageHeader :title="data?.contractor.legalName ?? 'Contractor'" subtitle="1099 contractor — classification, documents, invoices.">
-      <RouterLink :to="{ name: 'admin-contractors' }">
-        <Button label="Back" icon="pi pi-arrow-left" size="small" text />
-      </RouterLink>
+      <BackButton to="admin-contractors" label="Back to contractors" />
     </PageHeader>
 
     <div v-if="documentStatus" class="card">

@@ -5,8 +5,8 @@
  * totals line, since YTD figures are meaningless across calendar years.
  * Row navigates to detail.
  */
-import { computed, onMounted, ref } from "vue";
-import { useRouter } from "vue-router";
+import { computed, onMounted, ref, watch } from "vue";
+import { useRoute, useRouter } from "vue-router";
 import DataTable from "primevue/datatable";
 import Column from "primevue/column";
 import SelectButton from "primevue/selectbutton";
@@ -17,6 +17,7 @@ import { useMoney } from "../../composables/useMoney";
 import { useDates } from "../../composables/useDates";
 import { useNotify } from "../../composables/useNotify";
 
+const route = useRoute();
 const router = useRouter();
 const { money } = useMoney();
 const { date } = useDates();
@@ -24,7 +25,9 @@ const notify = useNotify();
 
 const loading = ref(true);
 const payslips = ref<PayslipSummary[]>([]);
-const selectedYear = ref<string>("");
+// PAY-17: the selected year is mirrored to ?year= so it survives detail → back
+// and browser-back. The default (no param) is the newest year with data.
+const selectedYear = ref<string>(typeof route.query.year === "string" ? route.query.year : "");
 
 /** Distinct years present, newest first (keyed on the period, not pay date). */
 const years = computed(() =>
@@ -39,14 +42,29 @@ const ytdGross = computed(() => yearPayslips.value.reduce((sum, p) => sum + p.gr
 const ytdNet = computed(() => yearPayslips.value.reduce((sum, p) => sum + p.netPay, 0));
 
 function open(event: { data: PayslipSummary }) {
-  void router.push({ name: "my-payslip-detail", params: { publicId: event.data.publicId } });
+  // Carry the year query onto the detail URL so its back button can restore it.
+  void router.push({
+    name: "my-payslip-detail",
+    params: { publicId: event.data.publicId },
+    query: route.query,
+  });
 }
+
+watch(selectedYear, (year) => {
+  const query = { ...route.query };
+  if (!year || year === years.value[0]) delete query.year;
+  else query.year = year;
+  void router.replace({ query });
+});
 
 onMounted(async () => {
   try {
     const { payslips: rows } = await payslipsApi.list();
     payslips.value = rows;
-    selectedYear.value = years.value[0] ?? "";
+    // A ?year= with no payslips falls back to the newest year with data.
+    if (!years.value.includes(selectedYear.value)) {
+      selectedYear.value = years.value[0] ?? "";
+    }
   } catch (err) {
     notify.error(err, "Could not load payslips");
   } finally {

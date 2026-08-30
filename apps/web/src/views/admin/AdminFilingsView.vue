@@ -7,7 +7,7 @@
  * Record-only: the app never files; the admin files and records it here.
  */
 import { computed, onMounted, ref, watch } from "vue";
-import { useRouter } from "vue-router";
+import { useRoute, useRouter } from "vue-router";
 import Button from "primevue/button";
 import DataTable from "primevue/datatable";
 import Column from "primevue/column";
@@ -26,7 +26,9 @@ import {
 } from "../../lib/api";
 import { useDates } from "../../composables/useDates";
 import { useNotify } from "../../composables/useNotify";
+import { useQueryEnum, useQueryNumber } from "../../composables/useQueryFilters";
 
+const route = useRoute();
 const router = useRouter();
 const { date } = useDates();
 const notify = useNotify();
@@ -48,7 +50,13 @@ function periodLabel(row: TaxFilingRow): string {
 const loading = ref(true);
 const rows = ref<TaxFilingRow[]>([]);
 
-const statusFilter = ref<TaxFilingStatus | null>(null);
+// PAY-17: filters live in the route query (?year=&form=&status=) so list state
+// is bookmarkable and survives detail → back navigation.
+const statusFilter = useQueryEnum<TaxFilingStatus>("status", null, [
+  "not_started",
+  "ready",
+  "filed",
+]);
 const statusOptions = [
   { label: "All statuses", value: null },
   { label: "Not started", value: "not_started" },
@@ -56,7 +64,7 @@ const statusOptions = [
   { label: "Filed", value: "filed" },
 ];
 
-const formFilter = ref<TaxFormType | null>(null);
+const formFilter = useQueryEnum<TaxFormType>("form", null, ["941", "940", "w2_w3"]);
 const formOptions = [
   { label: "All forms", value: null },
   { label: "Form 941", value: "941" },
@@ -64,7 +72,7 @@ const formOptions = [
   { label: "W-2/W-3", value: "w2_w3" },
 ];
 
-const yearFilter = ref<number | null>(new Date().getFullYear());
+const yearFilter = useQueryNumber("year", new Date().getFullYear());
 /** Year options derived from the DATA (never hardcoded), plus the current year. */
 const yearOptions = ref<{ label: string; value: number | null }[]>([
   { label: "All years", value: null },
@@ -87,7 +95,8 @@ async function load() {
 }
 
 function open(event: { data: TaxFilingRow }) {
-  void router.push({ name: "admin-filing", params: { id: event.data.id } });
+  // Carry the filter query onto the detail URL so its back button can restore it.
+  void router.push({ name: "admin-filing", params: { id: event.data.id }, query: route.query });
 }
 
 watch([statusFilter, formFilter, yearFilter], load);
@@ -150,6 +159,12 @@ onMounted(async () => {
     const years = [...new Set(all.map((f) => f.year))].sort((a, b) => b - a);
     const current = new Date().getFullYear();
     if (!years.includes(current)) years.unshift(current);
+    // A year from the URL query may have no filings at all — keep it selectable.
+    const fromQuery = yearFilter.value;
+    if (fromQuery !== null && !years.includes(fromQuery)) {
+      years.push(fromQuery);
+      years.sort((a, b) => b - a);
+    }
     yearOptions.value = [
       { label: "All years", value: null },
       ...years.map((y) => ({ label: String(y), value: y })),

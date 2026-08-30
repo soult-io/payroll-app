@@ -10,6 +10,7 @@ import { useRoute } from "vue-router";
 import Button from "primevue/button";
 import Skeleton from "primevue/skeleton";
 import PageHeader from "../../components/PageHeader.vue";
+import BackButton from "../../components/BackButton.vue";
 import EmptyState from "../../components/EmptyState.vue";
 import { payslipsApi, effectivePayslipAmounts, type PayslipDetail } from "../../lib/api";
 import { useMoney } from "../../composables/useMoney";
@@ -50,6 +51,7 @@ const eff = computed(() =>
       title="Payslip"
       :subtitle="payslip ? `${date(payslip.periodStart)} – ${date(payslip.periodEnd)} · pay date ${date(payslip.payDate)}` : undefined"
     >
+      <BackButton to="my-payslips" label="Back to payslips" />
       <a v-if="payslip" :href="payslipsApi.pdfUrl(payslip.publicId)" target="_blank" rel="noopener">
         <Button label="Download PDF" icon="pi pi-download" />
       </a>

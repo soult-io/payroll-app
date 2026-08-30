@@ -4,7 +4,7 @@
  * editor (effective-dated), W-4 history + add, invite/resend, disable.
  */
 import { computed, onMounted, ref } from "vue";
-import { useRoute, useRouter } from "vue-router";
+import { useRoute } from "vue-router";
 import Button from "primevue/button";
 import Skeleton from "primevue/skeleton";
 import Dialog from "primevue/dialog";
@@ -23,6 +23,7 @@ import TabPanels from "primevue/tabpanels";
 import TabPanel from "primevue/tabpanel";
 import { useConfirm } from "primevue/useconfirm";
 import PageHeader from "../../components/PageHeader.vue";
+import BackButton from "../../components/BackButton.vue";
 import EmptyState from "../../components/EmptyState.vue";
 import StatusChip from "../../components/StatusChip.vue";
 import {
@@ -39,7 +40,6 @@ import { useDates } from "../../composables/useDates";
 import { useNotify } from "../../composables/useNotify";
 
 const route = useRoute();
-const router = useRouter();
 const confirm = useConfirm();
 const { money } = useMoney();
 const { date, toIso } = useDates();
@@ -242,7 +242,7 @@ onMounted(load);
 <template>
   <div class="page stack">
     <PageHeader :title="employee?.legalName ?? 'Employee'">
-      <Button label="Back to employees" text icon="pi pi-arrow-left" @click="router.push({ name: 'admin-employees' })" />
+      <BackButton to="admin-employees" label="Back to employees" />
       <template v-if="employee">
         <Button v-if="accountState.canInvite" label="Invite" icon="pi pi-envelope" @click="inviteDialog = true" />
         <Button v-if="accountState.canResend" label="Resend invite" icon="pi pi-refresh" severity="secondary" :loading="inviteBusy" @click="sendInvite(true)" />

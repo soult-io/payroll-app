@@ -6,7 +6,8 @@
  * download button for the on-demand invoice PDF (D2); paid rows show the
  * pay date. Per-year summary: total paid vs. awaiting payment.
  */
-import { computed, onMounted, ref } from "vue";
+import { computed, onMounted, ref, watch } from "vue";
+import { useRoute, useRouter } from "vue-router";
 import DataTable from "primevue/datatable";
 import Column from "primevue/column";
 import SelectButton from "primevue/selectbutton";
@@ -19,13 +20,17 @@ import { useMoney } from "../../composables/useMoney";
 import { useDates } from "../../composables/useDates";
 import { useNotify } from "../../composables/useNotify";
 
+const route = useRoute();
+const router = useRouter();
 const { money } = useMoney();
 const { date } = useDates();
 const notify = useNotify();
 
 const loading = ref(true);
 const invoices = ref<MyInvoice[]>([]);
-const selectedYear = ref<string>("");
+// PAY-17: the selected year is mirrored to ?year= so the list state is
+// bookmarkable. The default (no param) is the newest year with data.
+const selectedYear = ref<string>(typeof route.query.year === "string" ? route.query.year : "");
 
 /** Distinct years present, newest first (keyed on the invoice date). */
 const years = computed(() =>
@@ -45,11 +50,21 @@ const totalPending = computed(() =>
   yearInvoices.value.filter((i) => i.status === "approved").reduce((sum, i) => sum + i.amount, 0),
 );
 
+watch(selectedYear, (year) => {
+  const query = { ...route.query };
+  if (!year || year === years.value[0]) delete query.year;
+  else query.year = year;
+  void router.replace({ query });
+});
+
 onMounted(async () => {
   try {
     const { invoices: rows } = await myInvoicesApi.list();
     invoices.value = rows;
-    selectedYear.value = years.value[0] ?? "";
+    // A ?year= with no invoices falls back to the newest year with data.
+    if (!years.value.includes(selectedYear.value)) {
+      selectedYear.value = years.value[0] ?? "";
+    }
   } catch (err) {
     notify.error(err, "Could not load invoices");
   } finally {

@@ -24,6 +24,7 @@ import { adminDepositsApi, type TaxDepositRow } from "../../lib/api";
 import { useDates } from "../../composables/useDates";
 import { useMoney } from "../../composables/useMoney";
 import { useNotify } from "../../composables/useNotify";
+import { useQueryEnum, useQueryNumber } from "../../composables/useQueryFilters";
 
 const { date, toIso } = useDates();
 const { money } = useMoney();
@@ -54,7 +55,9 @@ const loading = ref(true);
 const rows = ref<TaxDepositRow[]>([]);
 
 // PAY-15: year paging + status filter, same pattern as the payroll-runs list.
-const statusFilter = ref<"pending" | "deposited" | "overdue" | null>(null);
+// PAY-17: filters live in the route query (?year=&status=) so list state is
+// bookmarkable and survives browser-back.
+const statusFilter = useQueryEnum("status", null, ["pending", "deposited", "overdue"] as const);
 const statusOptions = [
   { label: "All statuses", value: null },
   { label: "Pending", value: "pending" },
@@ -62,7 +65,7 @@ const statusOptions = [
   { label: "Overdue", value: "overdue" },
 ];
 
-const yearFilter = ref<number | null>(new Date().getFullYear());
+const yearFilter = useQueryNumber("year", new Date().getFullYear());
 /** Year options derived from the DATA (never hardcoded), plus the current year. */
 const yearOptions = ref<{ label: string; value: number | null }[]>([
   { label: "All years", value: null },
@@ -188,6 +191,12 @@ onMounted(async () => {
     );
     const current = new Date().getFullYear();
     if (!years.includes(current)) years.unshift(current);
+    // A year from the URL query may have no deposits at all — keep it selectable.
+    const fromQuery = yearFilter.value;
+    if (fromQuery !== null && !years.includes(fromQuery)) {
+      years.push(fromQuery);
+      years.sort((a, b) => b - a);
+    }
     yearOptions.value = [
       { label: "All years", value: null },
       ...years.map((y) => ({ label: String(y), value: y })),

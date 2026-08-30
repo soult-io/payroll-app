@@ -20,6 +20,7 @@ import Textarea from "primevue/textarea";
 import Skeleton from "primevue/skeleton";
 import Message from "primevue/message";
 import PageHeader from "../../components/PageHeader.vue";
+import BackButton from "../../components/BackButton.vue";
 import StatusChip from "../../components/StatusChip.vue";
 import {
   adminFilingsApi,
@@ -262,6 +263,7 @@ onMounted(async () => {
         :title="`Form ${filing.formType} — ${periodLabel()}`"
         :subtitle="`Due ${date(filing.dueDate)} · worksheet hash ${filing.worksheetHash?.slice(0, 12) ?? '—'}`"
       >
+        <BackButton to="admin-filings" label="Back to filings" />
         <Button label="How to file" icon="pi pi-question-circle" text size="small" @click="helpDialog = true" />
         <Button
           v-if="!filed"

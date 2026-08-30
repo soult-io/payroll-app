@@ -174,7 +174,7 @@ test("journey 2: admin approves + issues payroll run; employee sees payslip + PD
   const row = page.locator("tr", { hasText: "Awaiting approval" }).first();
   await expect(row).toBeVisible();
   await row.click();
-  await page.waitForURL(`**/admin/payroll/${STATE.run.publicId}`);
+  await page.waitForURL(`**/admin/payroll/${STATE.run.publicId}**`);
   await expect(page.locator(".p-tag", { hasText: "Awaiting approval" })).toBeVisible();
   await expect(page.getByText("$3,383.87")).toBeVisible(); // golden net pay, $4,000/mo
 
@@ -197,7 +197,7 @@ test("journey 2: admin approves + issues payroll run; employee sees payslip + PD
   const slip = emp.locator("tr", { hasText: "$3,383.87" }).first();
   await expect(slip).toBeVisible();
   await slip.click();
-  await emp.waitForURL(`**/my/payslips/${STATE.run.publicId}`);
+  await emp.waitForURL(`**/my/payslips/${STATE.run.publicId}**`);
 
   const pdf = await emp.request.get(`/api/payslips/${STATE.run.publicId}/pdf`);
   expect(pdf.status()).toBe(200);
@@ -241,7 +241,7 @@ test("journey 3: address change request round-trip (employee → admin approve �
   const row = admin.locator("tr", { hasText: "Address" }).first();
   await expect(row).toBeVisible();
   await row.click();
-  await admin.waitForURL(`**/admin/requests/${publicId}`);
+  await admin.waitForURL(`**/admin/requests/${publicId}**`);
   await expect(admin.getByText(NEW_ADDRESS.line1)).toBeVisible(); // proposed
   await expect(admin.getByText("Not on file")).toBeVisible(); // current
   await admin.getByRole("button", { name: "Approve & apply" }).click();
@@ -274,5 +274,39 @@ test("journey 4: session expiry mid-session redirects to login (PAY-6)", async (
   await expect(page.locator("#email")).toBeVisible();
   // The attempted path is preserved for post-login return.
   expect(page.url()).toContain("redirect=/my/payslips");
+  await ctx.close();
+});
+
+test("journey 5: back navigation preserves the list filter state (PAY-17)", async ({ browser }) => {
+  // Admin session from journey 2; the seeded run (2025-11, issued in journey 2)
+  // lives outside the default current-year filter.
+  const ctx = await browser.newContext({ storageState: ADMIN_SESSION });
+  const page = await ctx.newPage();
+  await page.goto("/admin/payroll");
+
+  // Pick a non-default year filter — the URL now carries it (bookmarkable).
+  await page.locator(".p-select").first().click();
+  await page.getByRole("option", { name: "2025" }).click();
+  await expect(page).toHaveURL(/\/admin\/payroll\?year=2025/);
+
+  // Open the run review — the filter query rides along on the detail URL.
+  const row = page.locator("tr", { hasText: "Issued" }).first();
+  await expect(row).toBeVisible();
+  await row.click();
+  await expect(page).toHaveURL(new RegExp(`/admin/payroll/${STATE.run.publicId}\\?year=2025`));
+
+  // The back button returns to the list with the same filter still applied.
+  await page.getByRole("button", { name: "Back to runs" }).click();
+  await expect(page).toHaveURL(/\/admin\/payroll\?year=2025/);
+  await expect(page.locator(".p-select").first()).toContainText("2025");
+  await expect(page.locator("tr", { hasText: "Issued" }).first()).toBeVisible();
+
+  // Browser-back behaves identically (query-param-driven filters make it free).
+  await page.locator("tr", { hasText: "Issued" }).first().click();
+  await expect(page).toHaveURL(new RegExp(`/admin/payroll/${STATE.run.publicId}\\?year=2025`));
+  await page.goBack();
+  await expect(page).toHaveURL(/\/admin\/payroll\?year=2025/);
+  await expect(page.locator(".p-select").first()).toContainText("2025");
+
   await ctx.close();
 });

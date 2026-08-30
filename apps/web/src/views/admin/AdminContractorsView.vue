@@ -6,7 +6,7 @@
  * reporting threshold config.
  */
 import { computed, onMounted, ref, watch } from "vue";
-import { useRouter } from "vue-router";
+import { useRoute, useRouter } from "vue-router";
 import Button from "primevue/button";
 import DataTable from "primevue/datatable";
 import Column from "primevue/column";
@@ -34,7 +34,9 @@ import {
 import { useDates } from "../../composables/useDates";
 import { useMoney } from "../../composables/useMoney";
 import { useNotify } from "../../composables/useNotify";
+import { useQueryEnum, useQueryNumber } from "../../composables/useQueryFilters";
 
+const route = useRoute();
 const router = useRouter();
 const { date, toIso } = useDates();
 const { money } = useMoney();
@@ -83,6 +85,7 @@ function open(event: { data: ContractorListRow }) {
   void router.push({
     name: "admin-contractor-detail",
     params: { employeeId: event.data.employeeId },
+    query: route.query,
   });
 }
 
@@ -141,11 +144,28 @@ async function create() {
 // ------------------------------------------------------------------ year-end
 
 const currentYear = new Date().getFullYear();
-const yearFilter = ref(currentYear);
-const yearOptions = [currentYear + 1, currentYear, currentYear - 1, currentYear - 2].map((y) => ({
-  label: String(y),
-  value: y,
-}));
+// PAY-17: active tab + year-end year live in the route query (?tab=&year=) so
+// returning from a contractor detail restores the exact view the admin left.
+const tabQuery = useQueryEnum("tab", "list", ["list", "year-end"] as const);
+const tab = computed<string>({
+  get: () => tabQuery.value ?? "list",
+  set: (v) => {
+    tabQuery.value = v === "year-end" ? "year-end" : "list";
+  },
+});
+const yearQuery = useQueryNumber("year", currentYear);
+const yearFilter = computed<number>({
+  get: () => yearQuery.value ?? currentYear,
+  set: (v) => {
+    yearQuery.value = v;
+  },
+});
+const yearOptions = computed(() => {
+  const years = [currentYear + 1, currentYear, currentYear - 1, currentYear - 2];
+  // A year from the URL query may be outside the canned range — keep it selectable.
+  if (!years.includes(yearFilter.value)) years.push(yearFilter.value);
+  return years.sort((a, b) => b - a).map((y) => ({ label: String(y), value: y }));
+});
 const yearEndLoading = ref(false);
 const yearEndRows = ref<YearEndRow[]>([]);
 const yearEndThreshold = ref<string | null>(null);
@@ -211,7 +231,7 @@ onMounted(async () => {
       <Button label="New contractor" icon="pi pi-plus" size="small" @click="createDialog = true" />
     </PageHeader>
 
-    <Tabs value="list">
+    <Tabs v-model:value="tab">
       <TabList>
         <Tab value="list">Contractors</Tab>
         <Tab value="year-end">Year-end</Tab>
@@ -273,7 +293,9 @@ onMounted(async () => {
                 </template>
                 <Column header="Contractor">
                   <template #body="{ data }">
-                    <RouterLink :to="{ name: 'admin-contractor-detail', params: { employeeId: data.employeeId } }">
+                    <RouterLink
+                      :to="{ name: 'admin-contractor-detail', params: { employeeId: data.employeeId }, query: route.query }"
+                    >
                       {{ data.legalName }}
                     </RouterLink>
                     <div class="muted small">{{ data.taxStatus === "us_person" ? "US person" : "Nonresident" }}</div>

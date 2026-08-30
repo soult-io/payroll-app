@@ -4,11 +4,12 @@
  * withdraw action for pending requests (ConfirmDialog + Toast).
  */
 import { onMounted, ref } from "vue";
-import { useRoute, useRouter } from "vue-router";
+import { useRoute } from "vue-router";
 import Button from "primevue/button";
 import Skeleton from "primevue/skeleton";
 import { useConfirm } from "primevue/useconfirm";
 import PageHeader from "../../components/PageHeader.vue";
+import BackButton from "../../components/BackButton.vue";
 import EmptyState from "../../components/EmptyState.vue";
 import StatusChip from "../../components/StatusChip.vue";
 import RequestThread from "../../components/RequestThread.vue";
@@ -19,7 +20,6 @@ import { useDates } from "../../composables/useDates";
 import { useNotify } from "../../composables/useNotify";
 
 const route = useRoute();
-const router = useRouter();
 const confirm = useConfirm();
 const { date, dateTime } = useDates();
 const notify = useNotify();
@@ -85,7 +85,7 @@ onMounted(load);
 <template>
   <div class="page stack">
     <PageHeader :title="request ? requestTypeLabel(request.requestType) : 'Request'">
-      <Button label="Back to requests" text icon="pi pi-arrow-left" @click="router.push({ name: 'my-requests' })" />
+      <BackButton to="my-requests" label="Back to requests" />
       <Button
         v-if="request?.status === 'pending'"
         label="Withdraw"
