@@ -27,6 +27,10 @@ import {
   type AdjustmentInput,
   type TaxAdjustmentRow,
   type TaxFilingRow,
+  type W2FiguresRow,
+  type Worksheet940,
+  type Worksheet941,
+  type WorksheetW3,
 } from "../../lib/api";
 import { useDates } from "../../composables/useDates";
 import { useMoney } from "../../composables/useMoney";
@@ -42,8 +46,31 @@ const filingId = Number(route.params.id);
 const loading = ref(true);
 const filing = ref<TaxFilingRow | null>(null);
 const adjustments = ref<TaxAdjustmentRow[]>([]);
+/** PAY-11: per-employee W-2 figures for the W-2/W-3 detail (no PII). */
+const w2Rows = ref<W2FiguresRow[]>([]);
 
 const filed = computed(() => filing.value?.status === "filed");
+
+const FORM_LABELS: Record<string, string> = {
+  "941": "Form 941",
+  "940": "Form 940",
+  w2_w3: "Forms W-2/W-3",
+};
+
+function formLabel(formType: string): string {
+  return FORM_LABELS[formType] ?? formType;
+}
+
+// PAY-11: the worksheet shape depends on the form type.
+const worksheet941 = computed<Worksheet941 | null>(() =>
+  filing.value?.worksheet?.form === "941" ? filing.value.worksheet : null,
+);
+const worksheet940 = computed<Worksheet940 | null>(() =>
+  filing.value?.worksheet?.form === "940" ? filing.value.worksheet : null,
+);
+const worksheetW3 = computed<WorksheetW3 | null>(() =>
+  filing.value?.worksheet?.form === "w2_w3" ? filing.value.worksheet : null,
+);
 
 function periodLabel(): string {
   const f = filing.value;
@@ -57,6 +84,9 @@ async function load() {
     const res = await adminFilingsApi.detail(filingId);
     filing.value = res.filing;
     adjustments.value = res.adjustments;
+    if (res.filing.formType === "w2_w3") {
+      w2Rows.value = (await adminFilingsApi.w2List(res.filing.year)).w2s;
+    }
   } catch (err) {
     notify.error(err, "Could not load the filing");
   } finally {
@@ -72,7 +102,7 @@ interface WorksheetLine {
 }
 
 const worksheetLines = computed<WorksheetLine[]>(() => {
-  const w = filing.value?.worksheet;
+  const w = worksheet941.value;
   if (!w) return [];
   return [
     {
@@ -118,6 +148,59 @@ const worksheetLines = computed<WorksheetLine[]>(() => {
     { line: "13", label: "Total deposits + adjustment payments", value: money(w.line13Deposits) },
     { line: "14", label: "Balance due", value: money(w.line14BalanceDue) },
     { line: "15", label: "Overpayment", value: money(w.line15Overpayment) },
+  ];
+});
+
+// PAY-11: Form 940 (FUTA) worksheet lines.
+const worksheet940Lines = computed<WorksheetLine[]>(() => {
+  const w = worksheet940.value;
+  if (!w) return [];
+  const depositRule =
+    w.depositThresholdCrossedQuarter === null
+      ? "Cumulative FUTA liability never exceeded $500 — pay with the return"
+      : `Liability crossed $500 in Q${w.depositThresholdCrossedQuarter} — deposit was due by ${date(
+          w.depositDueBy,
+        )} (EFTPS)`;
+  return [
+    { line: "3", label: "Total payments to all employees", value: money(w.line3TotalPayments) },
+    {
+      line: "7",
+      label: "Total taxable FUTA wages (first $7,000 per employee)",
+      value: money(w.line7FutaTaxableWages),
+    },
+    {
+      line: "8",
+      label: "FUTA tax before adjustments (line 7 × 0.6%)",
+      value: money(w.line8FutaTax),
+    },
+    { line: "12", label: "Total FUTA tax after adjustments", value: money(w.line12TotalFutaTax) },
+    {
+      line: "—",
+      label: "FUTA withheld in frozen payroll entries (accrued-liability truth)",
+      value: money(w.futaTaxPerFrozenEntries),
+    },
+    {
+      line: "—",
+      label: "Rounding delta (frozen entries − line 12)",
+      value: money(w.roundingDelta),
+    },
+    { line: "—", label: "Deposit rule", value: depositRule },
+    { line: "14", label: "Balance due", value: money(w.balanceDue) },
+  ];
+});
+
+// PAY-11: W-3 transmittal aggregate lines.
+const worksheetW3Lines = computed<WorksheetLine[]>(() => {
+  const w = worksheetW3.value;
+  if (!w) return [];
+  return [
+    { line: "—", label: "W-2 forms included", value: String(w.employeeCount) },
+    { line: "1", label: "Wages, tips, other compensation", value: money(w.box1Wages) },
+    { line: "2", label: "Federal income tax withheld", value: money(w.box2FederalWithheld) },
+    { line: "3", label: "Social Security wages", value: money(w.box3SsWages) },
+    { line: "4", label: "Social Security tax withheld", value: money(w.box4SsTax) },
+    { line: "5", label: "Medicare wages and tips", value: money(w.box5MedicareWages) },
+    { line: "6", label: "Medicare tax withheld", value: money(w.box6MedicareTax) },
   ];
 });
 
@@ -260,7 +343,7 @@ onMounted(async () => {
     <Skeleton v-if="loading" height="16rem" />
     <template v-else-if="filing">
       <PageHeader
-        :title="`Form ${filing.formType} — ${periodLabel()}`"
+        :title="`${formLabel(filing.formType)} — ${periodLabel()}`"
         :subtitle="`Due ${date(filing.dueDate)} · worksheet hash ${filing.worksheetHash?.slice(0, 12) ?? '—'}`"
       >
         <BackButton to="admin-filings" label="Back to filings" />
@@ -279,7 +362,7 @@ onMounted(async () => {
         The worksheet is frozen.
       </Message>
 
-      <section class="card table-scroll">
+      <section v-if="worksheet941" class="card table-scroll">
         <h3>Worksheet <StatusChip :status="filing.status" style="margin-left: 0.5rem" /></h3>
         <DataTable :value="worksheetLines" data-key="line" striped-rows>
           <Column field="line" header="Line" style="width: 4rem" />
@@ -290,16 +373,15 @@ onMounted(async () => {
         <h4 style="margin-top: 1rem">Line 16 — monthly liability</h4>
         <p class="muted small">
           Liability by pay month (not deposits made).
-          <template v-if="filing.worksheet?.line16.deMinimis">
+          <template v-if="worksheet941.line16.deMinimis">
             Line 12 is under $2,500 — the de minimis rule applies (no monthly breakdown owed on the form).
           </template>
         </p>
         <DataTable
-          v-if="filing.worksheet"
           :value="[
-            { month: 'Month 1', amount: filing.worksheet.line16.month1 },
-            { month: 'Month 2', amount: filing.worksheet.line16.month2 },
-            { month: 'Month 3', amount: filing.worksheet.line16.month3 },
+            { month: 'Month 1', amount: worksheet941.line16.month1 },
+            { month: 'Month 2', amount: worksheet941.line16.month2 },
+            { month: 'Month 3', amount: worksheet941.line16.month3 },
           ]"
           data-key="month"
         >
@@ -331,7 +413,68 @@ onMounted(async () => {
         </form>
       </section>
 
-      <section class="card stack">
+      <section v-if="worksheet940" class="card table-scroll">
+        <h3>Worksheet <StatusChip :status="filing.status" style="margin-left: 0.5rem" /></h3>
+        <p class="muted small">
+          Annual FUTA return. Lines 9–11 (credit reductions / adjustments) are $0 in a fully
+          SUTA-paid state, so line 12 equals line 8.
+        </p>
+        <DataTable :value="worksheet940Lines" data-key="line" striped-rows>
+          <Column field="line" header="Line" style="width: 4rem" />
+          <Column field="label" header="Description" />
+          <Column field="value" header="Amount" style="width: 16rem; text-align: right" />
+        </DataTable>
+      </section>
+
+      <section v-if="worksheetW3" class="card table-scroll stack">
+        <h3 style="margin: 0">
+          W-3 transmittal totals <StatusChip :status="filing.status" style="margin-left: 0.5rem" />
+        </h3>
+        <DataTable :value="worksheetW3Lines" data-key="line" striped-rows>
+          <Column field="line" header="Box" style="width: 4rem" />
+          <Column field="label" header="Description" />
+          <Column field="value" header="Amount" style="width: 10rem; text-align: right" />
+        </DataTable>
+
+        <div class="row" style="justify-content: space-between; align-items: center">
+          <h4 style="margin: 0">Employee W-2s</h4>
+          <a :href="adminFilingsApi.w3PdfUrl(filing.year)" target="_blank" rel="noopener">
+            <Button label="Download W-3 PDF" icon="pi pi-download" size="small" text />
+          </a>
+        </div>
+        <DataTable :value="w2Rows" data-key="employeeId" striped-rows>
+          <template #empty><p class="muted">No W-2 employees were paid in {{ filing.year }}.</p></template>
+          <Column field="legalName" header="Employee" />
+          <Column header="Box 1 wages" style="text-align: right">
+            <template #body="{ data }">{{ money(data.box1Wages) }}</template>
+          </Column>
+          <Column header="Box 2 fed. withheld" style="text-align: right">
+            <template #body="{ data }">{{ money(data.box2FederalWithheld) }}</template>
+          </Column>
+          <Column header="Box 4 SS tax" style="text-align: right">
+            <template #body="{ data }">{{ money(data.box4SsTax) }}</template>
+          </Column>
+          <Column header="Box 6 Medicare tax" style="text-align: right">
+            <template #body="{ data }">{{ money(data.box6MedicareTax) }}</template>
+          </Column>
+          <Column header="" style="width: 8rem">
+            <template #body="{ data }">
+              <a
+                :href="adminFilingsApi.w2PdfUrl(data.employeeId, filing.year)"
+                target="_blank"
+                rel="noopener"
+              >
+                <Button label="W-2 PDF" icon="pi pi-download" size="small" text />
+              </a>
+            </template>
+          </Column>
+        </DataTable>
+        <p class="muted small" style="margin: 0">
+          PDFs render on demand — SSNs and addresses are decrypted at render time and never stored.
+        </p>
+      </section>
+
+      <section v-if="worksheet941" class="card stack">
         <div class="row" style="justify-content: space-between">
           <h3 style="margin: 0">Adjustments &amp; notices</h3>
           <Button
@@ -380,8 +523,8 @@ onMounted(async () => {
       <Dialog v-model:visible="fileDialog" modal header="Mark as filed" :style="{ width: '26rem' }">
         <div class="stack">
           <p class="muted small">
-            File Form {{ filing.formType }} for {{ periodLabel() }} first — by mail or e-file — then
-            record it here.
+            File {{ formLabel(filing.formType) }} for {{ periodLabel() }} first — by mail or
+            e-file — then record it here.
           </p>
           <div class="field">
             <label for="filedOn">Filing date</label>
@@ -408,8 +551,13 @@ onMounted(async () => {
         </div>
       </Dialog>
 
-      <Dialog v-model:visible="helpDialog" modal header="How to file Form 941" :style="{ width: '30rem' }">
-        <div class="stack">
+      <Dialog
+        v-model:visible="helpDialog"
+        modal
+        :header="`How to file — ${formLabel(filing.formType)}`"
+        :style="{ width: '30rem' }"
+      >
+        <div v-if="filing.formType === '941'" class="stack">
           <ol style="margin: 0; padding-left: 1.25rem" class="stack">
             <li>Copy the worksheet figures above onto the official <strong>Form 941</strong> (Rev. March 2026) — the IRS fillable PDF at irs.gov/forms-pubs works well.</li>
             <li><strong>Sign</strong> the form in Part 5 — a paper return needs a handwritten signature.</li>
@@ -424,6 +572,45 @@ onMounted(async () => {
           </ol>
           <p class="muted small">
             Deposits are separate from the filing — pay those monthly on eftps.gov (see Tax deposits).
+          </p>
+        </div>
+        <div v-else-if="filing.formType === '940'" class="stack">
+          <ol style="margin: 0; padding-left: 1.25rem" class="stack">
+            <li>Copy the worksheet figures above onto the official <strong>Form 940</strong> — the IRS fillable PDF at irs.gov/forms-pubs works well.</li>
+            <li><strong>Sign</strong> the form in Part 7 — a paper return needs a handwritten signature.</li>
+            <li>
+              File it:
+              <ul style="padding-left: 1.25rem">
+                <li><strong>By mail</strong> — upload the signed PDF to Letterstream; note the Job ID.</li>
+                <li><strong>E-file</strong> — through an IRS-authorized e-file provider (irs.gov/e-file-providers).</li>
+              </ul>
+            </li>
+            <li>Come back and choose <strong>Mark as filed</strong> with the date and reference.</li>
+          </ol>
+          <p class="muted small">
+            FUTA deposits are separate from the filing — when cumulative liability crosses $500 in a
+            quarter, deposit by the end of the following month on eftps.gov (see the deposit rule
+            line in the worksheet).
+          </p>
+        </div>
+        <div v-else class="stack">
+          <ol style="margin: 0; padding-left: 1.25rem" class="stack">
+            <li>Download the <strong>W-2 PDFs</strong> (one per employee) and the <strong>W-3 transmittal PDF</strong> above.</li>
+            <li>
+              File electronically via the SSA's <strong>Business Services Online</strong> portal at
+              <strong>ssa.gov/bso</strong> — register for a BSO account, then upload the W-2 data
+              (BSO also accepts manual entry for small counts). W-2s with more than 10 information
+              returns in total <em>must</em> be e-filed.
+            </li>
+            <li>
+              Employees can also download their own W-2 from their payslips page starting in
+              January — the amounts above are what they will see.
+            </li>
+            <li>Come back and choose <strong>Mark as filed</strong> with the date and BSO confirmation.</li>
+          </ol>
+          <p class="muted small">
+            W-2s are due to employees and the SSA by January 31. PDFs render on demand — nothing
+            with SSNs is stored in this app.
           </p>
         </div>
       </Dialog>

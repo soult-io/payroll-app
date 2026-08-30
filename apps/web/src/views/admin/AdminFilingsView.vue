@@ -180,7 +180,7 @@ onMounted(async () => {
   <div class="page stack">
     <PageHeader
       title="Tax filings"
-      subtitle="Quarterly Form 941 — the worksheet computes itself from issued payroll runs when the quarter ends. File by mail or e-file, then record the filing here."
+      subtitle="Quarterly Form 941 plus the annual Form 940 and W-2/W-3 — worksheets compute themselves from issued payroll runs when the period ends. File by mail or e-file, then record the filing here."
     >
       <Select v-model="yearFilter" :options="yearOptions" option-label="label" option-value="value" size="small" />
       <Select v-model="formFilter" :options="formOptions" option-label="label" option-value="value" size="small" />

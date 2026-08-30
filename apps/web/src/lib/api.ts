@@ -919,6 +919,51 @@ export interface Worksheet941 {
   line16: { month1: string; month2: string; month3: string; deMinimis: boolean };
 }
 
+/** PAY-11 — annual Form 940 (FUTA) worksheet. */
+export interface Worksheet940 {
+  form: "940";
+  year: number;
+  line3TotalPayments: string;
+  line7FutaTaxableWages: string;
+  line8FutaTax: string;
+  line12TotalFutaTax: string;
+  /** Sum of frozen employer_futa entries — the accrued-liability truth. */
+  futaTaxPerFrozenEntries: string;
+  /** Cent-level rounding delta between the frozen entries and line 12. */
+  roundingDelta: string;
+  /** First quarter whose cumulative FUTA liability exceeded $500, or null. */
+  depositThresholdCrossedQuarter: number | null;
+  depositDueBy: string | null;
+  balanceDue: string;
+}
+
+/** PAY-11 — W-3 transmittal aggregate worksheet. */
+export interface WorksheetW3 {
+  form: "w2_w3";
+  year: number;
+  employeeCount: number;
+  box1Wages: string;
+  box2FederalWithheld: string;
+  box3SsWages: string;
+  box4SsTax: string;
+  box5MedicareWages: string;
+  box6MedicareTax: string;
+}
+
+export type FilingWorksheet = Worksheet941 | Worksheet940 | WorksheetW3;
+
+/** PAY-11 — one employee's W-2 box figures (admin review list; no PII). */
+export interface W2FiguresRow {
+  employeeId: number;
+  legalName: string;
+  box1Wages: number;
+  box2FederalWithheld: number;
+  box3SsWages: number;
+  box4SsTax: number;
+  box5MedicareWages: number;
+  box6MedicareTax: number;
+}
+
 export interface TaxFilingRow {
   id: number;
   formType: TaxFormType;
@@ -927,7 +972,7 @@ export interface TaxFilingRow {
   quarter: number;
   dueDate: string;
   status: TaxFilingStatus;
-  worksheet: Worksheet941 | null;
+  worksheet: FilingWorksheet | null;
   worksheetHash: string | null;
   fractionsOfCents: string;
   filedOn: string | null;
@@ -990,4 +1035,18 @@ export const adminFilingsApi = {
     ),
   putReminderSchedule: (offsets: number[]) =>
     put<{ offsets: number[] }>("/api/admin/tax-filings/reminder-schedule", { offsets }),
+  // PAY-11 — annual W-2/W-3 (on-demand PDFs, never stored)
+  w2List: (year: number) =>
+    get<{ year: number; available: boolean; availableOn: string; w2s: W2FiguresRow[] }>(
+      `/api/admin/annual-forms/w2?year=${year}`,
+    ),
+  w2PdfUrl: (employeeId: number, year: number) =>
+    `/api/admin/annual-forms/w2/${employeeId}/pdf?year=${year}`,
+  w3PdfUrl: (year: number) => `/api/admin/annual-forms/w3/pdf?year=${year}`,
+};
+
+/** PAY-11 — employee's own W-2s (available from January of the next year). */
+export const myW2Api = {
+  list: () => get<{ w2s: { year: number; availableOn: string }[] }>("/api/my/w2"),
+  pdfUrl: (year: number) => `/api/my/w2/${year}/pdf`,
 };

@@ -18,6 +18,7 @@ import { registerOnboardingRoutes } from "./routes/onboarding.js";
 import { registerAdminRoutes } from "./routes/admin-users.js";
 import { registerAdminPayrollRoutes } from "./routes/admin-payroll.js";
 import { registerPayslipRoutes } from "./routes/payslips.js";
+import { registerMyW2Routes } from "./routes/my-w2.js";
 import { registerChangeRequestRoutes } from "./routes/change-requests.js";
 import { registerMyRoutes } from "./routes/my.js";
 import { registerMyInvoiceRoutes } from "./routes/my-invoices.js";
@@ -27,6 +28,7 @@ import { registerAdminSettingsRoutes } from "./routes/admin-settings.js";
 import { registerAdminContractorRoutes } from "./routes/admin-contractors.js";
 import { registerAdminDepositRoutes } from "./routes/admin-deposits.js";
 import { registerAdminFilingRoutes } from "./routes/admin-filings.js";
+import { registerAdminAnnualFormRoutes } from "./routes/admin-annual-forms.js";
 import { registerExportRoutes } from "./routes/export.js";
 import { registerQaRoutes } from "./routes/qa.js";
 import { registerStubRoutes } from "./routes/stubs.js";
@@ -75,6 +77,7 @@ export async function buildApp(deps: BuildAppDeps = {}) {
     ...(deps.onScheduleChange ? { onScheduleChange: deps.onScheduleChange } : {}),
   });
   registerPayslipRoutes(app, { db, guards });
+  registerMyW2Routes(app, { db, config, guards });
   registerChangeRequestRoutes(app, { db, config, guards });
   registerMyRoutes(app, { db, config, guards });
   registerMyInvoiceRoutes(app, { db, guards });
@@ -84,6 +87,7 @@ export async function buildApp(deps: BuildAppDeps = {}) {
   registerAdminContractorRoutes(app, { db, config, guards });
   registerAdminDepositRoutes(app, { db, config, guards });
   registerAdminFilingRoutes(app, { db, config, guards });
+  registerAdminAnnualFormRoutes(app, { db, config, guards });
   registerExportRoutes(app, { db, config });
   registerQaRoutes(app, { config }); // no-op unless APP_ENV=qa (spec 14 §3)
   registerStubRoutes(app, guards);

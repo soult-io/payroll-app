@@ -26,6 +26,7 @@ import { drainOutbox, type MailTransport } from "../notify/outbox.js";
 import { checkContractorFormExpiry } from "../contractors/service.js";
 import { sendDepositReminders, syncDeposits } from "../deposits/service.js";
 import { sendFilingReminders, syncFilings } from "../filings/service.js";
+import { sendW2AvailableNotices, syncAnnualFilings } from "../filings/annual.js";
 
 const TICK_QUEUE = "payroll-draft-tick";
 const GENERATE_QUEUE = "payroll-generate-draft";
@@ -170,6 +171,16 @@ export async function startScheduler(deps: {
     const filingReminders = await sendFilingReminders({ db, config });
     if (filingReminders.sent > 0) {
       console.log(`[filings] reminders: ${JSON.stringify(filingReminders)}`);
+    }
+    // PAY-11: annual forms (940 + W-2/W-3) fold into the same daily tick —
+    // year-end row sync, then the once-per-year W-2 availability notices.
+    const annualSync = await syncAnnualFilings({ db, config });
+    if (annualSync.created + annualSync.refreshed > 0) {
+      console.log(`[filings] annual sync: ${JSON.stringify(annualSync)}`);
+    }
+    const w2Notices = await sendW2AvailableNotices({ db, config });
+    if (w2Notices.sent > 0) {
+      console.log(`[filings] W-2 notices: ${JSON.stringify(w2Notices)}`);
     }
   });
 

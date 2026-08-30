@@ -7,12 +7,13 @@
  */
 import { computed, onMounted, ref, watch } from "vue";
 import { useRoute, useRouter } from "vue-router";
+import Button from "primevue/button";
 import DataTable from "primevue/datatable";
 import Column from "primevue/column";
 import SelectButton from "primevue/selectbutton";
 import PageHeader from "../../components/PageHeader.vue";
 import EmptyState from "../../components/EmptyState.vue";
-import { payslipsApi, type PayslipSummary } from "../../lib/api";
+import { myW2Api, payslipsApi, type PayslipSummary } from "../../lib/api";
 import { useMoney } from "../../composables/useMoney";
 import { useDates } from "../../composables/useDates";
 import { useNotify } from "../../composables/useNotify";
@@ -25,6 +26,8 @@ const notify = useNotify();
 
 const loading = ref(true);
 const payslips = ref<PayslipSummary[]>([]);
+/** PAY-11: tax years with a downloadable W-2 (empty for contractors). */
+const w2Years = ref<{ year: number; availableOn: string }[]>([]);
 // PAY-17: the selected year is mirrored to ?year= so it survives detail → back
 // and browser-back. The default (no param) is the newest year with data.
 const selectedYear = ref<string>(typeof route.query.year === "string" ? route.query.year : "");
@@ -59,8 +62,9 @@ watch(selectedYear, (year) => {
 
 onMounted(async () => {
   try {
-    const { payslips: rows } = await payslipsApi.list();
+    const [{ payslips: rows }, { w2s }] = await Promise.all([payslipsApi.list(), myW2Api.list()]);
     payslips.value = rows;
+    w2Years.value = w2s;
     // A ?year= with no payslips falls back to the newest year with data.
     if (!years.value.includes(selectedYear.value)) {
       selectedYear.value = years.value[0] ?? "";
@@ -113,5 +117,18 @@ onMounted(async () => {
       {{ selectedYear }} totals across {{ yearPayslips.length }} payslip(s): gross
       {{ money(ytdGross) }} · net {{ money(ytdNet) }}
     </p>
+
+    <div v-if="w2Years.length > 0" class="card stack">
+      <h3 style="margin: 0">W-2 wage and tax statements</h3>
+      <p class="muted small" style="margin: 0">
+        Your annual W-2 for each year you were paid, available from January of the following year.
+      </p>
+      <div v-for="w2 in w2Years" :key="w2.year" class="row" style="justify-content: space-between">
+        <span><strong>{{ w2.year }}</strong> <span class="muted small">· available since {{ date(w2.availableOn) }}</span></span>
+        <a :href="myW2Api.pdfUrl(w2.year)" target="_blank" rel="noopener">
+          <Button label="Download PDF" icon="pi pi-download" size="small" text />
+        </a>
+      </div>
+    </div>
   </div>
 </template>

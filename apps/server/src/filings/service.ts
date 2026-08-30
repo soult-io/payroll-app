@@ -19,7 +19,6 @@
  * (which needs a real Postgres) — payroll/scheduler.ts only wires the queue.
  */
 
-import { createHash } from "node:crypto";
 import { and, asc, desc, eq, isNull, ne, or, sql } from "drizzle-orm";
 import {
   appSettings,
@@ -27,14 +26,12 @@ import {
   authUser,
   company,
   emailOutbox,
-  payrollEntries,
   payrollRuns,
   taxAdjustments,
   taxDeposits,
   taxFilings,
 } from "@payroll/db";
 import { round2 } from "@payroll/engine/money";
-import { formatMoney } from "@payroll/shared";
 import {
   EVENT_TYPE,
   taxFilingDue as tplTaxFilingDue,
@@ -43,26 +40,30 @@ import {
 import type { Db } from "../db.js";
 import type { AppConfig } from "../config.js";
 import { computeDepositAmount, periodStartFor } from "../deposits/service.js";
+import { refreshAnnualWorksheet } from "./annual.js";
+import {
+  addDays,
+  DATE_RE,
+  type Deps,
+  FilingServiceError,
+  MONEY_RE,
+  sumCategory,
+  type TaxAdjustmentRow,
+  type TaxFilingRow,
+  toMoney,
+  todayIso,
+  worksheetHash,
+} from "./shared.js";
 
-export type TaxFilingRow = typeof taxFilings.$inferSelect;
-export type TaxAdjustmentRow = typeof taxAdjustments.$inferSelect;
-
-export class FilingServiceError extends Error {
-  constructor(
-    public code: "not_found" | "invalid_input" | "invalid_transition",
-    message: string,
-  ) {
-    super(message);
-  }
-}
-
-interface Deps {
-  db: Db;
-  config: AppConfig;
-}
-
-const DATE_RE = /^\d{4}-\d{2}-\d{2}$/;
-const MONEY_RE = /^-?\d{1,10}(\.\d{1,2})?$/;
+// Re-exported: existing tests + routes import these from service.js.
+export {
+  DATE_RE,
+  FilingServiceError,
+  MONEY_RE,
+  type TaxAdjustmentRow,
+  type TaxFilingRow,
+  worksheetHash,
+} from "./shared.js";
 
 /** D1 (filings): default reminder offsets — 2 weeks, 1 week, due day. */
 export const DEFAULT_FILING_REMINDER_OFFSETS: readonly number[] = [14, 7, 0];
@@ -74,23 +75,6 @@ const SS_COMBINED_RATE = 0.124; // Form 941 line 5a column 2 rate
 const MEDICARE_COMBINED_RATE = 0.029; // line 5c column 2 rate
 /** Line 12 under this → the line-16 de minimis box (no monthly breakdown owed). */
 const DE_MINIMIS_THRESHOLD = 2500;
-
-function todayIso(): string {
-  return new Date().toISOString().slice(0, 10);
-}
-
-function pad2(n: number): string {
-  return String(n).padStart(2, "0");
-}
-
-/** UTC-safe day arithmetic on ISO dates (no server-local timezone leakage). */
-function addDays(iso: string, days: number): string {
-  const d = new Date(`${iso}T00:00:00Z`);
-  d.setUTCDate(d.getUTCDate() + days);
-  return d.toISOString().slice(0, 10);
-}
-
-const toMoney = (n: number): string => round2(n).toFixed(2);
 
 // ---------------------------------------------------------------------------
 // Quarter math (pure)
@@ -180,49 +164,6 @@ export interface Worksheet941 {
   line14BalanceDue: string;
   line15Overpayment: string;
   line16: { month1: string; month2: string; month3: string; deMinimis: boolean };
-}
-
-/**
- * Canonical SHA-256 of a worksheet: object keys are sorted recursively
- * before stringifying, because Postgres JSONB does NOT preserve key order —
- * the hash of a row read back from the DB must equal the hash computed
- * before insert (snapshot-hash stability rule).
- */
-export function worksheetHash(worksheet: Worksheet941): string {
-  const canonical = (v: unknown): unknown => {
-    if (Array.isArray(v)) return v.map(canonical);
-    if (v !== null && typeof v === "object") {
-      return Object.fromEntries(
-        Object.entries(v)
-          .sort(([a], [b]) => (a < b ? -1 : a > b ? 1 : 0))
-          .map(([k, val]) => [k, canonical(val)]),
-      );
-    }
-    return v;
-  };
-  return createHash("sha256")
-    .update(JSON.stringify(canonical(worksheet)))
-    .digest("hex");
-}
-
-/** Sum one entry category across the given issued runs (exact, to the cent). */
-async function sumCategory(db: Db, runIds: number[], category: string): Promise<number> {
-  if (runIds.length === 0) return 0;
-  const rows = await db
-    .select({
-      total: sql<string>`coalesce(sum(${payrollEntries.amount}), 0)::numeric(14,2)::text`,
-    })
-    .from(payrollEntries)
-    .where(
-      and(
-        sql`${payrollEntries.runId} IN (${sql.join(
-          runIds.map((id) => sql`${id}`),
-          sql`, `,
-        )})`,
-        eq(payrollEntries.category, category),
-      ),
-    );
-  return Number(rows[0]?.total ?? "0");
 }
 
 /**
@@ -439,6 +380,8 @@ export interface FilingSyncResult {
  * value is preserved.
  */
 async function refreshWorksheet(db: Db, filing: TaxFilingRow): Promise<boolean> {
+  // PAY-11: annual forms (940 / W-2-W-3) refresh through their own module.
+  if (filing.formType !== "941") return refreshAnnualWorksheet(db, filing);
   const base = await computeWorksheet(db, filing.year, filing.quarter, { filingId: filing.id });
   const previous = filing.worksheet as Worksheet941 | null;
   // Admin override detection: if the row's fractions_of_cents differs from
