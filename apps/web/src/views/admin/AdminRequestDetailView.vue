@@ -9,13 +9,14 @@
  * data never reaches the browser.
  */
 import { computed, onMounted, ref } from "vue";
-import { useRoute, useRouter } from "vue-router";
+import { useRoute } from "vue-router";
 import Button from "primevue/button";
 import Skeleton from "primevue/skeleton";
 import DatePicker from "primevue/datepicker";
 import Textarea from "primevue/textarea";
 import Dialog from "primevue/dialog";
 import PageHeader from "../../components/PageHeader.vue";
+import BackButton from "../../components/BackButton.vue";
 import EmptyState from "../../components/EmptyState.vue";
 import StatusChip from "../../components/StatusChip.vue";
 import RequestThread from "../../components/RequestThread.vue";
@@ -35,7 +36,6 @@ import { useDates } from "../../composables/useDates";
 import { useNotify } from "../../composables/useNotify";
 
 const route = useRoute();
-const router = useRouter();
 const { money } = useMoney();
 const { date, dateTime, toIso, fromIso } = useDates();
 const notify = useNotify();
@@ -205,7 +205,7 @@ onMounted(load);
 <template>
   <div class="page stack">
     <PageHeader :title="request ? `Review: ${requestTypeLabel(request.requestType)}` : 'Review request'">
-      <Button label="Back to inbox" text icon="pi pi-arrow-left" @click="router.push({ name: 'admin-requests' })" />
+      <BackButton to="admin-requests" label="Back to inbox" />
     </PageHeader>
 
     <Skeleton v-if="loading" height="22rem" />

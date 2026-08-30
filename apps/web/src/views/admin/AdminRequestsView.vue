@@ -4,7 +4,7 @@
  * filter = pending; row → review page (current-vs-proposed diff).
  */
 import { onMounted, ref, watch } from "vue";
-import { useRouter } from "vue-router";
+import { useRoute, useRouter } from "vue-router";
 import DataTable from "primevue/datatable";
 import Column from "primevue/column";
 import Select from "primevue/select";
@@ -15,7 +15,9 @@ import { changeRequestsApi, type ChangeRequest, type RequestStatus } from "../..
 import { requestTypeLabel } from "../../composables/useRequestTypes";
 import { useDates } from "../../composables/useDates";
 import { useNotify } from "../../composables/useNotify";
+import { useQueryEnum } from "../../composables/useQueryFilters";
 
+const route = useRoute();
 const router = useRouter();
 const { date, dateTime } = useDates();
 const notify = useNotify();
@@ -23,20 +25,29 @@ const notify = useNotify();
 const loading = ref(true);
 const requests = ref<ChangeRequest[]>([]);
 
-const statusFilter = ref<RequestStatus | null>("pending");
+// PAY-17: the filter lives in the route query (?status=) — bookmarkable and
+// restored when coming back from a request review. "all" is an explicit
+// sentinel so it doesn't collide with the "pending" default.
+const statusFilter = useQueryEnum<RequestStatus | "all">("status", "pending", [
+  "pending",
+  "approved",
+  "denied",
+  "withdrawn",
+  "all",
+]);
 const statusOptions = [
   { label: "Pending", value: "pending" },
   { label: "Approved", value: "approved" },
   { label: "Denied", value: "denied" },
   { label: "Withdrawn", value: "withdrawn" },
-  { label: "All", value: null },
+  { label: "All", value: "all" },
 ];
 
 async function load() {
   loading.value = true;
   try {
     const filter: { status?: RequestStatus } = {};
-    if (statusFilter.value) filter.status = statusFilter.value;
+    if (statusFilter.value && statusFilter.value !== "all") filter.status = statusFilter.value;
     const { requests: rows } = await changeRequestsApi.list(filter);
     requests.value = rows;
   } catch (err) {
@@ -47,7 +58,12 @@ async function load() {
 }
 
 function open(event: { data: ChangeRequest }) {
-  void router.push({ name: "admin-request-detail", params: { publicId: event.data.publicId } });
+  // Carry the filter query onto the detail URL so its back button can restore it.
+  void router.push({
+    name: "admin-request-detail",
+    params: { publicId: event.data.publicId },
+    query: route.query,
+  });
 }
 
 watch(statusFilter, load);

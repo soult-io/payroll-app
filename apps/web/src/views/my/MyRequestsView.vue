@@ -4,7 +4,7 @@
  * view. "Request a change" CTA always visible.
  */
 import { onMounted, ref, watch } from "vue";
-import { useRouter } from "vue-router";
+import { useRoute, useRouter } from "vue-router";
 import Button from "primevue/button";
 import DataTable from "primevue/datatable";
 import Column from "primevue/column";
@@ -16,14 +16,23 @@ import { changeRequestsApi, type ChangeRequest, type RequestStatus } from "../..
 import { requestTypeLabel } from "../../composables/useRequestTypes";
 import { useDates } from "../../composables/useDates";
 import { useNotify } from "../../composables/useNotify";
+import { useQueryEnum } from "../../composables/useQueryFilters";
 
+const route = useRoute();
 const router = useRouter();
 const { date, dateTime } = useDates();
 const notify = useNotify();
 
 const loading = ref(true);
 const requests = ref<ChangeRequest[]>([]);
-const statusFilter = ref<RequestStatus | null>(null);
+// PAY-17: the filter lives in the route query (?status=) — bookmarkable and
+// restored when coming back from a request thread.
+const statusFilter = useQueryEnum<RequestStatus>("status", null, [
+  "pending",
+  "approved",
+  "denied",
+  "withdrawn",
+]);
 const statusOptions = [
   { label: "All statuses", value: null },
   { label: "Pending", value: "pending" },
@@ -47,7 +56,12 @@ async function load() {
 }
 
 function open(event: { data: ChangeRequest }) {
-  void router.push({ name: "my-request-detail", params: { publicId: event.data.publicId } });
+  // Carry the filter query onto the detail URL so its back button can restore it.
+  void router.push({
+    name: "my-request-detail",
+    params: { publicId: event.data.publicId },
+    query: route.query,
+  });
 }
 
 watch(statusFilter, load);

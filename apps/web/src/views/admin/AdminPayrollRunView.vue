@@ -5,7 +5,7 @@
  * issue and void are irreversible → type-to-confirm second step.
  */
 import { computed, onMounted, ref } from "vue";
-import { useRoute, useRouter } from "vue-router";
+import { useRoute } from "vue-router";
 import Button from "primevue/button";
 import Skeleton from "primevue/skeleton";
 import Dialog from "primevue/dialog";
@@ -13,6 +13,7 @@ import Textarea from "primevue/textarea";
 import InputText from "primevue/inputtext";
 import { useConfirm } from "primevue/useconfirm";
 import PageHeader from "../../components/PageHeader.vue";
+import BackButton from "../../components/BackButton.vue";
 import EmptyState from "../../components/EmptyState.vue";
 import StatusChip from "../../components/StatusChip.vue";
 import { adminEmployeesApi, adminPayrollApi, type PayrollRunRow } from "../../lib/api";
@@ -21,7 +22,6 @@ import { useDates } from "../../composables/useDates";
 import { useNotify } from "../../composables/useNotify";
 
 const route = useRoute();
-const router = useRouter();
 const confirm = useConfirm();
 const { money, percent } = useMoney();
 const { date, dateTime } = useDates();
@@ -122,7 +122,7 @@ onMounted(load);
 <template>
   <div class="page stack">
     <PageHeader title="Run review" :subtitle="run ? `${employeeName} · ${date(run.periodStart)} – ${date(run.periodEnd)}` : undefined">
-      <Button label="Back to runs" text icon="pi pi-arrow-left" @click="router.push({ name: 'admin-payroll' })" />
+      <BackButton to="admin-payroll" label="Back to runs" />
       <template v-if="run">
         <Button v-if="canApprove" label="Approve" icon="pi pi-check" :loading="busy" @click="approve" />
         <Button v-if="canIssue" label="Issue payslip" icon="pi pi-send" severity="success" :loading="busy" @click="issuePayslip" />

@@ -4,7 +4,7 @@
  * creates the record (invite happens on the detail page).
  */
 import { onMounted, ref } from "vue";
-import { useRouter } from "vue-router";
+import { useRoute, useRouter } from "vue-router";
 import Button from "primevue/button";
 import DataTable from "primevue/datatable";
 import Column from "primevue/column";
@@ -20,6 +20,7 @@ import { adminEmployeesApi, type AdminEmployeeListRow } from "../../lib/api";
 import { useDates } from "../../composables/useDates";
 import { useNotify } from "../../composables/useNotify";
 
+const route = useRoute();
 const router = useRouter();
 const { date, toIso } = useDates();
 const notify = useNotify();
@@ -50,7 +51,13 @@ async function load() {
 }
 
 function open(event: { data: AdminEmployeeListRow }) {
-  void router.push({ name: "admin-employee-detail", params: { employeeId: event.data.id } });
+  // Query passthrough (PAY-17): keeps the detail's back button symmetric with
+  // the filtered lists even though this list has no filters today.
+  void router.push({
+    name: "admin-employee-detail",
+    params: { employeeId: event.data.id },
+    query: route.query,
+  });
 }
 
 function accountStatus(row: AdminEmployeeListRow): string {
