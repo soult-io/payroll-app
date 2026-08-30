@@ -34,6 +34,8 @@ export const EVENT_TYPE = {
   taxDepositDue: "tax_deposit_due",
   /** PAY-10 — quarterly filing (Form 941) due-date reminder (admin). */
   taxFilingDue: "tax_filing_due",
+  /** PAY-11 — an employee's W-2 for a tax year is available for download. */
+  w2Available: "w2_available",
 } as const;
 
 export type EventType = (typeof EVENT_TYPE)[keyof typeof EVENT_TYPE];
@@ -55,6 +57,7 @@ export const WORKFLOW_EVENTS: readonly EventType[] = [
   EVENT_TYPE.contractorInvoicePaid,
   EVENT_TYPE.taxDepositDue,
   EVENT_TYPE.taxFilingDue,
+  EVENT_TYPE.w2Available,
 ];
 
 /**
@@ -72,6 +75,7 @@ export const EVENT_AUDIENCE: Partial<Record<EventType, EventAudience>> = {
   [EVENT_TYPE.taxDepositDue]: "admin",
   [EVENT_TYPE.taxFilingDue]: "admin",
   [EVENT_TYPE.payslipIssued]: "w2",
+  [EVENT_TYPE.w2Available]: "w2",
   [EVENT_TYPE.contractorInvoiceReviewed]: "contractor",
   [EVENT_TYPE.contractorInvoicePaid]: "contractor",
   [EVENT_TYPE.changeRequestApproved]: "all",
@@ -464,5 +468,25 @@ export function taxFilingDue(
     `${data.formLabel} for ${data.periodLabel} due ${data.dueDate}`,
     body,
     `${data.formLabel} for ${data.periodLabel} is due on ${data.dueDate} and has not been marked as filed. File the return, then log in to record it: ${ctx.appUrl}`,
+  );
+}
+
+// ---------------------------------------------------------------------------
+// PAY-11 — W-2 availability notice (employee)
+// ---------------------------------------------------------------------------
+
+/**
+ * Employee: their W-2 for a tax year is available (January of the following
+ * year). Content rules: states the tax year + "log in to view/download" —
+ * never amounts, never the SSN, no attachment (same doctrine as
+ * payslip_issued).
+ */
+export function w2Available(ctx: TemplateContext, data: { taxYear: number }): RenderedEmail {
+  const body = `<p>Your <strong>W-2 for ${data.taxYear}</strong> is available.</p><p><a href="${ctx.appUrl}">Log in to view and download it</a> from your payslips page.</p>`;
+  return email(
+    ctx,
+    `your ${data.taxYear} W-2 is available`,
+    body,
+    `Your W-2 for ${data.taxYear} is available. Log in to view and download it: ${ctx.appUrl}`,
   );
 }

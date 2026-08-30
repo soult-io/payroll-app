@@ -427,4 +427,14 @@ export {
   type Nec1099Input,
 } from "./nec-1099.js";
 
+export {
+  buildW2Doc,
+  buildW3Doc,
+  renderW2Pdf,
+  renderW3Pdf,
+  type FormAddress,
+  type W2Input,
+  type W3Input,
+} from "./w2.js";
+
 export { renderInvoicePdf, type InvoicePdfInput } from "./invoice.js";
