@@ -855,3 +855,32 @@ export const legacyMigrationMap = pgTable(
   },
   (t) => [unique("legacy_migration_map_entity_source_uniq").on(t.entity, t.sourceId)],
 );
+
+// ---------------------------------------------------------------------------
+// 11. PAY-19: W-2 electronic-delivery consent (Pub 1141 §2.4)
+// ---------------------------------------------------------------------------
+
+/**
+ * One row per employee: blanket consent to receive Form W-2 electronically
+ * instead of on paper, covering every tax year until withdrawn. Withdrawal
+ * sets withdrawn_at and re-gates the self-service PDF (the row is kept as
+ * the consent history). disclosure_version pins the exact disclosure text
+ * the employee agreed to; the paper-copy route stays open regardless
+ * (admin prints the packet for non-consenting employees).
+ */
+export const w2DeliveryConsents = pgTable(
+  "w2_delivery_consents",
+  {
+    id: serial("id").primaryKey(),
+    employeeId: integer("employee_id")
+      .notNull()
+      .references(() => employees.id),
+    /** Version string of the disclosure text shown at consent time. */
+    disclosureVersion: text("disclosure_version").notNull(),
+    consentedAt: timestamp("consented_at", { withTimezone: true }).notNull().defaultNow(),
+    withdrawnAt: timestamp("withdrawn_at", { withTimezone: true }),
+    createdAt: createdAt(),
+    updatedAt: updatedAt(),
+  },
+  (t) => [unique("w2_delivery_consents_employee_uniq").on(t.employeeId)],
+);

@@ -1,32 +1,37 @@
 /**
- * PAY-11 integration tests — annual forms: Form 940 (FUTA) worksheet + W-2/W-3
- * generation and filing tracking. Real SQL via the PGlite harness; sync and
- * reminder functions are called directly (pg-boss needs a real Postgres), the
- * admin/employee routes go through app.inject with real sessions.
+ * PAY-11 + PAY-19 integration tests — annual forms: Form 940 (FUTA) worksheet
+ * + W-2/W-3 generation and filing tracking, official-template W-2/W-3 PDF
+ * rendering, and electronic-delivery consent. Real SQL via the PGlite
+ * harness; sync and reminder functions are called directly (pg-boss needs a
+ * real Postgres), the admin/employee routes go through app.inject with real
+ * sessions.
  *
  * Fixture (built once in beforeAll): thirteen W-2 employees with issued 2025
  * runs — twelve at $8,000/mo (January only; FUTA-capped at $7,000, enough to
  * cross the $500 quarterly deposit threshold in Q1) and one at $1,111.11/mo
  * for the full year (exercises the per-paycheck FUTA rounding delta). Two of
  * the capped employees are linked to real user accounts (W-2 self-service +
- * availability notices). The rounding employee also has a January 2026 run so
- * "year not ended / W-2 not yet available" branches are exercised. A
- * contractor with a (legacy-style, direct-insert) issued run proves the
- * employment_type='w2' joins exclude contractors everywhere.
+ * availability notices + the consent flow). The rounding employee also has a
+ * January 2026 run so "year not ended / W-2 not yet available" branches are
+ * exercised. A contractor with a (legacy-style, direct-insert) issued run
+ * proves the employment_type='w2' joins exclude contractors everywhere.
  *
  * Covers: annual due-date math (weekend roll), the 940 worksheet line-by-line
  * with reconciliation to the cent against frozen entries + the export API +
  * the sum of quarterly 941 worksheets, W-2 box figures and the W-3 aggregate,
- * PDF content (PII + full figures in the rendered document, never in JSON),
+ * official-form PDF rendering (exact AcroForm field placement pre-flatten,
+ * flattened page/field structure, PII in the document only — never in JSON),
  * the January availability gate, sync (create/refresh/freeze), admin +
- * employee routes incl. RBAC, tax_filing_due reminders for annual rows, and
- * the once-per-year w2_available notices.
+ * employee routes incl. RBAC, the consent gate (409 before consent, withdraw
+ * re-gates, audit trail), tax_filing_due reminders for annual rows, and the
+ * once-per-year w2_available notices.
  */
 
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import { and, eq, sql } from "drizzle-orm";
 import {
   appSettings,
+  auditEvents,
   company,
   compensation,
   emailOutbox,
@@ -35,11 +40,22 @@ import {
   payrollRuns,
   seedDatabase,
   taxFilings,
+  w2DeliveryConsents,
   type SeedDb,
 } from "@payroll/db";
 import { round2 } from "@payroll/engine/money";
 import { EVENT_TYPE } from "@payroll/notifications";
-import { buildW2Doc, buildW3Doc, renderW2Pdf } from "@payroll/documents";
+import {
+  pdfStructure,
+  prepareW2EmployeePacket,
+  prepareW3,
+  renderW2AdminCopyD,
+  renderW2EmployeePacket,
+  renderW3Pdf,
+  w2FieldMap,
+  W3_CHECKBOXES,
+  W3_FIELD_MAP,
+} from "@payroll/documents";
 import { computeWorksheet, sendFilingReminders } from "../src/filings/service.js";
 import {
   annualDueDate,
@@ -67,6 +83,8 @@ let t: TestContext;
 let ADMIN: Record<string, string>;
 /** Account-linked employee (January 2025 run) — self-service fixture. */
 let acctA: { userId: string; email: string; employeeId: number };
+/** Second account-linked employee — consent-flow fixture (PAY-19). */
+let acctB: { userId: string; email: string; employeeId: number };
 let contractorUser: { userId: string; email: string };
 let contractorEmployeeId: number;
 /** All thirteen 2025 W-2 fixture employee ids (pre late-run). */
@@ -95,6 +113,7 @@ beforeAll(async () => {
     await issueRun(id, 2025, 1);
     fixtureEmployeeIds.push(id);
     if (email.endsWith("-a@test.dev")) acctA = { userId: user.userId, email, employeeId: id };
+    if (email.endsWith("-b@test.dev")) acctB = { userId: user.userId, email, employeeId: id };
   }
 
   // Rounding employee: $1,111.11/mo all of 2025 (per-paycheck FUTA rounding
@@ -187,6 +206,16 @@ async function api(
     headers: ADMIN,
     ...(payload !== undefined ? { payload } : {}),
   });
+}
+
+/** One login per user per file — the auth rate limiter 429s burst sign-ins. */
+const sessionCache = new Map<string, Record<string, string>>();
+async function sessionFor(email: string): Promise<Record<string, string>> {
+  const cached = sessionCache.get(email);
+  if (cached) return cached;
+  const header = sessionHeader((await login(t, email, TEST_PASSWORD)).sessionCookie);
+  sessionCache.set(email, header);
+  return header;
 }
 
 /** Sum one entry category for the year — W-2 employees only (mirrors production). */
@@ -460,7 +489,7 @@ describe("W-2 figures and the W-3 worksheet", () => {
 });
 
 // ---------------------------------------------------------------------------
-// W-2/W-3 PDFs — full figures + PII in the document, render-time only
+// W-2/W-3 PDFs — official AcroForm templates, filled + flattened (PAY-19)
 // ---------------------------------------------------------------------------
 
 describe("W-2/W-3 PDF rendering", () => {
@@ -493,33 +522,51 @@ describe("W-2/W-3 PDF rendering", () => {
     expect(input.employer.ein).toBe("12-3456789");
     expect(input.employee.ssn).toBe("123-45-6789"); // 9 stored digits → ###-##-####
     expect(input.employee.legalName).toBe("Annual Acct A");
+    expect(input.controlNumber).toBe(String(acctA.employeeId)); // box d (D5)
     expect(input.box1Wages).toBe(8000);
+  });
 
-    // The rendered document carries the full figures + PII (the official copy).
-    const doc = JSON.stringify(buildW2Doc(input));
-    expect(doc).toContain("FORM W-2");
-    expect(doc).toContain("Tax Year: 2025");
-    expect(doc).toContain("Example Corp");
-    expect(doc).toContain("EIN: 12-3456789");
-    expect(doc).toContain("100 Main St");
-    expect(doc).toContain("Austin, TX 78701");
-    expect(doc).toContain("Annual Acct A");
-    expect(doc).toContain("SSN: 123-45-6789");
-    expect(doc).toContain("1 Infinite Loop");
-    expect(doc).toContain("Apt 4");
-    expect(doc).toContain("Cupertino, CA 95014");
-    const usd = (n: number) =>
-      n.toLocaleString("en-US", { minimumFractionDigits: 2, maximumFractionDigits: 2 });
-    expect(doc).toContain(usd(input.box1Wages));
-    expect(doc).toContain(usd(input.box2FederalWithheld));
-    expect(doc).toContain(usd(input.box3SsWages));
-    expect(doc).toContain(usd(input.box4SsTax));
-    expect(doc).toContain(usd(input.box5MedicareWages));
-    expect(doc).toContain(usd(input.box6MedicareTax));
+  it("places every figure in the exact AcroForm fields, pre-flatten", async () => {
+    const input = await w2InputFor({ db: t.db, config: t.config }, acctA.employeeId, 2025);
+    const doc = await prepareW2EmployeePacket(input);
+    const form = doc.getForm();
+    const text = (name: string) => form.getTextField(name).getText() ?? null;
 
-    const pdf = await renderW2Pdf(input);
-    expect(pdf.subarray(0, 5).toString()).toBe("%PDF-");
-    expect(pdf.length).toBeGreaterThan(1000);
+    for (const copy of ["CopyB", "CopyC", "Copy2"] as const) {
+      const map = w2FieldMap(copy);
+      // PII + identity boxes, decrypted at render time only.
+      expect(text(map.ssn)).toBe("123-45-6789");
+      expect(text(map.ein)).toBe("12-3456789");
+      expect(text(map.employerNameAddress)).toContain("Example Corp");
+      expect(text(map.employerNameAddress)).toContain("100 Main St");
+      expect(text(map.employerNameAddress)).toContain("Austin, TX 78701");
+      expect(text(map.controlNumber)).toBe(String(acctA.employeeId));
+      expect(text(map.employeeFirstName)).toBe("Annual Acct");
+      expect(text(map.employeeLastName)).toBe("A");
+      expect(text(map.employeeAddress)).toContain("1 Infinite Loop");
+      expect(text(map.employeeAddress)).toContain("Apt 4");
+      expect(text(map.employeeAddress)).toContain("Cupertino, CA 95014");
+      // Money boxes — to the cent, IRS convention (no $, no commas).
+      expect(text(map.box1Wages)).toBe(input.box1Wages.toFixed(2));
+      expect(text(map.box2FederalWithheld)).toBe(input.box2FederalWithheld.toFixed(2));
+      expect(text(map.box3SsWages)).toBe(input.box3SsWages.toFixed(2));
+      expect(text(map.box4SsTax)).toBe(input.box4SsTax.toFixed(2));
+      expect(text(map.box5MedicareWages)).toBe(input.box5MedicareWages.toFixed(2));
+      expect(text(map.box6MedicareTax)).toBe(input.box6MedicareTax.toFixed(2));
+    }
+  });
+
+  it("renders the flattened employee packet (B/C/2 + instructions) and Copy D", async () => {
+    const input = await w2InputFor({ db: t.db, config: t.config }, acctA.employeeId, 2025);
+
+    const packet = await renderW2EmployeePacket(input);
+    expect(packet.subarray(0, 5).toString()).toBe("%PDF-");
+    // Copy B + Notice + Copy C + Instructions + Copy 2 + Instructions cont.
+    expect(await pdfStructure(packet)).toEqual({ pageCount: 6, fieldCount: 0 });
+
+    const copyD = await renderW2AdminCopyD(input);
+    expect(copyD.subarray(0, 5).toString()).toBe("%PDF-");
+    expect(await pdfStructure(copyD)).toEqual({ pageCount: 1, fieldCount: 0 });
   });
 
   it("renders the W-3 transmittal with the aggregate and the count", async () => {
@@ -527,10 +574,23 @@ describe("W-2/W-3 PDF rendering", () => {
     expect(input.taxYear).toBe(2025);
     expect(input.employeeCount).toBe(13);
     expect(input.box1Wages).toBe(109333.32);
-    const doc = JSON.stringify(buildW3Doc(input));
-    expect(doc).toContain("FORM W-3");
-    expect(doc).toContain("Number of W-2 statements: 13");
-    expect(doc).toContain("EIN: 12-3456789");
+
+    const doc = await prepareW3(input);
+    const form = doc.getForm();
+    const text = (name: string) => form.getTextField(name).getText() ?? null;
+    expect(text(W3_FIELD_MAP.w2Count)).toBe("13");
+    expect(text(W3_FIELD_MAP.ein)).toBe("12-3456789");
+    expect(text(W3_FIELD_MAP.employerName)).toBe("Example Corp");
+    expect(text(W3_FIELD_MAP.employerAddress)).toContain("Austin, TX 78701");
+    expect(text(W3_FIELD_MAP.box1Wages)).toBe("109333.32");
+    // Kind of payer 941 + kind of employer None apply (regular 941 corp, D5).
+    for (const name of Object.values(W3_CHECKBOXES)) {
+      expect(form.getCheckBox(name).isChecked()).toBe(true);
+    }
+
+    const pdf = await renderW3Pdf(input);
+    expect(pdf.subarray(0, 5).toString()).toBe("%PDF-");
+    expect(await pdfStructure(pdf)).toEqual({ pageCount: 1, fieldCount: 0 });
   });
 
   it("enforces the availability gate and not-found rules", async () => {
@@ -628,12 +688,14 @@ describe("admin annual-form routes", () => {
       year: number;
       available: boolean;
       availableOn: string;
-      w2s: { employeeId: number; box1Wages: number }[];
+      w2s: { employeeId: number; box1Wages: number; consented: boolean }[];
     };
     expect(body.year).toBe(2025);
     expect(body.available).toBe(true);
     expect(body.availableOn).toBe("2026-01-01");
     expect(body.w2s).toHaveLength(14);
+    // Nobody has consented yet at this point in the suite.
+    expect(body.w2s.every((row) => row.consented === false)).toBe(true);
     // Content rules: no SSN/address/EIN in the JSON channel, ever.
     const raw = JSON.stringify(body);
     expect(raw).not.toContain("123-45-6789");
@@ -648,15 +710,29 @@ describe("admin annual-form routes", () => {
     expect(bad.statusCode).toBe(400);
   });
 
-  it("serves W-2 and W-3 PDFs on demand", async () => {
+  it("serves W-2 (Copy D + print packet) and W-3 PDFs on demand", async () => {
+    // Copy D — the employer-records copy.
     const w2 = await api("GET", `/api/admin/annual-forms/w2/${acctA.employeeId}/pdf?year=2025`);
     expect(w2.statusCode, w2.body).toBe(200);
     expect(w2.headers["content-type"]).toContain("application/pdf");
+    expect(w2.headers["content-disposition"]).toContain("copy-d");
     expect(w2.rawPayload.subarray(0, 5).toString()).toBe("%PDF-");
+    expect(await pdfStructure(w2.rawPayload)).toEqual({ pageCount: 1, fieldCount: 0 });
+
+    // Print packet — the physical-furnishing route, consent-independent.
+    const packet = await api(
+      "GET",
+      `/api/admin/annual-forms/w2/${acctA.employeeId}/print-packet?year=2025`,
+    );
+    expect(packet.statusCode, packet.body).toBe(200);
+    expect(packet.headers["content-disposition"]).toContain("print-packet");
+    expect(packet.rawPayload.subarray(0, 5).toString()).toBe("%PDF-");
+    expect(await pdfStructure(packet.rawPayload)).toEqual({ pageCount: 6, fieldCount: 0 });
 
     const w3 = await api("GET", "/api/admin/annual-forms/w3/pdf?year=2025");
     expect(w3.statusCode, w3.body).toBe(200);
     expect(w3.rawPayload.subarray(0, 5).toString()).toBe("%PDF-");
+    expect(await pdfStructure(w3.rawPayload)).toEqual({ pageCount: 1, fieldCount: 0 });
 
     // Gated + not-found paths.
     const gated = await api("GET", `/api/admin/annual-forms/w2/${acctA.employeeId}/pdf?year=2099`);
@@ -664,18 +740,178 @@ describe("admin annual-form routes", () => {
     expect(gated.json()).toMatchObject({ error: "invalid_transition" });
     const missing = await api("GET", "/api/admin/annual-forms/w2/999999/pdf?year=2025");
     expect(missing.statusCode).toBe(404);
+    const missingPacket = await api(
+      "GET",
+      "/api/admin/annual-forms/w2/999999/print-packet?year=2025",
+    );
+    expect(missingPacket.statusCode).toBe(404);
     const noYear = await api("GET", "/api/admin/annual-forms/w3/pdf?year=2020");
     expect(noYear.statusCode).toBe(404);
   });
 
   it("403s non-admins", async () => {
-    const session = await login(t, acctA.email, TEST_PASSWORD);
     const res = await t.app.inject({
       method: "GET",
       url: "/api/admin/annual-forms/w2?year=2025",
-      headers: sessionHeader(session.sessionCookie),
+      headers: await sessionFor(acctA.email),
     });
     expect(res.statusCode).toBe(403);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// W-2 electronic-delivery consent (PAY-19, D4 — Pub 1141 §2.4)
+// ---------------------------------------------------------------------------
+
+describe("W-2 electronic-delivery consent", () => {
+  it("gates the PDF on consent, records it, and re-gates on withdrawal", async () => {
+    const session = await sessionFor(acctA.email);
+
+    // Status: not consented; the Pub 1141 §2.4 disclosures ride along, PII-free.
+    const before = await t.app.inject({
+      method: "GET",
+      url: "/api/my/w2/consent",
+      headers: session,
+    });
+    expect(before.statusCode, before.body).toBe(200);
+    const beforeBody = before.json() as {
+      consented: boolean;
+      consentedAt: string | null;
+      disclosureVersion: string;
+      disclosures: string[];
+    };
+    expect(beforeBody.consented).toBe(false);
+    expect(beforeBody.consentedAt).toBeNull();
+    expect(beforeBody.disclosureVersion).toMatch(/^\d{4}-\d{2}$/);
+    expect(beforeBody.disclosures.length).toBeGreaterThanOrEqual(5);
+    // Paper-copy right + withdrawal + posting window are all disclosed.
+    const text = beforeBody.disclosures.join(" ");
+    expect(text).toContain("paper copy");
+    expect(text).toContain("withdraw");
+    expect(text).toContain("January 31");
+    expect(text).toContain("October 15");
+    expect(JSON.stringify(beforeBody)).not.toContain("123-45-6789");
+
+    // No consent → the download 409s with consent_required.
+    const gated = await t.app.inject({
+      method: "GET",
+      url: "/api/my/w2/2025/pdf",
+      headers: session,
+    });
+    expect(gated.statusCode).toBe(409);
+    expect(gated.json()).toMatchObject({ error: "consent_required" });
+
+    // Consent → active, timestamped, versioned, audited.
+    const consented = await t.app.inject({
+      method: "POST",
+      url: "/api/my/w2/consent",
+      headers: session,
+    });
+    expect(consented.statusCode, consented.body).toBe(200);
+    const consentedBody = consented.json() as { consented: boolean; consentedAt: string | null };
+    expect(consentedBody.consented).toBe(true);
+    expect(consentedBody.consentedAt).not.toBeNull();
+    const rows = await t.db
+      .select()
+      .from(w2DeliveryConsents)
+      .where(eq(w2DeliveryConsents.employeeId, acctA.employeeId));
+    expect(rows).toHaveLength(1);
+    expect(rows[0]?.withdrawnAt).toBeNull();
+
+    // The admin list reflects the flag (acctB stays paper).
+    const adminList = await api("GET", "/api/admin/annual-forms/w2?year=2025");
+    const adminRows = (adminList.json() as { w2s: { employeeId: number; consented: boolean }[] })
+      .w2s;
+    expect(adminRows.find((r) => r.employeeId === acctA.employeeId)?.consented).toBe(true);
+    expect(adminRows.find((r) => r.employeeId === acctB.employeeId)?.consented).toBe(false);
+
+    // The download works now — the flattened 6-page employee packet.
+    const pdf = await t.app.inject({ method: "GET", url: "/api/my/w2/2025/pdf", headers: session });
+    expect(pdf.statusCode, pdf.body).toBe(200);
+    expect(pdf.rawPayload.subarray(0, 5).toString()).toBe("%PDF-");
+    expect(await pdfStructure(pdf.rawPayload)).toEqual({ pageCount: 6, fieldCount: 0 });
+
+    // Withdrawal re-gates immediately.
+    const withdrawn = await t.app.inject({
+      method: "DELETE",
+      url: "/api/my/w2/consent",
+      headers: session,
+    });
+    expect(withdrawn.statusCode, withdrawn.body).toBe(200);
+    expect((withdrawn.json() as { consented: boolean }).consented).toBe(false);
+    const reGated = await t.app.inject({
+      method: "GET",
+      url: "/api/my/w2/2025/pdf",
+      headers: session,
+    });
+    expect(reGated.statusCode).toBe(409);
+    expect(reGated.json()).toMatchObject({ error: "consent_required" });
+
+    // Audit trail: consent + withdraw events for this employee.
+    const audit = await t.db
+      .select()
+      .from(auditEvents)
+      .where(
+        and(
+          eq(auditEvents.entity, "w2_consent"),
+          eq(auditEvents.entityId, String(acctA.employeeId)),
+        ),
+      );
+    expect(audit.map((a) => a.action)).toEqual(["w2_consent.consent", "w2_consent.withdraw"]);
+  });
+
+  it("is idempotent on repeat consent/withdraw and 404s for contractors", async () => {
+    const session = await sessionFor(acctB.email);
+
+    // Withdraw before any consent → not_found.
+    const early = await t.app.inject({
+      method: "DELETE",
+      url: "/api/my/w2/consent",
+      headers: session,
+    });
+    expect(early.statusCode).toBe(404);
+
+    for (let i = 0; i < 2; i += 1) {
+      const res = await t.app.inject({
+        method: "POST",
+        url: "/api/my/w2/consent",
+        headers: session,
+      });
+      expect(res.statusCode, res.body).toBe(200);
+      expect((res.json() as { consented: boolean }).consented).toBe(true);
+    }
+    for (let i = 0; i < 2; i += 1) {
+      const res = await t.app.inject({
+        method: "DELETE",
+        url: "/api/my/w2/consent",
+        headers: session,
+      });
+      expect(res.statusCode, res.body).toBe(200);
+      expect((res.json() as { consented: boolean }).consented).toBe(false);
+    }
+    // Repeat consent/withdraw did not stack duplicate audit rows: the second
+    // consent was a no-op (already consented), the second withdraw too.
+    const audit = await t.db
+      .select()
+      .from(auditEvents)
+      .where(
+        and(
+          eq(auditEvents.entity, "w2_consent"),
+          eq(auditEvents.entityId, String(acctB.employeeId)),
+        ),
+      );
+    expect(audit.map((a) => a.action)).toEqual(["w2_consent.consent", "w2_consent.withdraw"]);
+
+    // Contractors have no W-2 employee row → 404 on all consent endpoints.
+    const contractor = await sessionFor(contractorUser.email);
+    for (const method of ["GET", "POST", "DELETE"] as const) {
+      const res = await t.app.inject({ method, url: "/api/my/w2/consent", headers: contractor });
+      expect(res.statusCode).toBe(404);
+    }
+
+    // No session → 401.
+    const anon = await t.app.inject({ method: "GET", url: "/api/my/w2/consent" });
+    expect(anon.statusCode).toBe(401);
   });
 });
 
@@ -685,7 +921,15 @@ describe("admin annual-form routes", () => {
 
 describe("my W-2 routes", () => {
   it("lists available years and serves the PDF for the employee's own W-2", async () => {
-    const session = sessionHeader((await login(t, acctA.email, TEST_PASSWORD)).sessionCookie);
+    const session = await sessionFor(acctA.email);
+
+    // Consent first (withdrawn in the consent suite above) — idempotent.
+    const consent = await t.app.inject({
+      method: "POST",
+      url: "/api/my/w2/consent",
+      headers: session,
+    });
+    expect(consent.statusCode, consent.body).toBe(200);
 
     const list = await t.app.inject({ method: "GET", url: "/api/my/w2", headers: session });
     expect(list.statusCode, list.body).toBe(200);
@@ -716,9 +960,7 @@ describe("my W-2 routes", () => {
   });
 
   it("contractors see nothing and cannot fetch a W-2", async () => {
-    const session = sessionHeader(
-      (await login(t, contractorUser.email, TEST_PASSWORD)).sessionCookie,
-    );
+    const session = await sessionFor(contractorUser.email);
     const list = await t.app.inject({ method: "GET", url: "/api/my/w2", headers: session });
     expect(list.statusCode, list.body).toBe(200);
     expect(list.json()).toEqual({ w2s: [] });
