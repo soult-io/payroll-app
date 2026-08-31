@@ -4,6 +4,27 @@ All notable changes to this project will be documented here. Format follows
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/); versioning follows
 [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [1.9.0] - 2026-08-31
+
+### Added
+
+- Official IRS-form W-2/W-3 PDFs (PAY-19): the PAY-11 lookalike documents
+  are replaced by the **official IRS AcroForm templates** (2025 revisions,
+  bundled under `packages/documents/assets/forms/2025/` and SHA-256-pinned
+  in a year registry), filled via a rect-verified field map and **flattened
+  on render** so downloads are finished documents. The employee packet is
+  one PDF — Copies B/C/2 plus the IRS Notice/Instructions pages (Pub 1141
+  §3.1.05); the admin gets Copy D per employee for records, a print-ready
+  employee packet, and the filled official W-3. Box d carries the employee
+  ID; SSA filing stays manual via BSO (Copy A/1 are never emitted).
+- Electronic-delivery consent flow (PAY-19, Pub 1141 §2.4): employees must
+  affirmatively consent before their W-2 PDF is served — the consent
+  endpoint furnishes the required disclosures (paper-copy right, withdrawal
+  and consequences, PDF-reader requirement, Jan 31 → Oct 15 posting
+  window), withdrawal re-gates the download immediately, and both actions
+  are audited. The admin W-2 list shows per-employee delivery status and a
+  consent-independent **print packet** route for paper furnishing.
+
 ## [1.8.0] - 2026-08-30
 
 ### Added
