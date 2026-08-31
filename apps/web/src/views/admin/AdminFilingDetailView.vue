@@ -18,6 +18,7 @@ import DatePicker from "primevue/datepicker";
 import Select from "primevue/select";
 import Textarea from "primevue/textarea";
 import Skeleton from "primevue/skeleton";
+import Tag from "primevue/tag";
 import Message from "primevue/message";
 import PageHeader from "../../components/PageHeader.vue";
 import BackButton from "../../components/BackButton.vue";
@@ -457,20 +458,39 @@ onMounted(async () => {
           <Column header="Box 6 Medicare tax" style="text-align: right">
             <template #body="{ data }">{{ money(data.box6MedicareTax) }}</template>
           </Column>
-          <Column header="" style="width: 8rem">
+          <Column header="Delivery" style="width: 8rem">
             <template #body="{ data }">
-              <a
-                :href="adminFilingsApi.w2PdfUrl(data.employeeId, filing.year)"
-                target="_blank"
-                rel="noopener"
-              >
-                <Button label="W-2 PDF" icon="pi pi-download" size="small" text />
-              </a>
+              <Tag
+                :value="data.consented ? 'electronic' : 'paper'"
+                :severity="data.consented ? 'success' : 'warn'"
+              />
+            </template>
+          </Column>
+          <Column header="" style="width: 15rem">
+            <template #body="{ data }">
+              <div class="row" style="gap: 0.25rem">
+                <a
+                  :href="adminFilingsApi.w2PdfUrl(data.employeeId, filing.year)"
+                  target="_blank"
+                  rel="noopener"
+                >
+                  <Button label="Copy D" icon="pi pi-download" size="small" text />
+                </a>
+                <a
+                  :href="adminFilingsApi.w2PrintPacketUrl(data.employeeId, filing.year)"
+                  target="_blank"
+                  rel="noopener"
+                >
+                  <Button label="Print packet" icon="pi pi-print" size="small" text />
+                </a>
+              </div>
             </template>
           </Column>
         </DataTable>
         <p class="muted small" style="margin: 0">
           PDFs render on demand — SSNs and addresses are decrypted at render time and never stored.
+          Print the packet (Copies B/C/2 + instructions) for employees on paper delivery; employees
+          who consented download their own.
         </p>
       </section>
 

@@ -18,6 +18,7 @@
   },
   "dependencies": {
     "@payroll/engine": "workspace:*",
+    "pdf-lib": "^1.17.1",
     "pdfmake": "~0.3.7"
   },
   "devDependencies": {

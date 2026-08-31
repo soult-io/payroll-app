@@ -4,6 +4,10 @@
  * request 2026-08-01) — a year switcher filters the table and scopes the
  * totals line, since YTD figures are meaningless across calendar years.
  * Row navigates to detail.
+ *
+ * PAY-19: the W-2 card gates downloads on electronic-delivery consent
+ * (Pub 1141 §2.4) — disclosures + an affirmative consent button first,
+ * download buttons and a withdraw link afterwards.
  */
 import { computed, onMounted, ref, watch } from "vue";
 import { useRoute, useRouter } from "vue-router";
@@ -13,7 +17,7 @@ import Column from "primevue/column";
 import SelectButton from "primevue/selectbutton";
 import PageHeader from "../../components/PageHeader.vue";
 import EmptyState from "../../components/EmptyState.vue";
-import { myW2Api, payslipsApi, type PayslipSummary } from "../../lib/api";
+import { myW2Api, payslipsApi, type PayslipSummary, type W2ConsentStatus } from "../../lib/api";
 import { useMoney } from "../../composables/useMoney";
 import { useDates } from "../../composables/useDates";
 import { useNotify } from "../../composables/useNotify";
@@ -21,13 +25,16 @@ import { useNotify } from "../../composables/useNotify";
 const route = useRoute();
 const router = useRouter();
 const { money } = useMoney();
-const { date } = useDates();
+const { date, dateTime } = useDates();
 const notify = useNotify();
 
 const loading = ref(true);
 const payslips = ref<PayslipSummary[]>([]);
 /** PAY-11: tax years with a downloadable W-2 (empty for contractors). */
 const w2Years = ref<{ year: number; availableOn: string }[]>([]);
+/** PAY-19: electronic-delivery consent (null while unknown / not a W-2 employee). */
+const w2Consent = ref<W2ConsentStatus | null>(null);
+const consentBusy = ref(false);
 // PAY-17: the selected year is mirrored to ?year= so it survives detail → back
 // and browser-back. The default (no param) is the newest year with data.
 const selectedYear = ref<string>(typeof route.query.year === "string" ? route.query.year : "");
@@ -60,11 +67,38 @@ watch(selectedYear, (year) => {
   void router.replace({ query });
 });
 
+async function giveConsent() {
+  consentBusy.value = true;
+  try {
+    w2Consent.value = await myW2Api.consentGive();
+    notify.success("Consent recorded — your W-2s are ready to download.");
+  } catch (err) {
+    notify.error(err, "Could not record consent");
+  } finally {
+    consentBusy.value = false;
+  }
+}
+
+async function withdrawConsent() {
+  consentBusy.value = true;
+  try {
+    w2Consent.value = await myW2Api.consentWithdraw();
+    notify.success("Consent withdrawn — future W-2s will be furnished on paper.");
+  } catch (err) {
+    notify.error(err, "Could not withdraw consent");
+  } finally {
+    consentBusy.value = false;
+  }
+}
+
 onMounted(async () => {
   try {
     const [{ payslips: rows }, { w2s }] = await Promise.all([payslipsApi.list(), myW2Api.list()]);
     payslips.value = rows;
     w2Years.value = w2s;
+    if (w2s.length > 0) {
+      w2Consent.value = await myW2Api.consent();
+    }
     // A ?year= with no payslips falls back to the newest year with data.
     if (!years.value.includes(selectedYear.value)) {
       selectedYear.value = years.value[0] ?? "";
@@ -123,12 +157,35 @@ onMounted(async () => {
       <p class="muted small" style="margin: 0">
         Your annual W-2 for each year you were paid, available from January of the following year.
       </p>
-      <div v-for="w2 in w2Years" :key="w2.year" class="row" style="justify-content: space-between">
-        <span><strong>{{ w2.year }}</strong> <span class="muted small">· available since {{ date(w2.availableOn) }}</span></span>
-        <a :href="myW2Api.pdfUrl(w2.year)" target="_blank" rel="noopener">
-          <Button label="Download PDF" icon="pi pi-download" size="small" text />
-        </a>
-      </div>
+
+      <!-- PAY-19: consent gate (Pub 1141 §2.4 disclosures before consent). -->
+      <template v-if="w2Consent && !w2Consent.consented">
+        <ul class="muted small" style="margin: 0; padding-left: 1.25rem">
+          <li v-for="(d, i) in w2Consent.disclosures" :key="i">{{ d }}</li>
+        </ul>
+        <div>
+          <Button
+            label="I consent to electronic W-2 delivery"
+            icon="pi pi-check"
+            size="small"
+            :loading="consentBusy"
+            @click="giveConsent"
+          />
+        </div>
+      </template>
+
+      <template v-else-if="w2Consent?.consented">
+        <div v-for="w2 in w2Years" :key="w2.year" class="row" style="justify-content: space-between">
+          <span><strong>{{ w2.year }}</strong> <span class="muted small">· available since {{ date(w2.availableOn) }}</span></span>
+          <a :href="myW2Api.pdfUrl(w2.year)" target="_blank" rel="noopener">
+            <Button label="Download PDF" icon="pi pi-download" size="small" text />
+          </a>
+        </div>
+        <p class="muted small" style="margin: 0">
+          Receiving W-2s electronically since {{ dateTime(w2Consent.consentedAt) }} ·
+          <a href="#" @click.prevent="withdrawConsent">withdraw consent</a>
+        </p>
+      </template>
     </div>
   </div>
 </template>

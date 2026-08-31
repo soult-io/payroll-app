@@ -478,6 +478,8 @@ export async function w2InputFor(
       ssn: employee.taxId ? formatSsn(decryptField(employee.taxId, config.encryptionKey)) : null,
       address: asAddress(employee.address),
     },
+    // Box d control number = the employee ID (D5).
+    controlNumber: String(employee.id),
     box1Wages: figures.box1Wages,
     box2FederalWithheld: figures.box2FederalWithheld,
     box3SsWages: figures.box3SsWages,

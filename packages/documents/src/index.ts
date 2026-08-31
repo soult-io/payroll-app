@@ -428,13 +428,33 @@ export {
 } from "./nec-1099.js";
 
 export {
-  buildW2Doc,
-  buildW3Doc,
-  renderW2Pdf,
+  formatEin,
+  prepareW2AdminCopyD,
+  prepareW2EmployeePacket,
+  prepareW3,
+  renderW2AdminCopyD,
+  renderW2EmployeePacket,
   renderW3Pdf,
+  pdfStructure,
+  splitLegalName,
   type FormAddress,
   type W2Input,
   type W3Input,
 } from "./w2.js";
+
+export {
+  W2_ADMIN_COPIES,
+  W2_ADMIN_COPY_D_PAGES,
+  W2_EMPLOYEE_COPIES,
+  W2_EMPLOYEE_PAGES,
+  W3_CHECKBOXES,
+  W3_FIELD_MAP,
+  W3_FORM_PAGE,
+  w2FieldMap,
+  type W2Copy,
+  type W2FieldMap,
+} from "./forms/field-map-2025.js";
+
+export { templateBytes, templateYears } from "./forms/templates.js";
 
 export { renderInvoicePdf, type InvoicePdfInput } from "./invoice.js";

@@ -962,6 +962,8 @@ export interface W2FiguresRow {
   box4SsTax: number;
   box5MedicareWages: number;
   box6MedicareTax: number;
+  /** PAY-19 — active electronic-delivery consent on file. */
+  consented: boolean;
 }
 
 export interface TaxFilingRow {
@@ -1042,11 +1044,26 @@ export const adminFilingsApi = {
     ),
   w2PdfUrl: (employeeId: number, year: number) =>
     `/api/admin/annual-forms/w2/${employeeId}/pdf?year=${year}`,
+  w2PrintPacketUrl: (employeeId: number, year: number) =>
+    `/api/admin/annual-forms/w2/${employeeId}/print-packet?year=${year}`,
   w3PdfUrl: (year: number) => `/api/admin/annual-forms/w3/pdf?year=${year}`,
 };
+
+/** PAY-19 — W-2 electronic-delivery consent status (disclosures included). */
+export interface W2ConsentStatus {
+  consented: boolean;
+  consentedAt: string | null;
+  withdrawnAt: string | null;
+  disclosureVersion: string;
+  disclosures: readonly string[];
+}
 
 /** PAY-11 — employee's own W-2s (available from January of the next year). */
 export const myW2Api = {
   list: () => get<{ w2s: { year: number; availableOn: string }[] }>("/api/my/w2"),
   pdfUrl: (year: number) => `/api/my/w2/${year}/pdf`,
+  // PAY-19 — electronic-delivery consent (Pub 1141 §2.4)
+  consent: () => get<W2ConsentStatus>("/api/my/w2/consent"),
+  consentGive: () => post<W2ConsentStatus>("/api/my/w2/consent", {}),
+  consentWithdraw: () => del<W2ConsentStatus>("/api/my/w2/consent"),
 };
