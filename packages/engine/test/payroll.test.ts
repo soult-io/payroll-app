@@ -1,7 +1,12 @@
 import { describe, test, expect } from "vitest";
 
 import { round2 } from "../src/money.js";
-import { calculatePayroll, TAX_CONFIG } from "../src/payroll.js";
+import {
+  calculatePayroll,
+  effectiveFutaRate,
+  FUTA_STATUTORY_RATE,
+  TAX_CONFIG,
+} from "../src/payroll.js";
 import type { PayrollInput } from "../src/payroll.js";
 
 // Expected values below are computed BY HAND from the 2026 brackets in
@@ -203,5 +208,27 @@ describe("TAX_CONFIG sanity", () => {
 
   test("state withholding is modeled as a rate (currently 0)", () => {
     expect(TAX_CONFIG.stateWithholdingRate).toBe(0);
+  });
+});
+
+describe("effectiveFutaRate (PAY-18)", () => {
+  test("full SUTA credit nets to exactly 0.006 — no float residue", () => {
+    // 0.06 - 0.054 is 0.005999999999999997 in IEEE-754; the helper must
+    // round to NUMERIC(6,5) precision so the mirrored futa_rate is exact.
+    expect(effectiveFutaRate(0.054)).toBe(0.006);
+  });
+
+  test("no SUTA credit yields the full statutory 6% ($420/employee case)", () => {
+    expect(effectiveFutaRate(0)).toBe(FUTA_STATUTORY_RATE);
+  });
+
+  test("partial credit rounds to 5-decimal precision", () => {
+    expect(effectiveFutaRate(0.051)).toBe(0.009);
+  });
+
+  test("default configs carry the full credit and stay at 0.6% net", () => {
+    expect(TAX_CONFIG.sutaCreditRate).toBe(0.054);
+    expect(effectiveFutaRate(TAX_CONFIG.sutaCreditRate)).toBe(0.006);
+    expect(TAX_CONFIG.futaRate).toBe(effectiveFutaRate(TAX_CONFIG.sutaCreditRate));
   });
 });
