@@ -89,6 +89,26 @@ onMounted(async () => {
 
       <section class="card">
         <div class="card-head">
+          <h3>Mailing address</h3>
+          <Button label="Request change" size="small" text @click="requestChange('mailing_address')" />
+        </div>
+        <dl v-if="profile.mailingAddress" class="kv">
+          <dt>Street</dt>
+          <dd>{{ profile.mailingAddress.line1 }}<template v-if="profile.mailingAddress.line2">, {{ profile.mailingAddress.line2 }}</template></dd>
+          <dt>City</dt>
+          <dd>{{ profile.mailingAddress.city }}</dd>
+          <dt>State/Province</dt>
+          <dd>{{ profile.mailingAddress.state }}</dd>
+          <dt>ZIP/Postal code</dt>
+          <dd>{{ profile.mailingAddress.zip }}</dd>
+          <dt>Country</dt>
+          <dd>{{ profile.mailingAddress.country }}</dd>
+        </dl>
+        <p v-else class="muted">No mailing address on file — tax forms (W-2) use your home address.</p>
+      </section>
+
+      <section class="card">
+        <div class="card-head">
           <h3>Bank details</h3>
           <Button label="Request change" size="small" text @click="requestChange('bank_details')" />
         </div>

@@ -59,6 +59,7 @@ export function registerMyRoutes(app: FastifyInstance, deps: Deps): void {
         hireDate: employee.hireDate,
         status: employee.status,
         address: employee.address,
+        mailingAddress: employee.mailingAddress,
         bankDetails: bank
           ? {
               type: bank.type ?? null,

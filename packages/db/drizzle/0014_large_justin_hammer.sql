@@ -1,0 +1,3 @@
+ALTER TABLE "change_requests" DROP CONSTRAINT "change_requests_type_check";--> statement-breakpoint
+ALTER TABLE "employees" ADD COLUMN "mailing_address" jsonb;--> statement-breakpoint
+ALTER TABLE "change_requests" ADD CONSTRAINT "change_requests_type_check" CHECK ("change_requests"."request_type" IN ('address','mailing_address','w4','bank_details','legal_name','tax_id'));

@@ -21,6 +21,7 @@ const rows = computed<{ label: string; value: string }[]>(() => {
   const p = props.payload;
   switch (props.requestType) {
     case "address":
+    case "mailing_address":
       return [
         {
           label: "Street",

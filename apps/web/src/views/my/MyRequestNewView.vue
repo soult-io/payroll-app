@@ -55,6 +55,7 @@ const busy = ref(false);
 const formComponent = computed(() => {
   switch (selectedType.value) {
     case "address":
+    case "mailing_address":
       return AddressRequestForm;
     case "w4":
       return W4RequestForm;
