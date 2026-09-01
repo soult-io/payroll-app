@@ -1,0 +1,1 @@
+ALTER TABLE "tax_config" ADD COLUMN "suta_credit_rate" numeric(6, 5) DEFAULT '0.054' NOT NULL;

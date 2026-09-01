@@ -52,6 +52,8 @@ export interface SnapshotTaxConfig {
   employerMedicareRate: number;
   futaRate: number;
   futaWageCap: number;
+  /** PAY-18: configured SUTA credit; futaRate above = 6.0% − this. */
+  sutaCreditRate: number;
 }
 
 export interface SnapshotBracket {

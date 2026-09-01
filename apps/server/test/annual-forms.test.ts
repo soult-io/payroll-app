@@ -39,10 +39,12 @@ import {
   payrollEntries,
   payrollRuns,
   seedDatabase,
+  taxConfig,
   taxFilings,
   w2DeliveryConsents,
   type SeedDb,
 } from "@payroll/db";
+import { effectiveFutaRate } from "@payroll/engine";
 import { round2 } from "@payroll/engine/money";
 import { EVENT_TYPE } from "@payroll/notifications";
 import {
@@ -375,12 +377,26 @@ describe("compute940Worksheet", () => {
   it("computes all lines from frozen entries; reconciles three ways", async () => {
     const w = await compute940Worksheet(t.db, 2025);
 
+    // PAY-18: expected FUTA derives from the year's CONFIGURED SUTA credit
+    // (net rate = 6.0% − credit), never a hardcoded 0.6%.
+    const configRows = await t.db
+      .select()
+      .from(taxConfig)
+      .where(and(eq(taxConfig.jurisdiction, "federal"), eq(taxConfig.taxYear, 2025)));
+    const sutaCredit = Number(configRows[0]?.sutaCreditRate ?? 0.054);
+    const netFutaRate = effectiveFutaRate(sutaCredit);
+    expect(w.sutaCreditRate).toBe(String(sutaCredit));
+    expect(w.futaRate).toBe(String(netFutaRate));
+
     // Line 3 — total payments: 12 × $8,000 + 12 × $1,111.11.
     expect(w.line3TotalPayments).toBe("109333.32");
     // Line 7 — every fixture employee exceeds the $7,000 FUTA cap.
     expect(w.line7FutaTaxableWages).toBe("91000.00"); // 13 × 7,000
+    // Line 8/12 — line 7 × the configured net rate (5.4% credit → 0.6%).
+    const expectedLine8 = round2(Number(w.line7FutaTaxableWages) * netFutaRate).toFixed(2);
+    expect(w.line8FutaTax).toBe(expectedLine8);
     expect(w.line8FutaTax).toBe("546.00"); // 91,000 × 0.6%
-    expect(w.line12TotalFutaTax).toBe("546.00"); // full state credit, no reduction
+    expect(w.line12TotalFutaTax).toBe(expectedLine8); // no further reduction
 
     // Frozen-entry truth (accrued liability): the DB sum of employer_futa.
     // 12 × 42.00 (capped month 1) + the rounding employee's 42.02.

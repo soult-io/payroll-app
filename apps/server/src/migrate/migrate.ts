@@ -45,7 +45,12 @@ import {
   taxConfig,
   w4Elections,
 } from "@payroll/db";
-import { calculatePayroll, type PayrollResult, type TaxConfig } from "@payroll/engine";
+import {
+  calculatePayroll,
+  FUTA_STATUTORY_RATE,
+  type PayrollResult,
+  type TaxConfig,
+} from "@payroll/engine";
 import { round2 } from "@payroll/engine/money";
 import type { Db } from "../db.js";
 import {
@@ -237,6 +242,8 @@ function toEngineConfig(
     employerMedicareRate: Number(cfg.employer_medicare_rate),
     futaRate: Number(cfg.futa_rate),
     futaWageCap: Number(cfg.futa_wage_cap),
+    // Legacy rows predate PAY-18: the credit is the residual vs statutory.
+    sutaCreditRate: Math.round((FUTA_STATUTORY_RATE - Number(cfg.futa_rate)) * 100_000) / 100_000,
   };
 }
 
@@ -255,6 +262,8 @@ function toSnapshotTaxConfig(cfg: SourceData["taxConfig"][number]): SnapshotTaxC
     employerMedicareRate: Number(cfg.employer_medicare_rate),
     futaRate: Number(cfg.futa_rate),
     futaWageCap: Number(cfg.futa_wage_cap),
+    // Legacy rows predate PAY-18: the credit is the residual vs statutory.
+    sutaCreditRate: Math.round((FUTA_STATUTORY_RATE - Number(cfg.futa_rate)) * 100_000) / 100_000,
   };
 }
 

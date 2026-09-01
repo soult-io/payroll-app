@@ -48,6 +48,7 @@ async function seedTaxConfig(db: SeedDb, config: TaxConfig): Promise<void> {
       employerMedicareRate: String(config.employerMedicareRate),
       futaRate: String(config.futaRate),
       futaWageCap: String(config.futaWageCap),
+      sutaCreditRate: String(config.sutaCreditRate),
     })
     .onConflictDoNothing({ target: [taxConfig.jurisdiction, taxConfig.taxYear] });
 

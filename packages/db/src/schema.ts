@@ -173,8 +173,19 @@ export const taxConfig = pgTable(
     stateWithholdingRate: rate("state_withholding_rate").notNull().default("0"),
     employerSocialSecurityRate: rate("employer_social_security_rate").notNull(),
     employerMedicareRate: rate("employer_medicare_rate").notNull(),
+    /**
+     * Net FUTA rate applied by payroll runs (statutory 6.0% − suta_credit_rate;
+     * mirrored at write time so issued-run snapshots stay the accrual truth).
+     */
     futaRate: rate("futa_rate").notNull(),
     futaWageCap: money("futa_wage_cap").notNull(),
+    /**
+     * PAY-18: SUTA credit against the statutory 6.0% FUTA rate. 0.054 = full
+     * credit (employer pays state unemployment); 0 = no SUTA paid → 6.0% net;
+     * a partial value covers credit-reduction states without a schema change.
+     * The 940 worksheet computes from THIS field.
+     */
+    sutaCreditRate: rate("suta_credit_rate").notNull().default("0.054"),
   },
   (t) => [unique("tax_config_jurisdiction_year_uniq").on(t.jurisdiction, t.taxYear)],
 );

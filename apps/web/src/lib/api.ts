@@ -270,8 +270,11 @@ export interface TaxConfigRow {
   stateWithholdingRate: string;
   employerSocialSecurityRate: string;
   employerMedicareRate: string;
+  /** Net FUTA rate applied by runs — mirrored from sutaCreditRate (PAY-18). */
   futaRate: string;
   futaWageCap: string;
+  /** Configured SUTA credit; net FUTA = 6.0% − this (PAY-18). */
+  sutaCreditRate: string;
 }
 
 export interface TaxBracketRow {
@@ -939,6 +942,9 @@ export interface Worksheet941 {
 export interface Worksheet940 {
   form: "940";
   year: number;
+  /** PAY-18 rate assumption — absent on worksheets frozen before v1.11. */
+  sutaCreditRate?: string;
+  futaRate?: string;
   line3TotalPayments: string;
   line7FutaTaxableWages: string;
   line8FutaTax: string;

@@ -37,6 +37,25 @@ export interface TaxConfig {
   employerMedicareRate: number;
   futaRate: number;
   futaWageCap: number;
+  /**
+   * SUTA credit claimed against the statutory FUTA rate (PAY-18). 0.054 =
+   * the standard full credit (employer pays state unemployment insurance);
+   * 0 = no SUTA paid → the full 6.0% applies. Credit-reduction states are a
+   * partial value (e.g. 0.051 → 0.9% net).
+   */
+  sutaCreditRate: number;
+}
+
+/** Statutory FUTA rate (IRC §3301) — before any SUTA credit (§3302). */
+export const FUTA_STATUTORY_RATE = 0.06;
+
+/**
+ * Net FUTA rate for a year: statutory minus the configured SUTA credit,
+ * rounded to NUMERIC(6,5) precision so 0.06 − 0.054 is exactly 0.006 (never
+ * the float 0.005999…).
+ */
+export function effectiveFutaRate(sutaCreditRate: number): number {
+  return Math.round((FUTA_STATUTORY_RATE - sutaCreditRate) * 100_000) / 100_000;
 }
 
 export const TAX_CONFIG: TaxConfig = {
@@ -61,6 +80,7 @@ export const TAX_CONFIG: TaxConfig = {
   employerMedicareRate: 0.0145,
   futaRate: 0.006,
   futaWageCap: 7_000,
+  sutaCreditRate: 0.054,
 };
 
 /**
@@ -92,6 +112,7 @@ export const TAX_CONFIG_2025: TaxConfig = {
   employerMedicareRate: 0.0145,
   futaRate: 0.006,
   futaWageCap: 7_000,
+  sutaCreditRate: 0.054,
 };
 
 /**

@@ -162,7 +162,15 @@ const worksheet940Lines = computed<WorksheetLine[]>(() => {
       : `Liability crossed $500 in Q${w.depositThresholdCrossedQuarter} — deposit was due by ${date(
           w.depositDueBy,
         )} (EFTPS)`;
+  // PAY-18: the rate assumption is never silent. Worksheets frozen before
+  // v1.11 lack the rate fields — they were computed at the full 5.4% credit.
+  const netRate = Number(w.futaRate ?? "0.006") * 100;
+  const rateAssumption =
+    w.sutaCreditRate !== undefined
+      ? `6.0% statutory − ${Number(w.sutaCreditRate) * 100}% SUTA credit = ${netRate}% net (tax_config, ${w.year})`
+      : "6.0% statutory − 5.4% SUTA credit = 0.6% net (assumed — worksheet predates the rate fields)";
   return [
+    { line: "—", label: "FUTA rate assumption", value: rateAssumption },
     { line: "3", label: "Total payments to all employees", value: money(w.line3TotalPayments) },
     {
       line: "7",
@@ -171,7 +179,7 @@ const worksheet940Lines = computed<WorksheetLine[]>(() => {
     },
     {
       line: "8",
-      label: "FUTA tax before adjustments (line 7 × 0.6%)",
+      label: `FUTA tax before adjustments (line 7 × ${netRate}%)`,
       value: money(w.line8FutaTax),
     },
     { line: "12", label: "Total FUTA tax after adjustments", value: money(w.line12TotalFutaTax) },

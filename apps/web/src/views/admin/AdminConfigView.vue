@@ -46,7 +46,7 @@ const SCALAR_FIELDS: ScalarField[] = [
   { key: "stateWithholdingRate", label: "State withholding rate", kind: "rate" },
   { key: "employerSocialSecurityRate", label: "Social Security rate (ER)", kind: "rate" },
   { key: "employerMedicareRate", label: "Medicare rate (ER)", kind: "rate" },
-  { key: "futaRate", label: "FUTA rate", kind: "rate" },
+  { key: "sutaCreditRate", label: "FUTA SUTA credit rate", kind: "rate" },
   { key: "futaWageCap", label: "FUTA wage cap", kind: "money" },
 ];
 
@@ -78,6 +78,16 @@ const yearOptions = computed(() => {
   const current = new Date().getFullYear();
   const years = new Set<number>([...availableYears.value, current, current + 1]);
   return [...years].sort((a, b) => b - a).map((y) => ({ label: String(y), value: y }));
+});
+
+/**
+ * PAY-18: the SUTA credit is what's configured; the net FUTA rate shown on
+ * Form 940 line 8 and accrued per paycheck is 6.0% − credit.
+ */
+const netFutaRate = computed(() => {
+  const credit = scalars.value["sutaCreditRate"];
+  if (credit === null || credit === undefined || Number.isNaN(credit)) return null;
+  return Math.round((6 - credit) * 1000) / 1000;
 });
 
 function fillTaxForm(year: number) {
@@ -368,6 +378,11 @@ onMounted(() => {
                   />
                 </div>
               </div>
+              <p v-if="netFutaRate !== null" class="muted small" style="margin-top: -0.5rem">
+                Net FUTA rate = 6.0% statutory − SUTA credit = <strong>{{ netFutaRate }}%</strong>
+                (Form 940 line 8 and per-paycheck accrual). Use 0% credit when no state
+                unemployment insurance is paid.
+              </p>
 
               <h3>Withholding brackets</h3>
               <div class="table-scroll">

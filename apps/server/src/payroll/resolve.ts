@@ -122,6 +122,7 @@ export async function resolveTaxConfig(
       employerMedicareRate: Number(configRow.employerMedicareRate),
       futaRate: Number(configRow.futaRate),
       futaWageCap: Number(configRow.futaWageCap),
+      sutaCreditRate: Number(configRow.sutaCreditRate),
     },
     brackets: bracketRows.map((b) => ({
       min: Number(b.minAmount),
