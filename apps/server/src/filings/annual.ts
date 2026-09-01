@@ -30,6 +30,7 @@ import {
   taxFilings,
 } from "@payroll/db";
 import { round2 } from "@payroll/engine/money";
+import { effectiveFutaRate } from "@payroll/engine";
 import type { FormAddress, W2Input, W3Input } from "@payroll/documents";
 import {
   EVENT_TYPE,
@@ -75,7 +76,7 @@ export function isW2Available(year: number, today: string = todayIso()): boolean
 async function federalCaps(
   db: Db,
   year: number,
-): Promise<{ ssWageCap: number; futaRate: number; futaWageCap: number }> {
+): Promise<{ ssWageCap: number; futaRate: number; futaWageCap: number; sutaCreditRate: number }> {
   const rows = await db
     .select()
     .from(taxConfig)
@@ -84,10 +85,14 @@ async function federalCaps(
   const row = rows[0];
   // Fallback = engine defaults; in practice a year with issued runs always
   // has a tax_config row (generation requires it).
+  const sutaCreditRate = Number(row?.sutaCreditRate ?? 0.054);
   return {
     ssWageCap: Number(row?.socialSecurityWageCap ?? 176_100),
-    futaRate: Number(row?.futaRate ?? 0.006),
+    // PAY-18: the net FUTA rate derives from the configured SUTA credit
+    // (0.06 − credit), never from the legacy mirrored futa_rate column.
+    futaRate: effectiveFutaRate(sutaCreditRate),
     futaWageCap: Number(row?.futaWageCap ?? 7_000),
+    sutaCreditRate,
   };
 }
 
@@ -127,11 +132,15 @@ async function perEmployeeSums(db: Db, year: number): Promise<Map<number, Record
 export interface Worksheet940 {
   form: "940";
   year: number;
+  /** SUTA credit rate configured for the year (PAY-18) — the rate assumption. */
+  sutaCreditRate: string;
+  /** Net FUTA rate used: statutory 6.0% − sutaCreditRate. */
+  futaRate: string;
   /** Line 3 — total payments to all employees (gross). */
   line3TotalPayments: string;
   /** Line 7 — total taxable FUTA wages (first $7,000 per employee). */
   line7FutaTaxableWages: string;
-  /** Line 8 — FUTA tax before adjustments (line 7 × rate; full state credit). */
+  /** Line 8 — FUTA tax before adjustments (line 7 × net rate). */
   line8FutaTax: string;
   /** Line 12 — total FUTA tax after adjustments (no credit reduction). */
   line12TotalFutaTax: string;
@@ -156,8 +165,10 @@ export interface Worksheet940 {
  * taxable wages follow the statutory per-employee $7,000 cap; the resulting
  * tax is reconciled to the cent against the sum of frozen employer_futa
  * entries (per-paycheck rounding delta documented, same doctrine as the
- * 941's line 7). Full state credit assumed — the company state is not a
- * credit-reduction state.
+ * 941's line 7). The net FUTA rate is 6.0% − the year's configured SUTA
+ * credit (PAY-18): 5.4% credit → 0.6%; no SUTA paid → 6.0%; a partial
+ * credit covers credit-reduction states. The assumption is recorded on the
+ * worksheet (sutaCreditRate/futaRate) so a wrong assumption is never silent.
  */
 export async function compute940Worksheet(db: Db, year: number): Promise<Worksheet940> {
   const caps = await federalCaps(db, year);
@@ -171,7 +182,7 @@ export async function compute940Worksheet(db: Db, year: number): Promise<Workshe
     ),
   );
   const line8 = round2(line7 * caps.futaRate);
-  const line12 = line8; // full state credit, no credit reduction
+  const line12 = line8; // credit already netted in the rate; no further reduction
 
   // Frozen-entry truth + the quarterly $500 deposit-liability check: sum the
   // employer_futa entries by pay quarter (entries are the validated truth,
@@ -216,6 +227,8 @@ export async function compute940Worksheet(db: Db, year: number): Promise<Workshe
   return {
     form: "940",
     year,
+    sutaCreditRate: String(caps.sutaCreditRate),
+    futaRate: String(caps.futaRate),
     line3TotalPayments: toMoney(line3),
     line7FutaTaxableWages: toMoney(line7),
     line8FutaTax: toMoney(line8),

@@ -16,6 +16,7 @@ import {
   taxConfig,
   w4Elections,
 } from "@payroll/db";
+import { effectiveFutaRate } from "@payroll/engine";
 import type { Db } from "../db.js";
 import type { AppConfig } from "../config.js";
 import type { Guards } from "../plugins/guards.js";
@@ -381,7 +382,12 @@ export function registerAdminPayrollRoutes(app: FastifyInstance, deps: AdminPayr
       stateWithholdingRate: z.number().min(0).max(1).default(0),
       employerSocialSecurityRate: z.number().min(0).max(1),
       employerMedicareRate: z.number().min(0).max(1),
-      futaRate: z.number().min(0).max(1),
+      /**
+       * PAY-18: the SUTA credit is the configured input; the net FUTA rate
+       * (6.0% − credit) is derived and mirrored into futa_rate so payroll
+       * runs accrue the same rate the 940 worksheet computes with.
+       */
+      sutaCreditRate: z.number().min(0).max(0.06),
       futaWageCap: z.number().min(0),
     });
     const body = z
@@ -424,8 +430,9 @@ export function registerAdminPayrollRoutes(app: FastifyInstance, deps: AdminPayr
       stateWithholdingRate: String(c.stateWithholdingRate),
       employerSocialSecurityRate: String(c.employerSocialSecurityRate),
       employerMedicareRate: String(c.employerMedicareRate),
-      futaRate: String(c.futaRate),
+      futaRate: String(effectiveFutaRate(c.sutaCreditRate)),
       futaWageCap: String(c.futaWageCap),
+      sutaCreditRate: String(c.sutaCreditRate),
     };
     const upserted = await db
       .insert(taxConfig)

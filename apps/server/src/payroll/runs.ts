@@ -225,6 +225,7 @@ export async function generateDraft(
         employerMedicareRate: tax.config.employerMedicareRate,
         futaRate: tax.config.futaRate,
         futaWageCap: tax.config.futaWageCap,
+        sutaCreditRate: tax.config.sutaCreditRate,
       };
 
       const periodAmount = Number(comp.periodAmount);
