@@ -3,7 +3,7 @@
  *
  * Used by BOTH the web form and the server API so a payload is validated
  * identically on both sides. Requestable field groups (D7 + spec 11): address,
- * w4, bank_details, legal_name, tax_id. The tax_id payload is encrypted at
+ * mailing_address, w4, bank_details, legal_name, tax_id. The tax_id payload is encrypted at
  * rest inside change_requests.payload — the JSONB stores only ciphertext.
  */
 
@@ -99,11 +99,19 @@ export type TaxIdPayload = z.infer<typeof taxIdPayload>;
 
 export const changeRequestPayloads = {
   address: addressPayload,
+  mailing_address: addressPayload,
   w4: w4Payload,
   bank_details: bankDetailsPayload,
   legal_name: legalNamePayload,
   tax_id: taxIdPayload,
 } as const;
 
-export const changeRequestType = z.enum(["address", "w4", "bank_details", "legal_name", "tax_id"]);
+export const changeRequestType = z.enum([
+  "address",
+  "mailing_address",
+  "w4",
+  "bank_details",
+  "legal_name",
+  "tax_id",
+]);
 export type ChangeRequestType = z.infer<typeof changeRequestType>;

@@ -240,6 +240,14 @@ export async function approveRequest(
           .where(eq(employees.id, employee.id));
         break;
       }
+      case "mailing_address": {
+        before = { mailingAddress: employee.mailingAddress };
+        await tx
+          .update(employees)
+          .set({ mailingAddress: payload, updatedAt: new Date() })
+          .where(eq(employees.id, employee.id));
+        break;
+      }
       case "bank_details": {
         before = { bankDetails: employee.bankDetails }; // stored form (encrypted) — safe in audit
         const encrypted = payloadForStorage("bank_details", payload, config.encryptionKey);
@@ -305,6 +313,11 @@ export async function approveRequest(
         decidedBy: input.adminId,
         decidedAt: now,
         appliedAt: now,
+        // The row carries the APPLIED effective date (the override when one was
+        // given) — it is the effective-dated history source for address
+        // resolution (PAY-20). The originally requested date is preserved in
+        // the audit event below.
+        effectiveFrom,
         updatedAt: now,
       })
       .where(eq(changeRequests.id, request.id))
@@ -320,7 +333,10 @@ export async function approveRequest(
         applied: after,
         effectiveFrom,
         ...(input.effectiveFromOverride
-          ? { effectiveFromOverride: input.effectiveFromOverride }
+          ? {
+              effectiveFromOverride: input.effectiveFromOverride,
+              requestedEffectiveFrom: request.effectiveFrom,
+            }
           : {}),
       },
     });

@@ -22,7 +22,13 @@ export interface Address {
 
 export type RunStatus = "draft" | "awaiting_approval" | "approved" | "issued" | "void";
 export type RequestStatus = "pending" | "approved" | "denied" | "withdrawn";
-export type ChangeRequestType = "address" | "w4" | "bank_details" | "legal_name" | "tax_id";
+export type ChangeRequestType =
+  | "address"
+  | "mailing_address"
+  | "w4"
+  | "bank_details"
+  | "legal_name"
+  | "tax_id";
 
 export interface PayslipSummary {
   publicId: string;
@@ -173,6 +179,7 @@ export interface MyProfile {
   hireDate: string;
   status: string;
   address: Address | null;
+  mailingAddress: Address | null;
   bankDetails: {
     type: string | null;
     routingMasked: string | null;
@@ -300,6 +307,7 @@ export interface AdminEmployeeDetail {
   terminationDate: string | null;
   status: string;
   address: Address | null;
+  mailingAddress: Address | null;
   dateOfBirth: string | null;
   /** Presence flag only (spec 11) — the TIN itself never reaches the browser. */
   hasTaxId: boolean;
@@ -575,6 +583,14 @@ export const adminEmployeesApi = {
   /** Spec 11 (D20a): admin direct-set of the employee TIN (write-only). */
   setTaxId: (employeeId: number, input: { taxId: string }) =>
     patch<{ employee: AdminEmployeeDetail }>(`/api/admin/employees/${employeeId}`, input),
+  /**
+   * PAY-20: admin direct-set of the mailing address (effective-dated; writes
+   * the same approved change-request history row as an approved request).
+   */
+  setMailingAddress: (
+    employeeId: number,
+    input: { mailingAddress: Address; effectiveFrom?: string },
+  ) => patch<{ employee: AdminEmployeeDetail }>(`/api/admin/employees/${employeeId}`, input),
 };
 
 export const adminUsersApi = {

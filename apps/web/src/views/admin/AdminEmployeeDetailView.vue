@@ -62,6 +62,63 @@ const tinDialog = ref(false);
 const tinBusy = ref(false);
 const tinValue = ref("");
 
+// PAY-20: admin direct-set of the mailing address (effective-dated; recorded
+// as an already-approved change request so W-2 as-of resolution stays correct).
+const mailDialog = ref(false);
+const mailBusy = ref(false);
+const mailForm = ref({
+  line1: "",
+  line2: "",
+  city: "",
+  state: "",
+  zip: "",
+  country: "US",
+  effectiveFrom: new Date(),
+});
+
+function openMailingDialog() {
+  const current = employee.value?.mailingAddress;
+  mailForm.value = {
+    line1: current?.line1 ?? "",
+    line2: current?.line2 ?? "",
+    city: current?.city ?? "",
+    state: current?.state ?? "",
+    zip: current?.zip ?? "",
+    country: current?.country ?? "US",
+    effectiveFrom: new Date(),
+  };
+  mailDialog.value = true;
+}
+
+async function saveMailingAddress() {
+  const effectiveFrom = toIso(mailForm.value.effectiveFrom);
+  if (!effectiveFrom) return;
+  mailBusy.value = true;
+  try {
+    await adminEmployeesApi.setMailingAddress(employeeId, {
+      mailingAddress: {
+        line1: mailForm.value.line1.trim(),
+        ...(mailForm.value.line2.trim() ? { line2: mailForm.value.line2.trim() } : {}),
+        city: mailForm.value.city.trim(),
+        state: mailForm.value.state.trim(),
+        zip: mailForm.value.zip.trim(),
+        country: mailForm.value.country.trim(),
+      },
+      effectiveFrom,
+    });
+    notify.success(
+      "Mailing address saved",
+      "Recorded effective-dated; W-2s use it from that date.",
+    );
+    mailDialog.value = false;
+    await load();
+  } catch (err) {
+    notify.error(err, "Could not save the mailing address");
+  } finally {
+    mailBusy.value = false;
+  }
+}
+
 const compDialog = ref(false);
 const compBusy = ref(false);
 const compForm = ref({
@@ -297,6 +354,22 @@ onMounted(load);
                 </template>
                 <span v-else>—</span>
               </dd>
+              <dt>Mailing address</dt>
+              <dd>
+                <template v-if="employee.mailingAddress">
+                  {{ employee.mailingAddress.line1 }}<template v-if="employee.mailingAddress.line2">, {{ employee.mailingAddress.line2 }}</template>,
+                  {{ employee.mailingAddress.city }}, {{ employee.mailingAddress.state }} {{ employee.mailingAddress.zip }},
+                  {{ employee.mailingAddress.country }}
+                </template>
+                <span v-else>— (W-2 uses the home address)</span>
+                <Button
+                  :label="employee.mailingAddress ? 'Edit' : 'Set'"
+                  text
+                  size="small"
+                  icon="pi pi-envelope"
+                  @click="openMailingDialog"
+                />
+              </dd>
               <dt>Account</dt>
               <dd>
                 <template v-if="employee.user">{{ employee.user.email }} · {{ accountState.label }}</template>
@@ -400,6 +473,55 @@ onMounted(load);
         <div class="row" style="justify-content: flex-end">
           <Button label="Cancel" text severity="secondary" type="button" @click="tinDialog = false" />
           <Button type="submit" label="Save" icon="pi pi-save" :loading="tinBusy" />
+        </div>
+      </form>
+    </Dialog>
+
+    <Dialog v-model:visible="mailDialog" modal header="Set mailing address" :style="{ width: '30rem' }">
+      <form class="stack" @submit.prevent="saveMailingAddress">
+        <p class="muted small">
+          The mailing address is used on W-2s (box f) effective from the date below; before that,
+          the previous address history applies. The employee can also request this change themselves.
+        </p>
+        <div class="form-grid">
+          <div class="field" style="grid-column: 1 / -1">
+            <label for="mailLine1">Street address</label>
+            <InputText id="mailLine1" v-model="mailForm.line1" autocomplete="off" required />
+          </div>
+          <div class="field" style="grid-column: 1 / -1">
+            <label for="mailLine2">Apartment, suite, etc. (optional)</label>
+            <InputText id="mailLine2" v-model="mailForm.line2" autocomplete="off" />
+          </div>
+          <div class="field">
+            <label for="mailCity">City</label>
+            <InputText id="mailCity" v-model="mailForm.city" autocomplete="off" required />
+          </div>
+          <div class="field">
+            <label for="mailState">State / Province</label>
+            <InputText id="mailState" v-model="mailForm.state" autocomplete="off" required />
+          </div>
+          <div class="field">
+            <label for="mailZip">ZIP / Postal code</label>
+            <InputText id="mailZip" v-model="mailForm.zip" autocomplete="off" required />
+          </div>
+          <div class="field">
+            <label for="mailCountry">Country (2-letter code)</label>
+            <InputText id="mailCountry" v-model="mailForm.country" maxlength="2" required />
+          </div>
+          <div class="field">
+            <label for="mailFrom">Effective from</label>
+            <DatePicker id="mailFrom" v-model="mailForm.effectiveFrom" date-format="yy-mm-dd" required />
+          </div>
+        </div>
+        <div class="row" style="justify-content: flex-end">
+          <Button label="Cancel" text severity="secondary" type="button" @click="mailDialog = false" />
+          <Button
+            type="submit"
+            label="Save"
+            icon="pi pi-save"
+            :loading="mailBusy"
+            :disabled="!mailForm.line1.trim() || !mailForm.city.trim() || !mailForm.state.trim() || !mailForm.zip.trim() || mailForm.country.trim().length !== 2"
+          />
         </div>
       </form>
     </Dialog>

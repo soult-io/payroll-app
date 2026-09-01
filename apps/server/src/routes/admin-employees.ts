@@ -8,7 +8,8 @@
 import type { FastifyInstance } from "fastify";
 import { eq } from "drizzle-orm";
 import { z } from "zod";
-import { auditEvents, authUser, company, employees } from "@payroll/db";
+import { auditEvents, authUser, changeRequests, company, employees } from "@payroll/db";
+import { isoDate } from "@payroll/shared";
 import type { Auth } from "../auth/auth.js";
 import type { Db } from "../db.js";
 import type { AppConfig } from "../config.js";
@@ -151,16 +152,30 @@ export function registerAdminEmployeeRoutes(app: FastifyInstance, deps: Deps): v
   });
 
   /**
-   * Spec 11 (D20a): admin direct-set of the employee TIN — backfill and
+   * Spec 11 (D20a): admin direct-set of the employee TIN for backfill/
    * corrections. Same validation + encryption as the create path; write-only
    * (the directory API never returns the value, masked or otherwise) and the
    * audit event carries masked before/after only.
+   *
+   * PAY-20: the same endpoint also accepts `mailingAddress` (+ optional
+   * `effectiveFrom`, default today). A direct edit writes an ALREADY-APPROVED
+   * change_requests row plus a `change_request.approve`-shaped audit event, so
+   * the effective-dated W-2 history (change-requests/address-history.ts) sees
+   * one uniform history source regardless of which flow made the change.
    */
   app.patch("/api/admin/employees/:employeeId", { preHandler: admin }, async (req, reply) => {
     const employeeId = Number((req.params as { employeeId: string }).employeeId);
     const body = z
       .object({
-        taxId: z.string().regex(/^\d{9}$/, "tax id must be 9 digits"),
+        taxId: z
+          .string()
+          .regex(/^\d{9}$/, "tax id must be 9 digits")
+          .optional(),
+        mailingAddress: addressSchema.optional(),
+        effectiveFrom: isoDate.optional(),
+      })
+      .refine((d) => d.taxId !== undefined || d.mailingAddress !== undefined, {
+        message: "provide taxId and/or mailingAddress",
       })
       .safeParse(req.body);
     if (!body.success)
@@ -170,18 +185,56 @@ export function registerAdminEmployeeRoutes(app: FastifyInstance, deps: Deps): v
     const employee = rows[0];
     if (!employee) return reply.code(404).send({ error: "not_found" });
 
-    const encrypted = encryptField(body.data.taxId, config.encryptionKey);
-    await db
-      .update(employees)
-      .set({ taxId: encrypted, updatedAt: new Date() })
-      .where(eq(employees.id, employeeId));
-    await audit(
-      req.authUser!.id,
-      "employee.set_tax_id",
-      String(employeeId),
-      { taxIdMasked: maskLast4(employee.taxId, config.encryptionKey) },
-      { taxIdMasked: maskLast4(encrypted, config.encryptionKey) },
-    );
+    if (body.data.taxId !== undefined) {
+      const encrypted = encryptField(body.data.taxId, config.encryptionKey);
+      await db
+        .update(employees)
+        .set({ taxId: encrypted, updatedAt: new Date() })
+        .where(eq(employees.id, employeeId));
+      await audit(
+        req.authUser!.id,
+        "employee.set_tax_id",
+        String(employeeId),
+        { taxIdMasked: maskLast4(employee.taxId, config.encryptionKey) },
+        { taxIdMasked: maskLast4(encrypted, config.encryptionKey) },
+      );
+    }
+
+    if (body.data.mailingAddress !== undefined) {
+      const mailingAddress = body.data.mailingAddress;
+      const effectiveFrom = body.data.effectiveFrom ?? new Date().toISOString().slice(0, 10);
+      const now = new Date();
+      await db.transaction(async (tx) => {
+        const inserted = await tx
+          .insert(changeRequests)
+          .values({
+            employeeId,
+            requestType: "mailing_address",
+            payload: mailingAddress,
+            effectiveFrom,
+            status: "approved",
+            submittedAt: now,
+            decidedBy: req.authUser!.id,
+            decidedAt: now,
+            appliedAt: now,
+          })
+          .returning();
+        const request = inserted[0]!;
+        await tx
+          .update(employees)
+          .set({ mailingAddress, updatedAt: now })
+          .where(eq(employees.id, employeeId));
+        await tx.insert(auditEvents).values({
+          actorId: req.authUser!.id,
+          action: "change_request.approve",
+          entity: "change_request",
+          entityId: request.publicId,
+          before: { mailingAddress: employee.mailingAddress },
+          after: { applied: mailingAddress, effectiveFrom },
+        });
+      });
+    }
+
     return { employee: await employeeWithUser(employeeId) };
   });
 

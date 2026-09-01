@@ -75,6 +75,8 @@ export const employees = pgTable(
     taxId: text("tax_id"),
     /** Current address; history lives in change_requests/audit_events. */
     address: jsonb("address"),
+    /** Optional mailing address (W-2 box f); same treatment as `address`. */
+    mailingAddress: jsonb("mailing_address"),
     /** {routing,account,type} — encrypted at rest. */
     bankDetails: jsonb("bank_details"),
     hireDate: date("hire_date").notNull(),
@@ -319,7 +321,7 @@ export const changeRequests = pgTable(
   (t) => [
     check(
       "change_requests_type_check",
-      sql`${t.requestType} IN ('address','w4','bank_details','legal_name','tax_id')`,
+      sql`${t.requestType} IN ('address','mailing_address','w4','bank_details','legal_name','tax_id')`,
     ),
     check(
       "change_requests_status_check",

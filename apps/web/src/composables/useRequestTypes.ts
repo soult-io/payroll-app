@@ -13,6 +13,12 @@ export const REQUEST_TYPES: {
 }[] = [
   { value: "address", label: "Address", icon: "pi pi-home", blurb: "Update your home address" },
   {
+    value: "mailing_address",
+    label: "Mailing address",
+    icon: "pi pi-envelope",
+    blurb: "A different address for tax forms (W-2)",
+  },
+  {
     value: "w4",
     label: "Withholding (W-4)",
     icon: "pi pi-file",

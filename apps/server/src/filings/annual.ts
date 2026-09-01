@@ -38,6 +38,7 @@ import {
 } from "@payroll/notifications";
 import type { Db } from "../db.js";
 import type { AppConfig } from "../config.js";
+import { w2EmployeeAddressAt } from "../change-requests/address-history.js";
 import { decryptField } from "../crypto/field-encryption.js";
 import {
   type Deps,
@@ -470,13 +471,18 @@ export async function w2InputFor(
   const employee = rows[0];
   if (!employee) throw new FilingServiceError("not_found", `employee ${employeeId} not found`);
 
+  // Box f (PAY-20): the mailing address effective Dec 31 of the tax year,
+  // falling back to the residential address effective at the same date —
+  // both resolved through the effective-dated change-request history.
+  const boxFAddress = await w2EmployeeAddressAt(db, employeeId, year);
+
   return {
     taxYear: year,
     employer: await employerBlock(db, config),
     employee: {
       legalName: employee.legalName,
       ssn: employee.taxId ? formatSsn(decryptField(employee.taxId, config.encryptionKey)) : null,
-      address: asAddress(employee.address),
+      address: asAddress(boxFAddress),
     },
     // Box d control number = the employee ID (D5).
     controlNumber: String(employee.id),
