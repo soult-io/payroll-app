@@ -4,6 +4,32 @@ All notable changes to this project will be documented here. Format follows
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/); versioning follows
 [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [1.10.0] - 2026-09-01
+
+### Added
+
+- Effective-dated employee **mailing address** on W-2 box f (PAY-20):
+  employees gain an optional mailing address (`employees.mailing_address`),
+  and W-2 box f now renders the address effective as of **Dec 31 of the tax
+  year** — the mailing address first, falling back to the residential address
+  effective at the same date. History resolves through approved
+  change_requests (latest change with `effective_from <= as-of`, with the
+  pre-first-change value recovered from the approve audit event).
+- The mailing address joins the **change-request flow** (new
+  `mailing_address` request type, one-pending-per-employee enforced) and
+  **admin direct edit** (`PATCH /api/admin/employees/:id` with an optional
+  effective-from date, recorded as an already-approved change request so both
+  flows share one effective-dated history). Employee profile + request wizard
+  and the admin employee detail screen expose the new field. Payslips are
+  unchanged; exports stay PII-free.
+
+### Fixed
+
+- Change-request approvals with an effective-date **override** now persist
+  the applied date onto the request row (the originally requested date is
+  preserved in the audit event), so effective-dated resolution sees the date
+  the change actually took effect.
+
 ## [1.9.0] - 2026-08-31
 
 ### Added
