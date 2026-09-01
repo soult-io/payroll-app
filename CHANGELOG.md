@@ -4,6 +4,20 @@ All notable changes to this project will be documented here. Format follows
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/); versioning follows
 [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [1.11.0] - 2026-09-01
+
+### Added
+
+- Configurable per-year **FUTA SUTA credit rate** for the 940 worksheet
+  (PAY-18): `tax_config.suta_credit_rate` (NUMERIC(6,5), default 0.054 = the
+  full credit → 0.6% net) drives the Form 940 worksheet, so employers that
+  paid no SUTA can set 0 and accrue the full statutory 6.0% ($420/employee on
+  the $7,000 cap). Admins edit it under Configuration → Tax tables (audited
+  `PUT /api/admin/tax-config`); the net rate is mirrored into `futa_rate` so
+  payroll-run accrual, snapshots, and W-2s keep the existing code path, and
+  the 940 filing detail now shows the rate assumption (6.0% − credit = net).
+  Existing rows backfill to 0.054 — identical to current behavior.
+
 ## [1.10.0] - 2026-09-01
 
 ### Added
