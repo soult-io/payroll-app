@@ -636,8 +636,9 @@ describe("W-2/W-3 PDF rendering", () => {
 describe("syncAnnualFilings", () => {
   it("creates quarter-0 rows with worksheets once the year has ended", async () => {
     const sync = await syncAnnualFilings({ db: t.db, config: t.config }, { today: "2026-01-15" });
-    expect(sync.created).toBe(2); // 940 + W-2/W-3 for 2025 (2026 hasn't ended)
-    expect(sync.refreshed).toBe(2); // worksheets written on creation
+    // PAY-22: 940 + W-2/W-3 for 2025 (ended) + the in-year 940 for 2026.
+    expect(sync.created).toBe(3);
+    expect(sync.refreshed).toBe(3); // worksheets written on creation
 
     for (const formType of ["940", "w2_w3"] as const) {
       const row = await annualFilingRow(formType, 2025);
@@ -651,6 +652,13 @@ describe("syncAnnualFilings", () => {
     expect(w940.line3TotalPayments).toBe("109333.32");
     const w3 = (await annualFilingRow("w2_w3", 2025))?.worksheet as WorksheetW3;
     expect(w3.employeeCount).toBe(13);
+
+    // PAY-22: the in-progress year gets a not_started 940 (live deposit
+    // monitor) but no w2_w3 row until the year closes.
+    const inYear = await annualFilingRow("940", 2026);
+    expect(inYear?.status).toBe("not_started");
+    expect(inYear?.worksheetHash).toBe(worksheetHash(inYear?.worksheet));
+    expect(await annualFilingRow("w2_w3", 2026)).toBeUndefined();
   });
 
   it("is idempotent and refreshes when a late run issues", async () => {

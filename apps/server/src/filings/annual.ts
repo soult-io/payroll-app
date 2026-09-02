@@ -357,11 +357,16 @@ export interface AnnualSyncResult {
   refreshed: number;
 }
 
-/** Create (when missing) + refresh one annual filing row; filed rows freeze. */
+/**
+ * Create (when missing) + refresh one annual filing row; filed rows freeze.
+ * `opts.status` is the status a NEW row gets; an existing not_started row is
+ * promoted to ready when the caller says the year has closed (PAY-22).
+ */
 async function upsertAnnualFiling(
   db: Db,
   formType: "940" | "w2_w3",
   year: number,
+  opts: { status: "not_started" | "ready" },
 ): Promise<AnnualSyncResult> {
   const existing = await db
     .select()
@@ -380,23 +385,41 @@ async function upsertAnnualFiling(
         year,
         quarter: 0,
         dueDate: annualDueDate(year),
-        status: "ready",
+        status: opts.status,
         createdBy: "scheduler",
       })
       .returning();
     row = inserted[0];
     if (!row) throw new Error("tax_filings insert returned no row");
     created = 1;
+  } else if (row.status === "not_started" && opts.status === "ready") {
+    // Year closed since the row was created in-year (PAY-22): promote to
+    // ready — the same gate as the W-2 availability date (Jan 1, year + 1).
+    const updated = await db
+      .update(taxFilings)
+      .set({ status: "ready", updatedAt: new Date() })
+      .where(eq(taxFilings.id, row.id))
+      .returning();
+    row = updated[0] ?? row;
   }
   const refreshed = row.status !== "filed" && (await refreshAnnualWorksheet(db, row)) ? 1 : 0;
   return { created, refreshed };
 }
 
 /**
- * Upsert 940 + W-2/W-3 tax_filings rows for every ENDED calendar year with
- * issued payroll (quarter 0, due Jan 31 of the following year), then refresh
- * unfiled worksheets. Idempotent: the (form_type, year, quarter) unique
- * constraint is the belt.
+ * Upsert annual tax_filings rows for every calendar year with issued payroll
+ * (quarter 0, due Jan 31 of the following year), then refresh unfiled
+ * worksheets. Idempotent: the (form_type, year, quarter) unique constraint
+ * is the belt.
+ *
+ * PAY-22: the 940 row exists IN-YEAR as not_started — its live worksheet is
+ * the FUTA deposit-liability monitor (the $500 crossing quarter surfaces the
+ * moment it happens), so it cannot wait for year-end. It promotes to ready
+ * on January 1 of the following year, the same gate as W-2 availability
+ * (w2AvailableOn). The w2_w3 row intentionally stays year-close-only: W-2s
+ * are never furnished before year-end (w2InputFor / listMyW2Years /
+ * sendW2AvailableNotices all gate on Jan 1), so an in-year w2_w3 row would
+ * be an unactionable shell.
  */
 export async function syncAnnualFilings(
   deps: Deps,
@@ -411,9 +434,15 @@ export async function syncAnnualFilings(
 
   const result: AnnualSyncResult = { created: 0, refreshed: 0 };
   for (const { year } of years) {
-    if (`${year}-12-31` >= today) continue; // year not ended yet
-    for (const formType of ["940", "w2_w3"] as const) {
-      const r = await upsertAnnualFiling(db, formType, year);
+    const yearClosed = isW2Available(year, today); // today >= Jan 1 of year + 1
+    const plan: Array<{ formType: "940" | "w2_w3"; status: "not_started" | "ready" }> = yearClosed
+      ? [
+          { formType: "940", status: "ready" },
+          { formType: "w2_w3", status: "ready" },
+        ]
+      : [{ formType: "940", status: "not_started" }];
+    for (const { formType, status } of plan) {
+      const r = await upsertAnnualFiling(db, formType, year, { status });
       result.created += r.created;
       result.refreshed += r.refreshed;
     }
