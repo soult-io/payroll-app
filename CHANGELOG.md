@@ -4,6 +4,21 @@ All notable changes to this project will be documented here. Format follows
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/); versioning follows
 [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [1.11.1] - 2026-09-01
+
+### Fixed
+
+- Create the **in-progress-year 940 filing row** with a live worksheet
+  (PAY-22): `syncAnnualFilings` skipped every year whose Dec 31 hadn't
+  passed, so no 940 row existed until January — losing the FUTA
+  deposit-liability monitor in-year. The current-year 940 is now created as
+  `not_started` with a live worksheet (issued runs YTD at the year's
+  configured `suta_credit_rate`), promotes to `ready` on Jan 1 of the
+  following year (the W-2 availability gate), and its deposit-rule section
+  reflects the running YTD liability. The w2_w3 row intentionally stays
+  year-close-only (W-2s are never furnished before year-end); reminder
+  cadence is unchanged and cannot fire before the January window.
+
 ## [1.11.0] - 2026-09-01
 
 ### Added
