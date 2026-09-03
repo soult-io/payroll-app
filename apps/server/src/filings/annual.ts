@@ -516,7 +516,7 @@ export async function w2InputFor(
   // Box f (PAY-20): the mailing address effective Dec 31 of the tax year,
   // falling back to the residential address effective at the same date —
   // both resolved through the effective-dated change-request history.
-  const boxFAddress = await w2EmployeeAddressAt(db, employeeId, year);
+  const boxFAddress = await w2EmployeeAddressAt(db, employeeId, year, config.encryptionKey);
 
   return {
     taxYear: year,

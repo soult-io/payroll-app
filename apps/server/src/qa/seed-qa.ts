@@ -46,6 +46,7 @@ import type { Auth } from "../auth/auth.js";
 import { hashPassword } from "../auth/password.js";
 import type { AppConfig } from "../config.js";
 import { encryptField } from "../crypto/field-encryption.js";
+import { addressForStorage, encryptAddress } from "../crypto/address-encryption.js";
 import type { Db } from "../db.js";
 import { generateDraft, monthlyPeriod, transitionRun, type Period } from "../payroll/runs.js";
 import { syncDeposits } from "../deposits/service.js";
@@ -260,7 +261,7 @@ async function ensureEmployee(
       legalName: persona.legalName,
       hireDate: persona.hireDate,
       status: "active",
-      address: fakeAddress(persona),
+      address: encryptAddress(fakeAddress(persona), config.encryptionKey),
       taxId: enc(persona.taxId),
       bankDetails: {
         routing: enc(`00000000${persona.taxId.slice(-1)}`),
@@ -475,7 +476,7 @@ async function seedChangeRequestThread(
   employeeUserId: string,
   today: string,
 ): Promise<boolean> {
-  const { db } = deps;
+  const { db, config } = deps;
   const existing = await db
     .select({ id: changeRequests.id })
     .from(changeRequests)
@@ -494,7 +495,8 @@ async function seedChangeRequestThread(
     .values({
       employeeId: carolId,
       requestType: "address",
-      payload: QA_CHANGE_REQUEST_ADDRESS,
+      // PAY-21: ciphertext at rest, like a real employee submission.
+      payload: addressForStorage(QA_CHANGE_REQUEST_ADDRESS, config.encryptionKey),
       effectiveFrom: today,
       status: "pending",
     })

@@ -18,6 +18,7 @@
 import { and, asc, desc, eq } from "drizzle-orm";
 import { auditEvents, changeRequests, employees } from "@payroll/db";
 import type { AddressPayload } from "@payroll/shared";
+import { decryptAddress } from "../crypto/address-encryption.js";
 import type { DbLike } from "../payroll/resolve.js";
 
 export type AddressKind = "residential" | "mailing";
@@ -38,6 +39,7 @@ export async function resolveEmployeeAddressAt(
   employeeId: number,
   kind: AddressKind,
   asOf: string,
+  key: string,
 ): Promise<AddressPayload | null> {
   const employeeRows = await db
     .select({ address: employees.address, mailingAddress: employees.mailingAddress })
@@ -46,9 +48,12 @@ export async function resolveEmployeeAddressAt(
     .limit(1);
   const employee = employeeRows[0];
   if (!employee) return null;
-  const current = (
-    kind === "mailing" ? employee.mailingAddress : employee.address
-  ) as AddressPayload | null;
+  // PAY-21: every source (current field, history payload, audit before) is
+  // ciphertext at rest; decryptAddress tolerates plaintext legacy rows.
+  const current = decryptAddress(
+    kind === "mailing" ? employee.mailingAddress : employee.address,
+    key,
+  );
 
   const requestType = KIND_TO_REQUEST_TYPE[kind];
   const history = await db
@@ -68,7 +73,7 @@ export async function resolveEmployeeAddressAt(
     .orderBy(asc(changeRequests.effectiveFrom), asc(changeRequests.appliedAt));
 
   const inEffect = history.filter((r) => r.effectiveFrom <= asOf).at(-1);
-  if (inEffect) return inEffect.payload as AddressPayload;
+  if (inEffect) return decryptAddress(inEffect.payload, key);
 
   const first = history[0];
   if (!first) return current;
@@ -91,9 +96,9 @@ export async function resolveEmployeeAddressAt(
     .limit(1);
   const before = auditRows[0]?.before;
   if (before && typeof before === "object") {
-    const key = KIND_TO_BEFORE_KEY[kind];
+    const beforeKey = KIND_TO_BEFORE_KEY[kind];
     const record = before as Record<string, unknown>;
-    if (key in record) return (record[key] as AddressPayload | null) ?? null;
+    if (beforeKey in record) return decryptAddress(record[beforeKey], key);
   }
   return current;
 }
@@ -103,9 +108,10 @@ export async function w2EmployeeAddressAt(
   db: DbLike,
   employeeId: number,
   year: number,
+  key: string,
 ): Promise<AddressPayload | null> {
   const asOf = `${year}-12-31`;
-  const mailing = await resolveEmployeeAddressAt(db, employeeId, "mailing", asOf);
+  const mailing = await resolveEmployeeAddressAt(db, employeeId, "mailing", asOf, key);
   if (mailing) return mailing;
-  return resolveEmployeeAddressAt(db, employeeId, "residential", asOf);
+  return resolveEmployeeAddressAt(db, employeeId, "residential", asOf, key);
 }
