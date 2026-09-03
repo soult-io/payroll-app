@@ -45,14 +45,14 @@
     "zxcvbn": "~4.4.2"
   },
   "devDependencies": {
-    "@electric-sql/pglite": "~0.5.5",
-    "@types/node": "~26.2.0",
+    "@electric-sql/pglite": "~0.5.8",
+    "@types/node": "~26.4.0",
     "@types/nodemailer": "^8.0.1",
     "@types/pg": "^8.21.0",
     "@types/zxcvbn": "^4.4.5",
-    "@vitest/coverage-v8": "~4.1.10",
-    "tsx": "~4.23.12",
+    "@vitest/coverage-v8": "~4.1.11",
+    "tsx": "~4.23.13",
     "typescript": "~5.9.3",
-    "vitest": "~4.1.10"
+    "vitest": "~4.1.11"
   }
 }
