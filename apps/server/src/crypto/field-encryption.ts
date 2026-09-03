@@ -38,6 +38,27 @@ export function isEncrypted(value: string): boolean {
   return value.startsWith(PREFIX);
 }
 
+/**
+ * Binary siblings for bytea storage (PAY-24 filing attachments) — same
+ * AES-256-GCM, same iv|tag|ct layout as the "enc:v1:" string format, minus
+ * the prefix/base64 (the column type is self-describing).
+ */
+export function encryptBytes(plaintext: Buffer, key: string): Buffer {
+  const iv = randomBytes(12);
+  const cipher = createCipheriv("aes-256-gcm", keyBytes(key), iv);
+  const ct = Buffer.concat([cipher.update(plaintext), cipher.final()]);
+  return Buffer.concat([iv, cipher.getAuthTag(), ct]);
+}
+
+export function decryptBytes(value: Buffer, key: string): Buffer {
+  const iv = value.subarray(0, 12);
+  const tag = value.subarray(12, 28);
+  const ct = value.subarray(28);
+  const decipher = createDecipheriv("aes-256-gcm", keyBytes(key), iv);
+  decipher.setAuthTag(tag);
+  return Buffer.concat([decipher.update(ct), decipher.final()]);
+}
+
 /** "••••1234" — decrypts when needed, tolerates plaintext, never throws on shape. */
 export function maskLast4(value: string | null | undefined, key: string): string | null {
   if (!value) return null;

@@ -26,6 +26,7 @@ import StatusChip from "../../components/StatusChip.vue";
 import {
   adminFilingsApi,
   type AdjustmentInput,
+  type FilingAttachment,
   type TaxAdjustmentRow,
   type TaxFilingRow,
   type W2FiguresRow,
@@ -49,6 +50,8 @@ const filing = ref<TaxFilingRow | null>(null);
 const adjustments = ref<TaxAdjustmentRow[]>([]);
 /** PAY-11: per-employee W-2 figures for the W-2/W-3 detail (no PII). */
 const w2Rows = ref<W2FiguresRow[]>([]);
+/** PAY-24: uploaded confirmation/evidence documents (metadata only). */
+const attachments = ref<FilingAttachment[]>([]);
 
 const filed = computed(() => filing.value?.status === "filed");
 
@@ -85,6 +88,7 @@ async function load() {
     const res = await adminFilingsApi.detail(filingId);
     filing.value = res.filing;
     adjustments.value = res.adjustments;
+    attachments.value = (await adminFilingsApi.listAttachments(filingId)).attachments;
     if (res.filing.formType === "w2_w3") {
       w2Rows.value = (await adminFilingsApi.w2List(res.filing.year)).w2s;
     }
@@ -92,6 +96,39 @@ async function load() {
     notify.error(err, "Could not load the filing");
   } finally {
     loading.value = false;
+  }
+}
+
+// ------------------------------------------------------------- attachments (PAY-24)
+const attachFile = ref<File | null>(null);
+const attachBusy = ref(false);
+/** Bump to reset the native file inputs after a successful upload. */
+const attachInputKey = ref(0);
+
+function fileSize(bytes: number): string {
+  if (bytes < 1024) return `${bytes} B`;
+  if (bytes < 1024 * 1024) return `${(bytes / 1024).toFixed(1)} KB`;
+  return `${(bytes / (1024 * 1024)).toFixed(1)} MB`;
+}
+
+function onAttachPick(event: Event) {
+  attachFile.value = (event.target as HTMLInputElement).files?.[0] ?? null;
+}
+
+async function submitAttachment() {
+  const file = attachFile.value;
+  if (!file) return;
+  attachBusy.value = true;
+  try {
+    await adminFilingsApi.uploadAttachment(filingId, file);
+    notify.success("Attachment uploaded", file.name);
+    attachFile.value = null;
+    attachInputKey.value += 1;
+    await load();
+  } catch (err) {
+    notify.error(err, "Could not upload the attachment");
+  } finally {
+    attachBusy.value = false;
   }
 }
 
@@ -238,11 +275,17 @@ const fileBusy = ref(false);
 const filedOn = ref<Date | null>(new Date());
 const filingMethod = ref<string>("letterstream");
 const filingReference = ref("");
+/** PAY-24: optional confirmation PDF uploaded alongside the filing record. */
+const filedAttachment = ref<File | null>(null);
 const methodOptions = [
   { label: "Mail (Letterstream)", value: "letterstream" },
   { label: "E-file (IRS authorized provider)", value: "efile" },
   { label: "Other", value: "other" },
 ];
+
+function onFiledAttachmentPick(event: Event) {
+  filedAttachment.value = (event.target as HTMLInputElement).files?.[0] ?? null;
+}
 
 async function submitFiled() {
   const iso = toIso(filedOn.value);
@@ -254,7 +297,18 @@ async function submitFiled() {
       filingMethod: filingMethod.value,
       filingReference: filingReference.value.trim(),
     });
+    // PAY-24: upload the confirmation document right after recording.
+    const file = filedAttachment.value;
+    if (file) {
+      try {
+        await adminFilingsApi.uploadAttachment(filingId, file);
+      } catch (err) {
+        notify.error(err, "Filing recorded — but the confirmation PDF upload failed");
+      }
+    }
     notify.success("Filing recorded", `${periodLabel()} marked as filed.`);
+    filedAttachment.value = null;
+    attachInputKey.value += 1;
     fileDialog.value = false;
     await load();
   } catch (err) {
@@ -507,6 +561,57 @@ onMounted(async () => {
         </p>
       </section>
 
+      <section class="card table-scroll stack">
+        <div class="row" style="justify-content: space-between; align-items: center">
+          <h3 style="margin: 0">Attachments</h3>
+          <div class="row" style="gap: 0.5rem; align-items: center">
+            <input
+              :key="attachInputKey"
+              type="file"
+              accept="application/pdf,.pdf"
+              aria-label="Confirmation PDF"
+              @change="onAttachPick"
+            />
+            <Button
+              label="Upload"
+              icon="pi pi-upload"
+              size="small"
+              :loading="attachBusy"
+              :disabled="!attachFile"
+              @click="submitAttachment"
+            />
+          </div>
+        </div>
+        <p class="muted small" style="margin: 0">
+          Confirmation documents from the filing authority — e.g. the SSA BSO receipt for the
+          W-2/W-3 submission or an IRS e-file acknowledgment. Stored encrypted; every download is
+          audit-logged.
+        </p>
+        <DataTable :value="attachments" data-key="id" striped-rows>
+          <template #empty>
+            <p class="muted">No attachments yet — upload the confirmation PDF after filing.</p>
+          </template>
+          <Column field="filename" header="File" />
+          <Column header="Size" style="width: 6rem; text-align: right">
+            <template #body="{ data }">{{ fileSize(data.sizeBytes) }}</template>
+          </Column>
+          <Column header="Uploaded" style="width: 9rem">
+            <template #body="{ data }">{{ date(data.createdAt) }}</template>
+          </Column>
+          <Column header="" style="width: 7rem">
+            <template #body="{ data }">
+              <a
+                :href="adminFilingsApi.attachmentDownloadUrl(filing.id, data.id)"
+                target="_blank"
+                rel="noopener"
+              >
+                <Button label="View" icon="pi pi-download" size="small" text />
+              </a>
+            </template>
+          </Column>
+        </DataTable>
+      </section>
+
       <section v-if="worksheet941" class="card stack">
         <div class="row" style="justify-content: space-between">
           <h3 style="margin: 0">Adjustments &amp; notices</h3>
@@ -570,6 +675,17 @@ onMounted(async () => {
           <div class="field">
             <label for="filingReference">Reference (e.g. Letterstream Job ID)</label>
             <InputText id="filingReference" v-model="filingReference" maxlength="100" />
+          </div>
+          <div class="field">
+            <label for="filedAttachment">Confirmation PDF (optional)</label>
+            <input
+              id="filedAttachment"
+              :key="`filed-${attachInputKey}`"
+              type="file"
+              accept="application/pdf,.pdf"
+              @change="onFiledAttachmentPick"
+            />
+            <small class="muted">e.g. the SSA BSO receipt or the e-file acknowledgment.</small>
           </div>
           <div class="row dialog-actions">
             <Button label="Cancel" text severity="secondary" @click="fileDialog = false" />

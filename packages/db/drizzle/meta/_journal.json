@@ -113,6 +113,13 @@
       "when": 1788282156215,
       "tag": "0015_strange_wendigo",
       "breakpoints": true
+    },
+    {
+      "idx": 16,
+      "version": "7",
+      "when": 1788477976222,
+      "tag": "0016_perpetual_proteus",
+      "breakpoints": true
     }
   ]
 }

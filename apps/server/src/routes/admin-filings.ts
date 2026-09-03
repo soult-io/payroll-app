@@ -28,6 +28,12 @@ import {
   setFractionsOfCents,
   updateAdjustment,
 } from "../filings/service.js";
+import {
+  addFilingAttachment,
+  listFilingAttachments,
+  MAX_ATTACHMENT_BYTES,
+  readFilingAttachment,
+} from "../filings/attachments.js";
 
 interface Deps {
   db: Db;
@@ -225,4 +231,77 @@ export function registerAdminFilingRoutes(app: FastifyInstance, deps: Deps): voi
       return serviceError(err, reply);
     }
   });
+
+  // ---------------------------------------------------------------------
+  // PAY-24: filing attachments (confirmation/evidence PDFs). Raw-body
+  // upload (application/pdf parser below — no multipart dependency);
+  // admin-only read + write; bytes are AES-256-GCM ciphertext at rest.
+  // ---------------------------------------------------------------------
+
+  if (!app.hasContentTypeParser("application/pdf")) {
+    app.addContentTypeParser(
+      "application/pdf",
+      { parseAs: "buffer", bodyLimit: MAX_ATTACHMENT_BYTES },
+      (_req, body, done) => done(null, body),
+    );
+  }
+
+  app.get("/api/admin/tax-filings/:id/attachments", { preHandler: admin }, async (req, reply) => {
+    const id = intParam((req.params as { id: string }).id);
+    if (!id) return reply.code(400).send({ error: "invalid_id" });
+    try {
+      return { attachments: await listFilingAttachments(db, id) };
+    } catch (err) {
+      return serviceError(err, reply);
+    }
+  });
+
+  app.post("/api/admin/tax-filings/:id/attachments", { preHandler: admin }, async (req, reply) => {
+    const id = intParam((req.params as { id: string }).id);
+    if (!id) return reply.code(400).send({ error: "invalid_id" });
+    if (!Buffer.isBuffer(req.body)) {
+      return reply
+        .code(415)
+        .send({ error: "unsupported_media_type", message: "POST the PDF as application/pdf" });
+    }
+    const q = z.object({ filename: z.string().max(300).optional() }).safeParse(req.query);
+    if (!q.success)
+      return reply.code(400).send({ error: "invalid_query", details: q.error.issues });
+    try {
+      const attachment = await addFilingAttachment(
+        { db, config },
+        id,
+        { filename: q.data.filename ?? "confirmation.pdf", data: req.body },
+        req.authUser!.id,
+      );
+      return reply.code(201).send({ attachment });
+    } catch (err) {
+      return serviceError(err, reply);
+    }
+  });
+
+  app.get(
+    "/api/admin/tax-filings/:id/attachments/:attachmentId/download",
+    { preHandler: admin },
+    async (req, reply) => {
+      const params = req.params as { id: string; attachmentId: string };
+      const id = intParam(params.id);
+      const attachmentId = intParam(params.attachmentId);
+      if (!id || !attachmentId) return reply.code(400).send({ error: "invalid_id" });
+      try {
+        const { filename, data } = await readFilingAttachment(
+          { db, config },
+          id,
+          attachmentId,
+          req.authUser!.id,
+        );
+        return reply
+          .header("content-type", "application/pdf")
+          .header("content-disposition", `inline; filename="${filename.replaceAll('"', "_")}"`)
+          .send(data);
+      } catch (err) {
+        return serviceError(err, reply);
+      }
+    },
+  );
 }

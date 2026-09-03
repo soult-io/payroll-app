@@ -1033,6 +1033,16 @@ export interface AdjustmentInput {
   note?: string;
 }
 
+/** PAY-24: a filing attachment's metadata (bytes never leave via the list). */
+export interface FilingAttachment {
+  id: number;
+  filingId: number;
+  filename: string;
+  sizeBytes: number;
+  uploadedBy: string;
+  createdAt: string;
+}
+
 export const adminFilingsApi = {
   list: (filter: { year?: number; status?: TaxFilingStatus; formType?: TaxFormType } = {}) =>
     get<{ filings: TaxFilingRow[] }>(`/api/admin/tax-filings${qs(filter)}`),
@@ -1069,6 +1079,32 @@ export const adminFilingsApi = {
   w2PrintPacketUrl: (employeeId: number, year: number) =>
     `/api/admin/annual-forms/w2/${employeeId}/print-packet?year=${year}`,
   w3PdfUrl: (year: number) => `/api/admin/annual-forms/w3/pdf?year=${year}`,
+  // PAY-24 — confirmation/evidence attachments (stored encrypted at rest)
+  listAttachments: (id: number) =>
+    get<{ attachments: FilingAttachment[] }>(`/api/admin/tax-filings/${id}/attachments`),
+  attachmentDownloadUrl: (id: number, attachmentId: number) =>
+    `/api/admin/tax-filings/${id}/attachments/${attachmentId}/download`,
+  // Raw-body upload (application/pdf) — request() is JSON-only.
+  uploadAttachment: async (id: number, file: File) => {
+    const res = await fetch(
+      `/api/admin/tax-filings/${id}/attachments?filename=${encodeURIComponent(file.name)}`,
+      { method: "POST", headers: { "content-type": "application/pdf" }, body: file },
+    );
+    if (!res.ok) {
+      if (res.status === 401) notifySessionExpired();
+      let code = "request_failed";
+      let message = `Request failed (${res.status})`;
+      try {
+        const data = (await res.json()) as { error?: string; message?: string };
+        if (data.error) code = data.error;
+        if (data.message) message = data.message;
+      } catch {
+        // non-JSON error body — keep defaults
+      }
+      throw new ApiError(res.status, code, message);
+    }
+    return (await res.json()) as { attachment: FilingAttachment };
+  },
 };
 
 /** PAY-19 — W-2 electronic-delivery consent status (disclosures included). */

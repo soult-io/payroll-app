@@ -21,6 +21,7 @@ import {
   bigserial,
   boolean,
   check,
+  customType,
   date,
   index,
   inet,
@@ -811,6 +812,38 @@ export const taxAdjustments = pgTable(
     updatedAt: updatedAt(),
   },
   (t) => [index("tax_adjustments_filing_idx").on(t.filingId)],
+);
+
+/**
+ * PAY-24: confirmation/evidence documents uploaded to a tax filing (e.g. the
+ * SSA BSO receipt PDF for a W-2/W-3 submission, an IRS e-file acknowledgment,
+ * or the Letterstream proof). These are EXTERNAL record documents, so the
+ * "data is truth, PDFs on demand" rule does not apply — the file itself is
+ * stored. `data` is AES-256-GCM ciphertext (iv|tag|ct, same key as
+ * tax_id/bank_details) because confirmations can carry the EIN.
+ */
+const bytea = customType<{ data: Buffer; driverData: Buffer }>({
+  dataType() {
+    return "bytea";
+  },
+});
+
+export const filingAttachments = pgTable(
+  "filing_attachments",
+  {
+    id: serial("id").primaryKey(),
+    filingId: integer("filing_id")
+      .notNull()
+      .references(() => taxFilings.id, { onDelete: "cascade" }),
+    filename: text("filename").notNull(),
+    /** Plaintext byte size of the original upload (for display). */
+    sizeBytes: integer("size_bytes").notNull(),
+    /** AES-256-GCM ciphertext of the file bytes. */
+    data: bytea("data").notNull(),
+    uploadedBy: text("uploaded_by").notNull(),
+    createdAt: createdAt(),
+  },
+  (t) => [index("filing_attachments_filing_idx").on(t.filingId)],
 );
 
 // ---------------------------------------------------------------------------
