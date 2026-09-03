@@ -198,6 +198,52 @@ test("tax deposits: admin sees the computed schedule incl. last month (PAY-9)", 
   }
 });
 
+test("W-2/W-3 filing detail: full headers, Documents column, W-3 action placement (PAY-23)", async ({
+  browser,
+}) => {
+  test.skip(!LIVE_QA, "live-QA only — the 2025 W-2/W-3 row comes from the seeded QA history");
+  const page = await newAuthedPage(browser, QA_ADMIN);
+  try {
+    await page.goto("/admin/filings");
+    const row = page
+      .locator("tbody tr", { hasText: "W-2/W-3" })
+      .filter({ hasText: "2025" })
+      .first();
+    await expect(row).toBeVisible();
+    await row.click();
+
+    await expect(page.getByRole("heading", { name: /Forms W-2\/W-3 — 2025/ })).toBeVisible();
+
+    const w3Section = page.locator("section", {
+      has: page.getByRole("heading", { name: /W-3 transmittal totals/ }),
+    });
+    // The W-3 download belongs to the transmittal header, not the W-2 list.
+    await expect(w3Section.getByRole("button", { name: "Download W-3 PDF" })).toBeVisible();
+    await expect(page.getByRole("heading", { name: "Employee W-2s" })).toBeVisible();
+
+    // Full column titles; Delivery (status) and Documents (actions) are split.
+    const w2Table = w3Section.locator("table").last();
+    for (const label of [
+      "Wages, tips, other compensation",
+      "Federal income tax withheld",
+      "Social Security tax",
+      "Medicare tax",
+      "Delivery",
+      "Documents",
+    ]) {
+      await expect(w2Table.locator("th", { hasText: label }).first()).toBeVisible();
+    }
+    await expect(w2Table.getByRole("button", { name: "Download Copy D" }).first()).toBeVisible();
+    await expect(w2Table.getByRole("button", { name: "Print packet" }).first()).toBeVisible();
+
+    // The abbreviated double-wrapping headers are gone.
+    await expect(w2Table.getByText("fed. withheld")).toHaveCount(0);
+    await expect(w2Table.getByText("SS tax")).toHaveCount(0);
+  } finally {
+    await page.context().close();
+  }
+});
+
 test("email capture: admin test email lands in Mailpit (via /api/qa/mailbox)", async ({
   browser,
 }) => {

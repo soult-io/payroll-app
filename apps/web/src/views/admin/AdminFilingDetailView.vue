@@ -436,34 +436,37 @@ onMounted(async () => {
       </section>
 
       <section v-if="worksheetW3" class="card table-scroll stack">
-        <h3 style="margin: 0">
-          W-3 transmittal totals <StatusChip :status="filing.status" style="margin-left: 0.5rem" />
-        </h3>
+        <div class="row" style="justify-content: space-between; align-items: center">
+          <h3 style="margin: 0">
+            W-3 transmittal totals <StatusChip :status="filing.status" style="margin-left: 0.5rem" />
+          </h3>
+          <!-- PAY-23: the W-3 action belongs with the transmittal, not the W-2 list. -->
+          <a :href="adminFilingsApi.w3PdfUrl(filing.year)" target="_blank" rel="noopener">
+            <Button label="Download W-3 PDF" icon="pi pi-download" size="small" text />
+          </a>
+        </div>
         <DataTable :value="worksheetW3Lines" data-key="line" striped-rows>
           <Column field="line" header="Box" style="width: 4rem" />
           <Column field="label" header="Description" />
           <Column field="value" header="Amount" style="width: 10rem; text-align: right" />
         </DataTable>
 
-        <div class="row" style="justify-content: space-between; align-items: center">
-          <h4 style="margin: 0">Employee W-2s</h4>
-          <a :href="adminFilingsApi.w3PdfUrl(filing.year)" target="_blank" rel="noopener">
-            <Button label="Download W-3 PDF" icon="pi pi-download" size="small" text />
-          </a>
-        </div>
-        <DataTable :value="w2Rows" data-key="employeeId" striped-rows>
+        <h4 style="margin: 0">Employee W-2s</h4>
+        <!-- PAY-23: full column titles; the card scrolls horizontally instead
+             of abbreviating or double-wrapping headers. -->
+        <DataTable :value="w2Rows" data-key="employeeId" striped-rows class="w2-table">
           <template #empty><p class="muted">No W-2 employees were paid in {{ filing.year }}.</p></template>
           <Column field="legalName" header="Employee" />
-          <Column header="Box 1 wages" style="text-align: right">
+          <Column header="Wages, tips, other compensation" style="text-align: right">
             <template #body="{ data }">{{ money(data.box1Wages) }}</template>
           </Column>
-          <Column header="Box 2 fed. withheld" style="text-align: right">
+          <Column header="Federal income tax withheld" style="text-align: right">
             <template #body="{ data }">{{ money(data.box2FederalWithheld) }}</template>
           </Column>
-          <Column header="Box 4 SS tax" style="text-align: right">
+          <Column header="Social Security tax" style="text-align: right">
             <template #body="{ data }">{{ money(data.box4SsTax) }}</template>
           </Column>
-          <Column header="Box 6 Medicare tax" style="text-align: right">
+          <Column header="Medicare tax" style="text-align: right">
             <template #body="{ data }">{{ money(data.box6MedicareTax) }}</template>
           </Column>
           <Column header="Delivery" style="width: 8rem">
@@ -474,7 +477,9 @@ onMounted(async () => {
               />
             </template>
           </Column>
-          <Column header="" style="width: 15rem">
+          <!-- PAY-23: actions live in their own Documents column — "Download
+               Copy D" reads as an action, not a label. -->
+          <Column header="Documents" style="width: 17rem">
             <template #body="{ data }">
               <div class="row" style="gap: 0.25rem">
                 <a
@@ -482,7 +487,7 @@ onMounted(async () => {
                   target="_blank"
                   rel="noopener"
                 >
-                  <Button label="Copy D" icon="pi pi-download" size="small" text />
+                  <Button label="Download Copy D" icon="pi pi-download" size="small" text />
                 </a>
                 <a
                   :href="adminFilingsApi.w2PrintPacketUrl(data.employeeId, filing.year)"
@@ -704,5 +709,9 @@ onMounted(async () => {
 <style scoped>
 .dialog-actions {
   justify-content: flex-end;
+}
+/* PAY-23: full headers never wrap — the card scrolls horizontally instead. */
+.w2-table :deep(th) {
+  white-space: nowrap;
 }
 </style>
