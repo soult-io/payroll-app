@@ -4,6 +4,19 @@ All notable changes to this project will be documented here. Format follows
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/); versioning follows
 [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [1.13.0] - 2026-09-04
+
+### Added
+
+- **Filing attachments** (PAY-24): upload the filing authority's
+  confirmation/evidence PDF (SSA BSO receipt, IRS e-file acknowledgment,
+  Letterstream proof) to a tax filing — optionally right in the
+  mark-as-filed dialog, or anytime from the filing detail's new Attachments
+  card — and view/download it afterwards. Files are stored in the new
+  `filing_attachments` table (migration 0016) with AES-256-GCM encrypted
+  bytes (confirmations can carry the EIN); upload and download are
+  audit-logged; admin-only. Multiple files per filing are supported.
+
 ## [1.12.1] - 2026-09-03
 
 ### Fixed
