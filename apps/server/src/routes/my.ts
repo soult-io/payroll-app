@@ -18,6 +18,7 @@ import type { AppConfig } from "../config.js";
 import type { Guards } from "../plugins/guards.js";
 import { employeeForUser } from "../change-requests/service.js";
 import { maskLast4 } from "../crypto/field-encryption.js";
+import { decryptAddress } from "../crypto/address-encryption.js";
 import { decodeCodeHashes, encodeCodeHashes, generateBackupCodes } from "../auth/backup-codes.js";
 
 interface Deps {
@@ -58,8 +59,8 @@ export function registerMyRoutes(app: FastifyInstance, deps: Deps): void {
         employmentType: employee.employmentType,
         hireDate: employee.hireDate,
         status: employee.status,
-        address: employee.address,
-        mailingAddress: employee.mailingAddress,
+        address: decryptAddress(employee.address, key),
+        mailingAddress: decryptAddress(employee.mailingAddress, key),
         bankDetails: bank
           ? {
               type: bank.type ?? null,

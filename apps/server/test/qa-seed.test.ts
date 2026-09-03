@@ -32,6 +32,7 @@ import {
   type QaSeedSummary,
 } from "../src/qa/seed-qa.js";
 import { paymentDueSweep } from "../src/contractors/recurring.js";
+import { decryptAddress } from "../src/crypto/address-encryption.js";
 import { yearEndSummary } from "../src/contractors/service.js";
 import { resolveW4 } from "../src/payroll/resolve.js";
 import { createTestApp, type TestContext } from "./helpers.js";
@@ -126,7 +127,10 @@ describe("W-2 personas", () => {
       "Bob Fakeley",
       "Carol Mockington",
     ]);
-    const states = rows.map((r) => (r.address as { state: string }).state).sort();
+    // PAY-21: addresses are ciphertext at rest; decrypt for the state spread.
+    const states = rows
+      .map((r) => must(decryptAddress(r.address, ctx.config.encryptionKey), "address").state)
+      .sort();
     expect(states).toEqual(["IL", "TX", "WA"]);
     // Carol carries the QA employee login.
     const carol = must(
@@ -169,7 +173,10 @@ describe("W-2 personas", () => {
       )
       .limit(1);
     expect(request).toBeTruthy();
-    expect(must(request, "pending request").payload).toEqual(QA_CHANGE_REQUEST_ADDRESS);
+    // PAY-21: the seeded pending payload is ciphertext at rest.
+    expect(
+      decryptAddress(must(request, "pending request").payload, ctx.config.encryptionKey),
+    ).toEqual(QA_CHANGE_REQUEST_ADDRESS);
     const comments = await ctx.db
       .select()
       .from(changeRequestComments)

@@ -31,6 +31,7 @@ import type { Db } from "../db.js";
 import { isUniqueViolation } from "../db.js";
 import type { AppConfig } from "../config.js";
 import { encryptField, isEncrypted, maskLast4 } from "../crypto/field-encryption.js";
+import { addressForStorage } from "../crypto/address-encryption.js";
 import { companyName } from "../notify/outbox.js";
 import type { DbLike } from "../payroll/resolve.js";
 
@@ -99,13 +100,15 @@ export async function employeeForUser(db: DbLike, userId: string) {
  * the payload column too, exactly like their target fields (spec 4
  * "Sensitive-data handling" + spec 11 for tax_id). encrypt() is idempotent
  * on already-encrypted values so legacy plaintext payloads still land
- * encrypted on the target field at approval time.
+ * encrypted on the target field at approval time. PAY-21: address payloads
+ * are whole-payload encrypted (the jsonb payload column holds the ciphertext
+ * string), so the return type widens beyond a plain object.
  */
 export function payloadForStorage(
   requestType: ChangeRequestType,
   payload: Record<string, unknown>,
   key: string,
-): Record<string, unknown> {
+): unknown {
   const enc = (v: string) => (isEncrypted(v) ? v : encryptField(v, key));
   if (requestType === "bank_details") {
     const bank = payload as unknown as BankDetailsPayload;
@@ -114,6 +117,9 @@ export function payloadForStorage(
   if (requestType === "tax_id") {
     const tin = payload as unknown as TaxIdPayload;
     return { taxId: enc(tin.taxId) };
+  }
+  if (requestType === "address" || requestType === "mailing_address") {
+    return addressForStorage(payload, key);
   }
   return payload;
 }
@@ -233,18 +239,22 @@ export async function approveRequest(
 
     switch (request.requestType) {
       case "address": {
-        before = { address: employee.address };
+        before = { address: employee.address }; // stored form (encrypted) — safe in audit
+        const stored = addressForStorage(payload, config.encryptionKey);
+        after = stored;
         await tx
           .update(employees)
-          .set({ address: payload, updatedAt: new Date() })
+          .set({ address: stored, updatedAt: new Date() })
           .where(eq(employees.id, employee.id));
         break;
       }
       case "mailing_address": {
-        before = { mailingAddress: employee.mailingAddress };
+        before = { mailingAddress: employee.mailingAddress }; // stored form (encrypted)
+        const stored = addressForStorage(payload, config.encryptionKey);
+        after = stored;
         await tx
           .update(employees)
-          .set({ mailingAddress: payload, updatedAt: new Date() })
+          .set({ mailingAddress: stored, updatedAt: new Date() })
           .where(eq(employees.id, employee.id));
         break;
       }
@@ -262,7 +272,10 @@ export async function approveRequest(
         // Spec 11 (D20b): audit holds MASKED before/after only; the applied
         // value is the ciphertext from the payload (re-encrypted idempotently
         // for legacy plaintext payloads).
-        const encrypted = String(payloadForStorage("tax_id", payload, config.encryptionKey).taxId);
+        const storedTaxId = payloadForStorage("tax_id", payload, config.encryptionKey) as {
+          taxId: string;
+        };
+        const encrypted = String(storedTaxId.taxId);
         before = { taxIdMasked: maskLast4(employee.taxId, config.encryptionKey) };
         after = { taxIdMasked: maskLast4(encrypted, config.encryptionKey) };
         await tx

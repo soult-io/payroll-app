@@ -18,6 +18,7 @@ import { inviteUser, resendInvite, UserServiceError } from "../auth/users.js";
 import { requestContext } from "../auth/audit.js";
 import { toHeaders } from "../plugins/guards.js";
 import { encryptField, maskLast4 } from "../crypto/field-encryption.js";
+import { addressForStorage, decryptAddress, encryptAddress } from "../crypto/address-encryption.js";
 
 interface Deps {
   auth: Auth;
@@ -70,6 +71,10 @@ export function registerAdminEmployeeRoutes(app: FastifyInstance, deps: Deps): v
     const { taxId: _taxId, bankDetails: _bankDetails, ...safeEmployee } = employee;
     return {
       ...safeEmployee,
+      // PAY-21: addresses are ciphertext at rest; authorized admin reads get
+      // the decrypted object (decryptAddress tolerates plaintext legacy rows).
+      address: decryptAddress(employee.address, config.encryptionKey),
+      mailingAddress: decryptAddress(employee.mailingAddress, config.encryptionKey),
       // Presence flag only (spec 11 D20a) — the masked value stays server-side.
       hasTaxId: Boolean(employee.taxId),
       user: employee.userId
@@ -137,7 +142,7 @@ export function registerAdminEmployeeRoutes(app: FastifyInstance, deps: Deps): v
         preferredName: body.data.preferredName ?? null,
         employmentType: body.data.employmentType,
         hireDate: body.data.hireDate,
-        address: body.data.address ?? null,
+        address: body.data.address ? encryptAddress(body.data.address, config.encryptionKey) : null,
         // SSN is encrypted at rest the moment it enters the system.
         taxId: body.data.taxId ? encryptField(body.data.taxId, config.encryptionKey) : null,
       })
@@ -201,7 +206,10 @@ export function registerAdminEmployeeRoutes(app: FastifyInstance, deps: Deps): v
     }
 
     if (body.data.mailingAddress !== undefined) {
-      const mailingAddress = body.data.mailingAddress;
+      // PAY-21: the change_request payload, the target field, and the audit
+      // after-value all carry the stored (encrypted) form — same doctrine as
+      // the approve flow in change-requests/service.ts.
+      const stored = addressForStorage(body.data.mailingAddress, config.encryptionKey);
       const effectiveFrom = body.data.effectiveFrom ?? new Date().toISOString().slice(0, 10);
       const now = new Date();
       await db.transaction(async (tx) => {
@@ -210,7 +218,7 @@ export function registerAdminEmployeeRoutes(app: FastifyInstance, deps: Deps): v
           .values({
             employeeId,
             requestType: "mailing_address",
-            payload: mailingAddress,
+            payload: stored,
             effectiveFrom,
             status: "approved",
             submittedAt: now,
@@ -222,7 +230,7 @@ export function registerAdminEmployeeRoutes(app: FastifyInstance, deps: Deps): v
         const request = inserted[0]!;
         await tx
           .update(employees)
-          .set({ mailingAddress, updatedAt: now })
+          .set({ mailingAddress: stored, updatedAt: now })
           .where(eq(employees.id, employeeId));
         await tx.insert(auditEvents).values({
           actorId: req.authUser!.id,
@@ -230,7 +238,7 @@ export function registerAdminEmployeeRoutes(app: FastifyInstance, deps: Deps): v
           entity: "change_request",
           entityId: request.publicId,
           before: { mailingAddress: employee.mailingAddress },
-          after: { applied: mailingAddress, effectiveFrom },
+          after: { applied: stored, effectiveFrom },
         });
       });
     }

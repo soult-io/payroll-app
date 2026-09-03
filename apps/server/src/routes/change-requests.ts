@@ -32,6 +32,7 @@ import {
   type ChangeRequestRow,
 } from "../change-requests/service.js";
 import { decryptField, maskLast4 } from "../crypto/field-encryption.js";
+import { decryptAddress } from "../crypto/address-encryption.js";
 
 interface Deps {
   db: Db;
@@ -44,6 +45,12 @@ interface Deps {
  * are masked (••••1234) in every API response — never ciphertext, never clear.
  */
 function maskPayload(requestType: string, payload: unknown, key: string): unknown {
+  // PAY-21: address payloads are ciphertext strings at rest; authorized
+  // viewers (admin, or the owning employee) get the decrypted object —
+  // the same visible shape as before encryption landed.
+  if (requestType === "address" || requestType === "mailing_address") {
+    return decryptAddress(payload, key);
+  }
   if (!payload || typeof payload !== "object") return payload;
   if (requestType === "bank_details") {
     const bank = payload as Record<string, unknown>;

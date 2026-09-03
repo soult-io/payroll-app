@@ -39,6 +39,7 @@ import {
   resolveEmployeeAddressAt,
   w2EmployeeAddressAt,
 } from "../src/change-requests/address-history.js";
+import { decryptAddress, isAddressEncrypted } from "../src/crypto/address-encryption.js";
 import { w2InputFor } from "../src/filings/annual.js";
 import { createTestApp, type TestContext } from "./helpers.js";
 import { inviteAndOnboard, login, sessionHeader, TEST_PASSWORD } from "./flow-helpers.js";
@@ -185,12 +186,26 @@ afterAll(async () => {
 describe("effective-dated address resolution", () => {
   it("falls back to the current residential address when no history exists", async () => {
     await expect(
-      resolveEmployeeAddressAt(t.db, empA.employeeId, "mailing", "2025-12-31"),
+      resolveEmployeeAddressAt(
+        t.db,
+        empA.employeeId,
+        "mailing",
+        "2025-12-31",
+        t.config.encryptionKey,
+      ),
     ).resolves.toBeNull();
     await expect(
-      resolveEmployeeAddressAt(t.db, empA.employeeId, "residential", "2025-12-31"),
+      resolveEmployeeAddressAt(
+        t.db,
+        empA.employeeId,
+        "residential",
+        "2025-12-31",
+        t.config.encryptionKey,
+      ),
     ).resolves.toEqual(RES_OLD);
-    await expect(w2EmployeeAddressAt(t.db, empA.employeeId, 2025)).resolves.toEqual(RES_OLD);
+    await expect(
+      w2EmployeeAddressAt(t.db, empA.employeeId, 2025, t.config.encryptionKey),
+    ).resolves.toEqual(RES_OLD);
   });
 
   it("admin direct edit writes an approved request + approve-shaped audit row", async () => {
@@ -231,21 +246,41 @@ describe("effective-dated address resolution", () => {
       );
     expect(audit).toHaveLength(1);
     expect(audit[0]?.before).toEqual({ mailingAddress: null });
-    expect(audit[0]?.after).toMatchObject({ applied: MAIL_A, effectiveFrom: "2025-06-01" });
+    // PAY-21: audit after.applied carries the stored (ciphertext) form.
+    const after = audit[0]?.after as { applied: unknown; effectiveFrom?: string } | null;
+    expect(after?.effectiveFrom).toBe("2025-06-01");
+    expect(isAddressEncrypted(after?.applied)).toBe(true);
+    expect(decryptAddress(after?.applied, t.config.encryptionKey)).toEqual(MAIL_A);
   });
 
   it("resolves around the effective date; pre-first-change recovers null (was unset)", async () => {
     // Before the first mailing change the field was UNSET — a present-but-null
     // audit `before` is authoritative, not a fallback to the current value.
     await expect(
-      resolveEmployeeAddressAt(t.db, empA.employeeId, "mailing", "2025-05-31"),
+      resolveEmployeeAddressAt(
+        t.db,
+        empA.employeeId,
+        "mailing",
+        "2025-05-31",
+        t.config.encryptionKey,
+      ),
     ).resolves.toBeNull();
     await expect(
-      resolveEmployeeAddressAt(t.db, empA.employeeId, "mailing", "2025-06-01"),
+      resolveEmployeeAddressAt(
+        t.db,
+        empA.employeeId,
+        "mailing",
+        "2025-06-01",
+        t.config.encryptionKey,
+      ),
     ).resolves.toEqual(MAIL_A);
     // 2024 box f: mailing unset back then → residential fallback.
-    await expect(w2EmployeeAddressAt(t.db, empA.employeeId, 2024)).resolves.toEqual(RES_OLD);
-    await expect(w2EmployeeAddressAt(t.db, empA.employeeId, 2025)).resolves.toEqual(MAIL_A);
+    await expect(
+      w2EmployeeAddressAt(t.db, empA.employeeId, 2024, t.config.encryptionKey),
+    ).resolves.toEqual(RES_OLD);
+    await expect(
+      w2EmployeeAddressAt(t.db, empA.employeeId, 2025, t.config.encryptionKey),
+    ).resolves.toEqual(MAIL_A);
   });
 
   it("a second change effective-dates over the first", async () => {
@@ -255,12 +290,26 @@ describe("effective-dated address resolution", () => {
     });
     expect(res.statusCode, res.body).toBe(200);
     await expect(
-      resolveEmployeeAddressAt(t.db, empA.employeeId, "mailing", "2025-08-31"),
+      resolveEmployeeAddressAt(
+        t.db,
+        empA.employeeId,
+        "mailing",
+        "2025-08-31",
+        t.config.encryptionKey,
+      ),
     ).resolves.toEqual(MAIL_A);
     await expect(
-      resolveEmployeeAddressAt(t.db, empA.employeeId, "mailing", "2025-09-01"),
+      resolveEmployeeAddressAt(
+        t.db,
+        empA.employeeId,
+        "mailing",
+        "2025-09-01",
+        t.config.encryptionKey,
+      ),
     ).resolves.toEqual(MAIL_B);
-    await expect(w2EmployeeAddressAt(t.db, empA.employeeId, 2025)).resolves.toEqual(MAIL_B);
+    await expect(
+      w2EmployeeAddressAt(t.db, empA.employeeId, 2025, t.config.encryptionKey),
+    ).resolves.toEqual(MAIL_B);
   });
 
   it("residential history resolves as-of too (CR approve with audited override)", async () => {
@@ -293,15 +342,31 @@ describe("effective-dated address resolution", () => {
     expect(rows[0]?.effectiveFrom).toBe("2025-03-01");
 
     await expect(
-      resolveEmployeeAddressAt(t.db, empA.employeeId, "residential", "2025-02-28"),
+      resolveEmployeeAddressAt(
+        t.db,
+        empA.employeeId,
+        "residential",
+        "2025-02-28",
+        t.config.encryptionKey,
+      ),
     ).resolves.toEqual(RES_OLD);
     await expect(
-      resolveEmployeeAddressAt(t.db, empA.employeeId, "residential", "2025-03-01"),
+      resolveEmployeeAddressAt(
+        t.db,
+        empA.employeeId,
+        "residential",
+        "2025-03-01",
+        t.config.encryptionKey,
+      ),
     ).resolves.toEqual(RES_NEW);
     // 2024 box f still resolves the OLD residential (pre-first-change `before`).
-    await expect(w2EmployeeAddressAt(t.db, empA.employeeId, 2024)).resolves.toEqual(RES_OLD);
+    await expect(
+      w2EmployeeAddressAt(t.db, empA.employeeId, 2024, t.config.encryptionKey),
+    ).resolves.toEqual(RES_OLD);
     // 2025: mailing wins over residential.
-    await expect(w2EmployeeAddressAt(t.db, empA.employeeId, 2025)).resolves.toEqual(MAIL_B);
+    await expect(
+      w2EmployeeAddressAt(t.db, empA.employeeId, 2025, t.config.encryptionKey),
+    ).resolves.toEqual(MAIL_B);
   });
 });
 
@@ -391,7 +456,9 @@ describe("mailing_address change requests", () => {
     expect(approved.statusCode, approved.body).toBe(200);
 
     const rows = await t.db.select().from(employees).where(eq(employees.id, empB.employeeId));
-    expect(rows[0]?.mailingAddress).toEqual(MAIL_A);
+    // PAY-21: ciphertext at rest, decrypts to the applied address.
+    expect(isAddressEncrypted(rows[0]?.mailingAddress)).toBe(true);
+    expect(decryptAddress(rows[0]?.mailingAddress, t.config.encryptionKey)).toEqual(MAIL_A);
 
     const audit = await t.db
       .select()
@@ -404,7 +471,9 @@ describe("mailing_address change requests", () => {
       );
     expect(audit).toHaveLength(1);
     expect(audit[0]?.before).toEqual({ mailingAddress: null });
-    expect(audit[0]?.after).toMatchObject({ applied: MAIL_A });
+    const applied = (audit[0]?.after as { applied: unknown } | null)?.applied;
+    expect(isAddressEncrypted(applied)).toBe(true);
+    expect(decryptAddress(applied, t.config.encryptionKey)).toEqual(MAIL_A);
 
     // The approval email uses the "mailing address" label.
     const mails = await t.db
@@ -435,7 +504,8 @@ describe("mailing_address change requests", () => {
     expect(denied.statusCode, denied.body).toBe(200);
 
     const rows = await t.db.select().from(employees).where(eq(employees.id, empB.employeeId));
-    expect(rows[0]?.mailingAddress).toEqual(MAIL_A); // unchanged from the approved request
+    // Unchanged from the approved request — still the same ciphertext value.
+    expect(decryptAddress(rows[0]?.mailingAddress, t.config.encryptionKey)).toEqual(MAIL_A);
   });
 });
 

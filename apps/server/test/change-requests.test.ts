@@ -23,6 +23,7 @@ import {
 import { createTestApp, type TestContext } from "./helpers.js";
 import { inviteAndOnboard, login, sessionHeader, TEST_PASSWORD } from "./flow-helpers.js";
 import { decryptField } from "../src/crypto/field-encryption.js";
+import { decryptAddress } from "../src/crypto/address-encryption.js";
 
 let t: TestContext;
 let adminCookie: string;
@@ -148,11 +149,12 @@ describe("submit → comment → approve (address)", () => {
     expect(request.status).toBe("approved");
     expect(request.appliedAt).not.toBeNull();
 
-    // Target write: employees.address now holds the proposed value.
+    // Target write: employees.address now holds the proposed value (PAY-21:
+    // ciphertext at rest; decrypts to the payload).
     const [row] = await t.db.select().from(employees).where(eq(employees.id, employeeId));
-    expect(row!.address).toMatchObject(ADDRESS_PAYLOAD);
+    expect(decryptAddress(row!.address, t.config.encryptionKey)).toMatchObject(ADDRESS_PAYLOAD);
 
-    // Audit: previous value in before, effective date in after.
+    // Audit: previous value in before (ciphertext), effective date in after.
     const audits = await t.db
       .select()
       .from(auditEvents)
@@ -160,7 +162,10 @@ describe("submit → comment → approve (address)", () => {
         and(eq(auditEvents.action, "change_request.approve"), eq(auditEvents.entityId, publicId)),
       );
     expect(audits).toHaveLength(1);
-    expect(audits[0]!.before).toMatchObject({ address: { line1: "Old Street 1" } });
+    const before = audits[0]!.before as { address?: unknown } | null;
+    expect(decryptAddress(before?.address, t.config.encryptionKey)).toMatchObject({
+      line1: "Old Street 1",
+    });
     expect(audits[0]!.actorId).toBe(adminId);
 
     // approved → that employee.
@@ -214,7 +219,9 @@ describe("deny / withdraw / duplicate", () => {
 
     // Address unchanged by the denial (still the value test 1 approved).
     const [row] = await t.db.select().from(employees).where(eq(employees.id, employeeId));
-    expect(row!.address).toMatchObject({ line1: "1 Main St" });
+    expect(decryptAddress(row!.address, t.config.encryptionKey)).toMatchObject({
+      line1: "1 Main St",
+    });
   });
 
   it("withdraw: owner-only, pre-decision only", async () => {
