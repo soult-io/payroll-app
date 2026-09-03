@@ -4,6 +4,20 @@ All notable changes to this project will be documented here. Format follows
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/); versioning follows
 [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [1.12.1] - 2026-09-03
+
+### Fixed
+
+- **W-2/W-3 filing detail polish** (PAY-23): the Employee W-2s table uses
+  full column titles ("Wages, tips, other compensation", "Federal income tax
+  withheld", "Social Security tax", "Medicare tax") with nowrap headers — the
+  card scrolls horizontally instead of abbreviating or double-wrapping. The
+  Delivery column now carries only the status tag (electronic/paper); the
+  per-employee actions moved to a dedicated Documents column, and "Copy D"
+  reads as the action it is ("Download Copy D"). "Download W-3 PDF" moved
+  from the Employee W-2s header row into the W-3 transmittal totals section
+  header. UI-only; covered by a live-QA e2e spec.
+
 ## [1.12.0] - 2026-09-03
 
 ### Added
