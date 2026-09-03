@@ -4,6 +4,22 @@ All notable changes to this project will be documented here. Format follows
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/); versioning follows
 [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [1.12.0] - 2026-09-03
+
+### Added
+
+- **Field-level encryption for employee address data** (PAY-21): the
+  residential and mailing addresses added in PAY-20 (migration 0014) —
+  `employees.address` / `mailing_address`, the effective-dated history in
+  `change_requests.payload`, and the pre-change snapshots in `audit_events`
+  before/after — are now AES-256-GCM ciphertext at rest (`enc:v1:`),
+  following the tax_id/bank_details pattern. Decryption stays server-side
+  only at the existing read points (W-2/W-3 rendering, admin directory,
+  employee profile, change-request views); API shapes are unchanged and
+  reads tolerate legacy plaintext rows. Includes a one-off, idempotent,
+  transactional data migration for existing rows — run
+  `pnpm --filter @payroll/server encrypt-addresses` once after deploy.
+
 ## [1.11.1] - 2026-09-01
 
 ### Fixed
