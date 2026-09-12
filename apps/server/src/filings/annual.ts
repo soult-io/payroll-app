@@ -473,7 +473,8 @@ function formatSsn(plain: string): string {
   return /^(\d{3})(\d{2})(\d{4})$/.exec(plain)?.slice(1).join("-") ?? plain;
 }
 
-async function employerBlock(
+/** Company header for official IRS forms: legal name, decrypted EIN, address. */
+export async function employerBlock(
   db: Db,
   config: AppConfig,
 ): Promise<{ legalName: string; ein: string | null; address: FormAddress | null }> {

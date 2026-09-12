@@ -10,9 +10,11 @@
 
 import type { FastifyInstance } from "fastify";
 import { z } from "zod";
+import { renderF941Pdf } from "@payroll/documents";
 import type { Db } from "../db.js";
 import type { AppConfig } from "../config.js";
 import type { Guards } from "../plugins/guards.js";
+import { f941PdfInputFor } from "../filings/form-941-pdf.js";
 import {
   addAdjustment,
   DEFAULT_FILING_REMINDER_OFFSETS,
@@ -165,6 +167,27 @@ export function registerAdminFilingRoutes(app: FastifyInstance, deps: Deps): voi
         req.authUser!.id,
       );
       return { filing };
+    } catch (err) {
+      return serviceError(err, reply);
+    }
+  });
+
+  // PAY-16: filled official Form 941 PDF from the filing's worksheet
+  // snapshot — rendered on demand, flattened, never stored. Ships unsigned:
+  // the admin wet/e-signs before the Letterstream mail upload.
+  app.get("/api/admin/tax-filings/:id/941-pdf", { preHandler: admin }, async (req, reply) => {
+    const id = intParam((req.params as { id: string }).id);
+    if (!id) return reply.code(400).send({ error: "invalid_id" });
+    try {
+      const input = await f941PdfInputFor({ db, config }, id);
+      const pdf = await renderF941Pdf(input);
+      return reply
+        .header("content-type", "application/pdf")
+        .header(
+          "content-disposition",
+          `inline; filename="f941-${input.taxYear}-q${input.quarter}.pdf"`,
+        )
+        .send(pdf);
     } catch (err) {
       return serviceError(err, reply);
     }
