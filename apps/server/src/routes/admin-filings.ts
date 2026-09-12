@@ -24,6 +24,8 @@ import {
   getFilingReminderOffsets,
   listFilings,
   markFiled,
+  previewWorksheetRecompute,
+  recomputeFiledWorksheet,
   setFilingReminderOffsets,
   setFractionsOfCents,
   updateAdjustment,
@@ -53,6 +55,10 @@ const filedBody = z.object({
 
 const fractionsBody = z.object({
   amount: z.string().regex(MONEY, "amount must be a decimal, e.g. 0.01 or -0.02"),
+});
+
+const recomputeBody = z.object({
+  reason: z.string().trim().min(1, "reason is required").max(500),
 });
 
 const adjustmentBody = z.object({
@@ -125,6 +131,39 @@ export function registerAdminFilingRoutes(app: FastifyInstance, deps: Deps): voi
     if (!id) return reply.code(400).send({ error: "invalid_id" });
     try {
       const filing = await markFiled({ db, config }, id, body.data, req.authUser!.id);
+      return { filing };
+    } catch (err) {
+      return serviceError(err, reply);
+    }
+  });
+
+  // PAY-25: audited worksheet correction for FILED filings. GET previews the
+  // recompute (the confirmation dialog's old → new diff); POST commits with a
+  // mandatory reason and writes tax_filing.correct_worksheet. Filing metadata
+  // (status/filed_on/method/reference) is never touched.
+  app.get("/api/admin/tax-filings/:id/recompute", { preHandler: admin }, async (req, reply) => {
+    const id = intParam((req.params as { id: string }).id);
+    if (!id) return reply.code(400).send({ error: "invalid_id" });
+    try {
+      return await previewWorksheetRecompute(db, id);
+    } catch (err) {
+      return serviceError(err, reply);
+    }
+  });
+
+  app.post("/api/admin/tax-filings/:id/recompute", { preHandler: admin }, async (req, reply) => {
+    const body = recomputeBody.safeParse(req.body);
+    if (!body.success)
+      return reply.code(400).send({ error: "invalid_body", details: body.error.issues });
+    const id = intParam((req.params as { id: string }).id);
+    if (!id) return reply.code(400).send({ error: "invalid_id" });
+    try {
+      const filing = await recomputeFiledWorksheet(
+        { db, config },
+        id,
+        body.data.reason,
+        req.authUser!.id,
+      );
       return { filing };
     } catch (err) {
       return serviceError(err, reply);

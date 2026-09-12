@@ -1079,17 +1079,41 @@ export interface FilingAttachment {
   createdAt: string;
 }
 
+/** PAY-25: a worksheet-correction audit row shown on the filing detail. */
+export interface FilingCorrection {
+  id: string;
+  actorId: string;
+  before: { worksheetHash?: string | null } | null;
+  after: { worksheetHash?: string; reason?: string } | null;
+  createdAt: string | null;
+}
+
+/** PAY-25: read-only recompute preview (filed filings only). */
+export interface WorksheetRecomputePreview {
+  beforeWorksheet: TaxFilingRow["worksheet"];
+  afterWorksheet: TaxFilingRow["worksheet"];
+  beforeHash: string | null;
+  afterHash: string;
+}
+
 export const adminFilingsApi = {
   list: (filter: { year?: number; status?: TaxFilingStatus; formType?: TaxFormType } = {}) =>
     get<{ filings: TaxFilingRow[] }>(`/api/admin/tax-filings${qs(filter)}`),
   detail: (id: number) =>
-    get<{ filing: TaxFilingRow; adjustments: TaxAdjustmentRow[] }>(`/api/admin/tax-filings/${id}`),
+    get<{ filing: TaxFilingRow; adjustments: TaxAdjustmentRow[]; corrections: FilingCorrection[] }>(
+      `/api/admin/tax-filings/${id}`,
+    ),
   markFiled: (
     id: number,
     input: { filedOn: string; filingMethod: string; filingReference: string },
   ) => post<{ filing: TaxFilingRow }>(`/api/admin/tax-filings/${id}/file`, input),
   setFractionsOfCents: (id: number, amount: string) =>
     put<{ filing: TaxFilingRow }>(`/api/admin/tax-filings/${id}/fractions-of-cents`, { amount }),
+  // PAY-25 — audited worksheet correction for filed filings
+  recomputePreview: (id: number) =>
+    get<WorksheetRecomputePreview>(`/api/admin/tax-filings/${id}/recompute`),
+  recompute: (id: number, reason: string) =>
+    post<{ filing: TaxFilingRow }>(`/api/admin/tax-filings/${id}/recompute`, { reason }),
   addAdjustment: (id: number, input: AdjustmentInput) =>
     post<{ adjustment: TaxAdjustmentRow }>(`/api/admin/tax-filings/${id}/adjustments`, input),
   updateAdjustment: (id: number, adjId: number, input: AdjustmentInput) =>
