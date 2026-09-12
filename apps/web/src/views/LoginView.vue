@@ -145,6 +145,10 @@ async function submitBackup() {
 .auth-card {
   max-width: 380px;
   margin: 3rem auto;
+  /* Phone widths: keep the form off the screen edges (same 1rem gutter as
+     .auth-wrap on the invite/reset views — without it every control spans
+     edge-to-edge at ≤380px, which read as the "broken mobile login"). */
+  padding: 0 1rem;
   display: flex;
   flex-direction: column;
   gap: 0.75rem;
