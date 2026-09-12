@@ -455,6 +455,21 @@ export {
   type W2FieldMap,
 } from "./forms/field-map-2025.js";
 
-export { templateBytes, templateYears } from "./forms/templates.js";
+export { templateBytes, templateYears, type FormKind } from "./forms/templates.js";
+
+export {
+  prepareF941,
+  renderF941Pdf,
+  splitEin,
+  splitMoneyPair,
+  type F941Input,
+} from "./f941.js";
+
+export {
+  F941_REVISION_DATE,
+  f941FieldMap,
+  type F941FieldMap,
+  type MoneyField,
+} from "./forms/f941-field-map.js";
 
 export { renderInvoicePdf, type InvoicePdfInput } from "./invoice.js";

@@ -481,6 +481,15 @@ onMounted(async () => {
       >
         <BackButton to="admin-filings" label="Back to filings" />
         <Button label="How to file" icon="pi pi-question-circle" text size="small" @click="helpDialog = true" />
+        <!-- PAY-16: filled official 941 PDF — unsigned, wet/e-sign after download -->
+        <a
+          v-if="filing.formType === '941' && filing.worksheet"
+          :href="adminFilingsApi.f941PdfUrl(filing.id)"
+          target="_blank"
+          rel="noopener"
+        >
+          <Button label="Filled 941 PDF" icon="pi pi-download" text size="small" />
+        </a>
         <Button
           v-if="filed"
           label="Recompute worksheet"
