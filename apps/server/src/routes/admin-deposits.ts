@@ -21,6 +21,12 @@ import {
   REMINDER_OFFSET_MAX_ENTRIES,
   setReminderOffsets,
 } from "../deposits/service.js";
+import {
+  addDepositAttachment,
+  listDepositAttachments,
+  readDepositAttachment,
+} from "../deposits/attachments.js";
+import { MAX_ATTACHMENT_BYTES } from "../filings/attachments.js";
 
 interface Deps {
   db: Db;
@@ -107,6 +113,81 @@ export function registerAdminDepositRoutes(app: FastifyInstance, deps: Deps): vo
           req.authUser!.id,
         );
         return { offsets };
+      } catch (err) {
+        return serviceError(err, reply);
+      }
+    },
+  );
+
+  // ---------------------------------------------------------------------
+  // PAY-27: deposit attachments (EFTPS confirmation/evidence PDFs). Raw-body
+  // upload (application/pdf parser — no multipart dependency, registered in
+  // the filings routes); admin-only read + write; bytes are AES-256-GCM
+  // ciphertext at rest.
+  // ---------------------------------------------------------------------
+
+  if (!app.hasContentTypeParser("application/pdf")) {
+    app.addContentTypeParser(
+      "application/pdf",
+      { parseAs: "buffer", bodyLimit: MAX_ATTACHMENT_BYTES },
+      (_req, body, done) => done(null, body),
+    );
+  }
+
+  app.get("/api/admin/tax-deposits/:id/attachments", { preHandler: admin }, async (req, reply) => {
+    const id = Number((req.params as { id: string }).id);
+    if (!Number.isInteger(id)) return reply.code(400).send({ error: "invalid_id" });
+    try {
+      return { attachments: await listDepositAttachments(db, id) };
+    } catch (err) {
+      return serviceError(err, reply);
+    }
+  });
+
+  app.post("/api/admin/tax-deposits/:id/attachments", { preHandler: admin }, async (req, reply) => {
+    const id = Number((req.params as { id: string }).id);
+    if (!Number.isInteger(id)) return reply.code(400).send({ error: "invalid_id" });
+    if (!Buffer.isBuffer(req.body)) {
+      return reply
+        .code(415)
+        .send({ error: "unsupported_media_type", message: "POST the PDF as application/pdf" });
+    }
+    const q = z.object({ filename: z.string().max(300).optional() }).safeParse(req.query);
+    if (!q.success)
+      return reply.code(400).send({ error: "invalid_query", details: q.error.issues });
+    try {
+      const attachment = await addDepositAttachment(
+        { db, config },
+        id,
+        { filename: q.data.filename ?? "confirmation.pdf", data: req.body },
+        req.authUser!.id,
+      );
+      return reply.code(201).send({ attachment });
+    } catch (err) {
+      return serviceError(err, reply);
+    }
+  });
+
+  app.get(
+    "/api/admin/tax-deposits/:id/attachments/:attachmentId/download",
+    { preHandler: admin },
+    async (req, reply) => {
+      const params = req.params as { id: string; attachmentId: string };
+      const id = Number(params.id);
+      const attachmentId = Number(params.attachmentId);
+      if (!Number.isInteger(id) || !Number.isInteger(attachmentId))
+        return reply.code(400).send({ error: "invalid_id" });
+      try {
+        const { filename, data } = await readDepositAttachment(
+          { db, config },
+          id,
+          attachmentId,
+          req.authUser!.id,
+        );
+        return reply
+          .header("content-type", "application/pdf")
+          .header("content-disposition", `inline; filename="${filename.replaceAll('"', "_")}"`)
+          .send(data);
       } catch (err) {
         return serviceError(err, reply);
       }

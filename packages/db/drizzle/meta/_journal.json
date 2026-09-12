@@ -127,6 +127,13 @@
       "when": 1788501600000,
       "tag": "0017_futa_annual_cap",
       "breakpoints": true
+    },
+    {
+      "idx": 18,
+      "version": "7",
+      "when": 1789210051445,
+      "tag": "0018_wakeful_storm",
+      "breakpoints": true
     }
   ]
 }

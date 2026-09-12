@@ -20,7 +20,7 @@ import Message from "primevue/message";
 import PageHeader from "../../components/PageHeader.vue";
 import EmptyState from "../../components/EmptyState.vue";
 import StatusChip from "../../components/StatusChip.vue";
-import { adminDepositsApi, type TaxDepositRow } from "../../lib/api";
+import { adminDepositsApi, type DepositAttachment, type TaxDepositRow } from "../../lib/api";
 import { useDates } from "../../composables/useDates";
 import { useMoney } from "../../composables/useMoney";
 import { useNotify } from "../../composables/useNotify";
@@ -128,6 +128,59 @@ async function submitDeposit() {
     notify.error(err, "Could not record the deposit");
   } finally {
     depositBusy.value = false;
+  }
+}
+
+// ------------------------------------------------------------- attachments (PAY-27)
+const attachDialog = ref(false);
+const attachTarget = ref<TaxDepositRow | null>(null);
+const attachments = ref<DepositAttachment[]>([]);
+const attachLoading = ref(false);
+const attachFile = ref<File | null>(null);
+const attachBusy = ref(false);
+/** Bump to reset the native file input after a successful upload. */
+const attachInputKey = ref(0);
+
+function fileSize(bytes: number): string {
+  if (bytes < 1024) return `${bytes} B`;
+  if (bytes < 1024 * 1024) return `${(bytes / 1024).toFixed(1)} KB`;
+  return `${(bytes / (1024 * 1024)).toFixed(1)} MB`;
+}
+
+async function openAttachments(row: TaxDepositRow) {
+  attachTarget.value = row;
+  attachFile.value = null;
+  attachInputKey.value += 1;
+  attachDialog.value = true;
+  attachLoading.value = true;
+  try {
+    attachments.value = (await adminDepositsApi.listAttachments(row.id)).attachments;
+  } catch (err) {
+    notify.error(err, "Could not load attachments");
+  } finally {
+    attachLoading.value = false;
+  }
+}
+
+function onAttachPick(event: Event) {
+  attachFile.value = (event.target as HTMLInputElement).files?.[0] ?? null;
+}
+
+async function submitAttachment() {
+  const target = attachTarget.value;
+  const file = attachFile.value;
+  if (!target || !file) return;
+  attachBusy.value = true;
+  try {
+    await adminDepositsApi.uploadAttachment(target.id, file);
+    notify.success("Attachment uploaded", file.name);
+    attachFile.value = null;
+    attachInputKey.value += 1;
+    attachments.value = (await adminDepositsApi.listAttachments(target.id)).attachments;
+  } catch (err) {
+    notify.error(err, "Could not upload the attachment");
+  } finally {
+    attachBusy.value = false;
   }
 }
 
@@ -253,7 +306,7 @@ onMounted(async () => {
             <span v-else class="muted">—</span>
           </template>
         </Column>
-        <Column header="Actions" style="width: 11rem">
+        <Column header="Actions" style="width: 16rem">
           <template #body="{ data }">
             <Button
               v-if="data.status !== 'deposited'"
@@ -261,6 +314,13 @@ onMounted(async () => {
               size="small"
               text
               @click="openDepositDialog(data)"
+            />
+            <Button
+              label="Attachments"
+              icon="pi pi-paperclip"
+              size="small"
+              text
+              @click="openAttachments(data)"
             />
           </template>
         </Column>
@@ -295,6 +355,62 @@ onMounted(async () => {
         </Message>
       </template>
     </section>
+
+    <Dialog
+      v-model:visible="attachDialog"
+      modal
+      header="EFTPS confirmation attachments"
+      :style="{ width: '34rem' }"
+    >
+      <div v-if="attachTarget" class="stack">
+        <p class="muted small" style="margin: 0">
+          {{ periodLabel(attachTarget.periodStart) }} — {{ money(attachTarget.amount) }}.
+          Payment confirmations from eftps.gov (acknowledgment PDFs / receipts). Stored encrypted;
+          every download is audit-logged.
+        </p>
+        <div class="row" style="gap: 0.5rem; align-items: center">
+          <input
+            :key="attachInputKey"
+            type="file"
+            accept="application/pdf,.pdf"
+            aria-label="EFTPS confirmation PDF"
+            @change="onAttachPick"
+          />
+          <Button
+            label="Upload"
+            icon="pi pi-upload"
+            size="small"
+            :loading="attachBusy"
+            :disabled="!attachFile"
+            @click="submitAttachment"
+          />
+        </div>
+        <Skeleton v-if="attachLoading" height="4rem" />
+        <DataTable v-else :value="attachments" data-key="id" striped-rows>
+          <template #empty>
+            <p class="muted">No attachments yet — upload the EFTPS confirmation PDF.</p>
+          </template>
+          <Column field="filename" header="File" />
+          <Column header="Size" style="width: 6rem; text-align: right">
+            <template #body="{ data }">{{ fileSize(data.sizeBytes) }}</template>
+          </Column>
+          <Column header="Uploaded" style="width: 8rem">
+            <template #body="{ data }">{{ date(data.createdAt) }}</template>
+          </Column>
+          <Column header="" style="width: 6rem">
+            <template #body="{ data }">
+              <a
+                :href="adminDepositsApi.attachmentDownloadUrl(attachTarget.id, data.id)"
+                target="_blank"
+                rel="noopener"
+              >
+                <Button label="View" icon="pi pi-download" size="small" text />
+              </a>
+            </template>
+          </Column>
+        </DataTable>
+      </div>
+    </Dialog>
 
     <Dialog
       v-model:visible="depositDialog"
