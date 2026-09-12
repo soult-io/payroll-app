@@ -4,6 +4,23 @@ All notable changes to this project will be documented here. Format follows
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/); versioning follows
 [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [1.17.0] - 2026-09-12
+
+### Added
+
+- **Filled official Form 941 PDF (PAY-16)**: the 941 filing detail now
+  offers a "Filled 941 PDF" download — the official IRS AcroForm (bundled
+  Rev. March 2025 + Rev. March 2026 templates, SHA-256-pinned) filled from
+  the filing's frozen quarterly worksheet: entity area (EIN split across
+  the two boxes, name, address), Part 1 lines 1–15 in the IRS split
+  dollars/cents boxes, the report-for-quarter checkbox on both pages, the
+  line-16 deposit-schedule branch (de minimis vs monthly), and the Form
+  941-V payment voucher filled when line 14 shows a balance due. Rendered
+  on demand and flattened (never stored); metadata is pinned to the
+  template revision so identical worksheets render byte-identical PDFs.
+  The form ships unsigned — signature/date stay blank for wet signature
+  (or e-sign after download) before the Letterstream mail upload.
+
 ## [1.16.0] - 2026-09-12
 
 ### Added
