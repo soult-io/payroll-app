@@ -846,6 +846,31 @@ export const filingAttachments = pgTable(
   (t) => [index("filing_attachments_filing_idx").on(t.filingId)],
 );
 
+/**
+ * PAY-27: EFTPS payment confirmation documents (acknowledgment PDFs /
+ * receipts) uploaded to a tax deposit — the documentary evidence behind the
+ * deposit row's eftps_confirmation number (PAY-9). Same storage doctrine as
+ * filing_attachments: external record document, bytes stored as AES-256-GCM
+ * ciphertext (iv|tag|ct) because confirmations can carry the EIN.
+ */
+export const depositAttachments = pgTable(
+  "deposit_attachments",
+  {
+    id: serial("id").primaryKey(),
+    depositId: integer("deposit_id")
+      .notNull()
+      .references(() => taxDeposits.id, { onDelete: "cascade" }),
+    filename: text("filename").notNull(),
+    /** Plaintext byte size of the original upload (for display). */
+    sizeBytes: integer("size_bytes").notNull(),
+    /** AES-256-GCM ciphertext of the file bytes. */
+    data: bytea("data").notNull(),
+    uploadedBy: text("uploaded_by").notNull(),
+    createdAt: createdAt(),
+  },
+  (t) => [index("deposit_attachments_deposit_idx").on(t.depositId)],
+);
+
 // ---------------------------------------------------------------------------
 // 9. Step-2: setup tokens (spec 3 — invite/reset machinery)
 // ---------------------------------------------------------------------------

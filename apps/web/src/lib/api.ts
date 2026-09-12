@@ -903,7 +903,43 @@ export const adminDepositsApi = {
     ),
   putReminderSchedule: (offsets: number[]) =>
     put<{ offsets: number[] }>("/api/admin/tax-deposits/reminder-schedule", { offsets }),
+  // PAY-27 — EFTPS confirmation attachments (stored encrypted at rest)
+  listAttachments: (id: number) =>
+    get<{ attachments: DepositAttachment[] }>(`/api/admin/tax-deposits/${id}/attachments`),
+  attachmentDownloadUrl: (id: number, attachmentId: number) =>
+    `/api/admin/tax-deposits/${id}/attachments/${attachmentId}/download`,
+  // Raw-body upload (application/pdf) — request() is JSON-only.
+  uploadAttachment: async (id: number, file: File) => {
+    const res = await fetch(
+      `/api/admin/tax-deposits/${id}/attachments?filename=${encodeURIComponent(file.name)}`,
+      { method: "POST", headers: { "content-type": "application/pdf" }, body: file },
+    );
+    if (!res.ok) {
+      if (res.status === 401) notifySessionExpired();
+      let code = "request_failed";
+      let message = `Request failed (${res.status})`;
+      try {
+        const data = (await res.json()) as { error?: string; message?: string };
+        if (data.error) code = data.error;
+        if (data.message) message = data.message;
+      } catch {
+        // non-JSON error body — keep defaults
+      }
+      throw new ApiError(res.status, code, message);
+    }
+    return (await res.json()) as { attachment: DepositAttachment };
+  },
 };
+
+/** PAY-27: a deposit attachment's metadata (bytes never leave via the list). */
+export interface DepositAttachment {
+  id: number;
+  depositId: number;
+  filename: string;
+  sizeBytes: number;
+  uploadedBy: string;
+  createdAt: string;
+}
 
 // ---------------------------------------------------------------------------
 // PAY-10 — quarterly Form 941 filings (admin, record-only)
