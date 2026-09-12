@@ -4,6 +4,16 @@ All notable changes to this project will be documented here. Format follows
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/); versioning follows
 [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [1.15.1] - 2026-09-12
+
+### Fixed
+
+- **Mobile login view**: the login card had no horizontal padding, so at
+  phone widths (≤380px) every control rendered glued to the screen edges.
+  Added the same 1rem gutter the invite/reset auth views already used, plus
+  a Playwright regression spec pinning the 375px layout (no horizontal
+  overflow, controls inside the gutter).
+
 ## [1.15.0] - 2026-09-12
 
 ### Added
