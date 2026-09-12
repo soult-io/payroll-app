@@ -4,6 +4,24 @@ All notable changes to this project will be documented here. Format follows
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/); versioning follows
 [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [1.14.0] - 2026-09-12
+
+### Added
+
+- **FUTA annual-cap write guard** (PAY-26): per-employee annual
+  `employer_futa` can never exceed `futa_wage_cap × futa_rate` for the run's
+  tax year (e.g. $7,000 × 0.06 = $420.00). Two layers: `generateDraft`
+  rejects an over-cap draft with `futa_cap_exceeded` (reported in the
+  generate route's `skipped` list; the transaction rolls back, nothing is
+  written), and migration 0017 adds a `BEFORE INSERT` trigger on
+  `payroll_entries` enforcing the same invariant against issued-run YTD for
+  direct writes — defense in depth behind immutable issued runs. Both layers
+  allow a half-cent-per-period rounding tolerance (the per-paycheck cent
+  rounding the 940 worksheet already reconciles as `roundingDelta`). Origin:
+  the PAY-18/22 rate misconfiguration silently wrote $21.00 instead of
+  $210.00 entries on four issued runs; this guard catches that class of
+  error at write time.
+
 ## [1.13.0] - 2026-09-04
 
 ### Added
