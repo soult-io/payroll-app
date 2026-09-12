@@ -4,6 +4,21 @@ All notable changes to this project will be documented here. Format follows
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/); versioning follows
 [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [1.15.0] - 2026-09-12
+
+### Added
+
+- **EFTPS confirmation attachments on tax deposits** (PAY-27): attach the
+  eftps.gov acknowledgment PDF / receipt to a deposit row — the documentary
+  evidence behind the row's EFTPS confirmation number. Same doctrine as
+  PAY-24 filing attachments: new `deposit_attachments` table (migration
+  0018, cascade with the deposit), bytes stored AES-256-GCM encrypted at
+  rest (confirmations can carry the EIN), raw-body `application/pdf` upload
+  with 5 MB cap and `%PDF` magic check, filename sanitization, admin-only
+  read + write, upload and download audit-logged
+  (`tax_deposit.attach` / `tax_deposit.download_attachment`). The Tax
+  Deposits page gains an Attachments dialog per row (list + upload + view).
+
 ## [1.14.0] - 2026-09-12
 
 ### Added
