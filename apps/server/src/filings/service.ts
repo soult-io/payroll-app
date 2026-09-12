@@ -40,7 +40,7 @@ import {
 import type { Db } from "../db.js";
 import type { AppConfig } from "../config.js";
 import { computeDepositAmount, periodStartFor } from "../deposits/service.js";
-import { refreshAnnualWorksheet } from "./annual.js";
+import { compute940Worksheet, computeW3Worksheet, refreshAnnualWorksheet } from "./annual.js";
 import {
   addDays,
   DATE_RE,
@@ -373,19 +373,31 @@ export interface FilingSyncResult {
   refreshed: number;
 }
 
+interface FreshWorksheet {
+  worksheet: unknown;
+  hash: string;
+  /** 941 only: the fractions_of_cents value to persist alongside. */
+  fractionsOfCents?: string;
+}
+
 /**
- * Recompute and persist the worksheet for an UNFILED filing. Line 7 stays
- * admin-controlled: if the row's fractions_of_cents still equals the
- * previously computed default it tracks the new computation; an overridden
- * value is preserved.
+ * Compute the worksheet as it would look if recomputed NOW from frozen
+ * issued-run entries + current config — read-only (no writes). Shared by the
+ * unfiled-row refresh and the PAY-25 filed-row correction path. 941 line 7
+ * stays admin-controlled: if the row's fractions_of_cents differs from the
+ * last computed default, a human set it — preserve it.
  */
-async function refreshWorksheet(db: Db, filing: TaxFilingRow): Promise<boolean> {
-  // PAY-11: annual forms (940 / W-2-W-3) refresh through their own module.
-  if (filing.formType !== "941") return refreshAnnualWorksheet(db, filing);
+async function computeFreshWorksheet(db: Db, filing: TaxFilingRow): Promise<FreshWorksheet> {
+  // PAY-11: annual forms (940 / W-2-W-3) compute through their own module.
+  if (filing.formType !== "941") {
+    const worksheet =
+      filing.formType === "940"
+        ? await compute940Worksheet(db, filing.year)
+        : await computeW3Worksheet(db, filing.year);
+    return { worksheet, hash: worksheetHash(worksheet) };
+  }
   const base = await computeWorksheet(db, filing.year, filing.quarter, { filingId: filing.id });
   const previous = filing.worksheet as Worksheet941 | null;
-  // Admin override detection: if the row's fractions_of_cents differs from
-  // the last computed default, a human set it — preserve it across refreshes.
   const adminOverride = previous !== null && filing.fractionsOfCents !== previous.line7Computed;
   const fractions = adminOverride ? filing.fractionsOfCents : base.line7FractionsOfCents;
   const worksheet =
@@ -395,14 +407,27 @@ async function refreshWorksheet(db: Db, filing: TaxFilingRow): Promise<boolean> 
           filingId: filing.id,
           fractionsOfCents: fractions,
         });
-  const hash = worksheetHash(worksheet);
-  if (hash === filing.worksheetHash && filing.fractionsOfCents === fractions) return false;
+  return { worksheet, hash: worksheetHash(worksheet), fractionsOfCents: fractions };
+}
+
+/**
+ * Recompute and persist the worksheet for an UNFILED filing. Line 7 stays
+ * admin-controlled: if the row's fractions_of_cents still equals the
+ * previously computed default it tracks the new computation; an overridden
+ * value is preserved.
+ */
+async function refreshWorksheet(db: Db, filing: TaxFilingRow): Promise<boolean> {
+  // PAY-11: annual forms (940 / W-2-W-3) refresh through their own module.
+  if (filing.formType !== "941") return refreshAnnualWorksheet(db, filing);
+  const fresh = await computeFreshWorksheet(db, filing);
+  const fractions = fresh.fractionsOfCents ?? filing.fractionsOfCents;
+  if (fresh.hash === filing.worksheetHash && filing.fractionsOfCents === fractions) return false;
   await db
     .update(taxFilings)
     .set({
-      worksheet,
-      worksheetHash: hash,
-      fractionsOfCents: fractions,
+      worksheet: fresh.worksheet,
+      worksheetHash: fresh.hash,
+      ...(fresh.fractionsOfCents !== undefined ? { fractionsOfCents: fresh.fractionsOfCents } : {}),
       updatedAt: new Date(),
     })
     .where(eq(taxFilings.id, filing.id));
@@ -501,7 +526,11 @@ export async function listFilings(
 export async function getFilingDetail(
   db: Db,
   filingId: number,
-): Promise<{ filing: TaxFilingRow; adjustments: TaxAdjustmentRow[] }> {
+): Promise<{
+  filing: TaxFilingRow;
+  adjustments: TaxAdjustmentRow[];
+  corrections: CorrectionRow[];
+}> {
   const rows = await db.select().from(taxFilings).where(eq(taxFilings.id, filingId)).limit(1);
   let filing = rows[0];
   if (!filing) throw new FilingServiceError("not_found", `tax filing ${filingId} not found`);
@@ -516,7 +545,35 @@ export async function getFilingDetail(
     .from(taxAdjustments)
     .where(eq(taxAdjustments.filingId, filingId))
     .orderBy(asc(taxAdjustments.noticeDate), asc(taxAdjustments.id));
-  return { filing, adjustments };
+  // PAY-25: past worksheet corrections surface on the detail page — a
+  // corrected filing is never silently different from what was filed.
+  const corrections = await db
+    .select({
+      id: sql<string>`${auditEvents.id}::text`,
+      actorId: auditEvents.actorId,
+      before: auditEvents.before,
+      after: auditEvents.after,
+      createdAt: auditEvents.createdAt,
+    })
+    .from(auditEvents)
+    .where(
+      and(
+        eq(auditEvents.entity, "tax_filing"),
+        eq(auditEvents.entityId, String(filingId)),
+        eq(auditEvents.action, "tax_filing.correct_worksheet"),
+      ),
+    )
+    .orderBy(desc(auditEvents.id));
+  return { filing, adjustments, corrections };
+}
+
+/** One worksheet-correction audit row, as shown on the filing detail page. */
+export interface CorrectionRow {
+  id: string;
+  actorId: string;
+  before: unknown;
+  after: unknown;
+  createdAt: Date | null;
 }
 
 export interface MarkFiledInput {
@@ -581,6 +638,101 @@ export async function markFiled(
         filingMethod: method,
         filingReference: reference || null,
       },
+    });
+    return updated[0]!;
+  });
+}
+
+// ---------------------------------------------------------------------------
+// PAY-25: audited worksheet correction for FILED filings
+// ---------------------------------------------------------------------------
+
+export interface WorksheetRecomputePreview {
+  beforeWorksheet: unknown;
+  afterWorksheet: unknown;
+  beforeHash: string | null;
+  afterHash: string;
+}
+
+async function filedFilingForRecompute(db: Db, filingId: number): Promise<TaxFilingRow> {
+  const rows = await db.select().from(taxFilings).where(eq(taxFilings.id, filingId)).limit(1);
+  const filing = rows[0];
+  if (!filing) throw new FilingServiceError("not_found", `tax filing ${filingId} not found`);
+  if (filing.status !== "filed") {
+    throw new FilingServiceError(
+      "invalid_transition",
+      "only filed filings can be recomputed — unfiled worksheets refresh automatically",
+    );
+  }
+  return filing;
+}
+
+/**
+ * Read-only preview for the correction dialog: what the worksheet would look
+ * like recomputed from frozen issued-run entries + current config. Filed
+ * rows only (the unfiled worksheet already tracks the data on every read).
+ */
+export async function previewWorksheetRecompute(
+  db: Db,
+  filingId: number,
+): Promise<WorksheetRecomputePreview> {
+  const filing = await filedFilingForRecompute(db, filingId);
+  const fresh = await computeFreshWorksheet(db, filing);
+  return {
+    beforeWorksheet: filing.worksheet,
+    afterWorksheet: fresh.worksheet,
+    beforeHash: filing.worksheetHash,
+    afterHash: fresh.hash,
+  };
+}
+
+/**
+ * Recompute a FILED filing's worksheet in place — the supported correction
+ * path for a worksheet that froze with figures that never matched the actual
+ * filing (precedent: the 2025 940 corrected out-of-band on 2026-09-03 with
+ * the same tax_filing.correct_worksheet audit action). Requires a mandatory
+ * free-text reason; writes the audit row (old hash → new hash + reason +
+ * actor) in the same transaction as the update. Filing metadata — status,
+ * filed_on, method, reference — is deliberately untouched: the correction
+ * changes the worksheet record, never the fact or manner of the filing.
+ */
+export async function recomputeFiledWorksheet(
+  deps: Deps,
+  filingId: number,
+  reason: string,
+  actorId: string,
+): Promise<TaxFilingRow> {
+  const { db } = deps;
+  const trimmed = reason.trim();
+  if (!trimmed || trimmed.length > 500) {
+    throw new FilingServiceError(
+      "invalid_input",
+      "a reason is required for a worksheet correction (max 500 characters)",
+    );
+  }
+  const filing = await filedFilingForRecompute(db, filingId);
+  const fresh = await computeFreshWorksheet(db, filing);
+
+  return db.transaction(async (tx) => {
+    const updated = await tx
+      .update(taxFilings)
+      .set({
+        worksheet: fresh.worksheet,
+        worksheetHash: fresh.hash,
+        ...(fresh.fractionsOfCents !== undefined
+          ? { fractionsOfCents: fresh.fractionsOfCents }
+          : {}),
+        updatedAt: new Date(),
+      })
+      .where(eq(taxFilings.id, filingId))
+      .returning();
+    await tx.insert(auditEvents).values({
+      actorId,
+      action: "tax_filing.correct_worksheet",
+      entity: "tax_filing",
+      entityId: String(filingId),
+      before: { worksheetHash: filing.worksheetHash },
+      after: { worksheetHash: fresh.hash, reason: trimmed },
     });
     return updated[0]!;
   });

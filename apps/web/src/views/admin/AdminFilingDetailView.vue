@@ -27,11 +27,13 @@ import {
   adminFilingsApi,
   type AdjustmentInput,
   type FilingAttachment,
+  type FilingCorrection,
   type TaxAdjustmentRow,
   type TaxFilingRow,
   type W2FiguresRow,
   type Worksheet940,
   type Worksheet941,
+  type WorksheetRecomputePreview,
   type WorksheetW3,
 } from "../../lib/api";
 import { useDates } from "../../composables/useDates";
@@ -52,6 +54,8 @@ const adjustments = ref<TaxAdjustmentRow[]>([]);
 const w2Rows = ref<W2FiguresRow[]>([]);
 /** PAY-24: uploaded confirmation/evidence documents (metadata only). */
 const attachments = ref<FilingAttachment[]>([]);
+/** PAY-25: past worksheet corrections (audit trail on the detail page). */
+const corrections = ref<FilingCorrection[]>([]);
 
 const filed = computed(() => filing.value?.status === "filed");
 
@@ -88,6 +92,7 @@ async function load() {
     const res = await adminFilingsApi.detail(filingId);
     filing.value = res.filing;
     adjustments.value = res.adjustments;
+    corrections.value = res.corrections;
     attachments.value = (await adminFilingsApi.listAttachments(filingId)).attachments;
     if (res.filing.formType === "w2_w3") {
       w2Rows.value = (await adminFilingsApi.w2List(res.filing.year)).w2s;
@@ -129,6 +134,71 @@ async function submitAttachment() {
     notify.error(err, "Could not upload the attachment");
   } finally {
     attachBusy.value = false;
+  }
+}
+
+// ------------------------------------------------- recompute worksheet (PAY-25)
+const recomputeDialog = ref(false);
+const recomputePreviewData = ref<WorksheetRecomputePreview | null>(null);
+const recomputeReason = ref("");
+const recomputeBusy = ref(false);
+const recomputeLoading = ref(false);
+
+/** Flatten a worksheet (nested objects → dotted keys) for the diff table. */
+function flattenWs(ws: unknown, prefix = ""): Record<string, string> {
+  const out: Record<string, string> = {};
+  if (ws === null || typeof ws !== "object") return out;
+  for (const [k, v] of Object.entries(ws as Record<string, unknown>)) {
+    const key = prefix ? `${prefix}.${k}` : k;
+    if (v !== null && typeof v === "object") Object.assign(out, flattenWs(v, key));
+    else out[key] = String(v);
+  }
+  return out;
+}
+
+/** Lines whose value changes under recomputation (old → new). */
+const recomputeDiff = computed(() => {
+  const p = recomputePreviewData.value;
+  if (!p) return [];
+  const before = flattenWs(p.beforeWorksheet);
+  const after = flattenWs(p.afterWorksheet);
+  return Object.keys(after)
+    .filter((k) => before[k] !== after[k])
+    .map((k) => ({ key: k, before: before[k] ?? "—", after: after[k] }));
+});
+
+function shortHash(hash: string | null | undefined): string {
+  return hash ? hash.slice(0, 8) : "—";
+}
+
+async function openRecompute() {
+  recomputeReason.value = "";
+  recomputePreviewData.value = null;
+  recomputeDialog.value = true;
+  recomputeLoading.value = true;
+  try {
+    recomputePreviewData.value = await adminFilingsApi.recomputePreview(filingId);
+  } catch (err) {
+    notify.error(err, "Could not compute the preview");
+    recomputeDialog.value = false;
+  } finally {
+    recomputeLoading.value = false;
+  }
+}
+
+async function submitRecompute() {
+  const reason = recomputeReason.value.trim();
+  if (!reason) return;
+  recomputeBusy.value = true;
+  try {
+    await adminFilingsApi.recompute(filingId, reason);
+    notify.success("Worksheet recomputed", "The correction is recorded in the audit log.");
+    recomputeDialog.value = false;
+    await load();
+  } catch (err) {
+    notify.error(err, "Could not recompute the worksheet");
+  } finally {
+    recomputeBusy.value = false;
   }
 }
 
@@ -412,6 +482,14 @@ onMounted(async () => {
         <BackButton to="admin-filings" label="Back to filings" />
         <Button label="How to file" icon="pi pi-question-circle" text size="small" @click="helpDialog = true" />
         <Button
+          v-if="filed"
+          label="Recompute worksheet"
+          icon="pi pi-refresh"
+          text
+          size="small"
+          @click="openRecompute"
+        />
+        <Button
           v-if="!filed"
           label="Mark as filed"
           icon="pi pi-check"
@@ -424,6 +502,29 @@ onMounted(async () => {
         Filed {{ date(filing.filedOn) }}<template v-if="filing.filingMethod"> via {{ filing.filingMethod }}</template><template v-if="filing.filingReference"> · ref {{ filing.filingReference }}</template>.
         The worksheet is frozen.
       </Message>
+
+      <section v-if="corrections.length" class="card table-scroll stack">
+        <h3 style="margin: 0">Worksheet corrections</h3>
+        <p class="muted small" style="margin: 0">
+          Audited recomputes of the frozen worksheet (PAY-25) — filing status, date, method, and
+          reference were not changed.
+        </p>
+        <DataTable :value="corrections" data-key="id" striped-rows>
+          <Column header="When" style="width: 9rem">
+            <template #body="{ data }">{{ date(data.createdAt) }}</template>
+          </Column>
+          <Column header="Reason">
+            <template #body="{ data }">{{ data.after?.reason ?? "—" }}</template>
+          </Column>
+          <Column header="Hash" style="width: 14rem">
+            <template #body="{ data }">
+              <span class="mono small">
+                {{ shortHash(data.before?.worksheetHash) }} → {{ shortHash(data.after?.worksheetHash) }}
+              </span>
+            </template>
+          </Column>
+        </DataTable>
+      </section>
 
       <section v-if="worksheet941" class="card table-scroll">
         <h3>Worksheet <StatusChip :status="filing.status" style="margin-left: 0.5rem" /></h3>
@@ -657,6 +758,50 @@ onMounted(async () => {
           </Column>
         </DataTable>
       </section>
+
+      <Dialog v-model:visible="recomputeDialog" modal header="Recompute worksheet" :style="{ width: '36rem' }">
+        <div class="stack">
+          <p class="muted small" style="margin: 0">
+            Recomputes the worksheet from frozen issued-run entries and current config, and records
+            the correction in the audit log. Filing status, date, method, and reference are not
+            changed.
+          </p>
+          <Skeleton v-if="recomputeLoading" height="6rem" />
+          <template v-else>
+            <p v-if="!recomputeDiff.length" class="muted small" style="margin: 0">
+              Recomputation produces the current worksheet — no line changes. You can still record
+              a correction (e.g. to log a review).
+            </p>
+            <DataTable v-else :value="recomputeDiff" striped-rows>
+              <Column field="key" header="Line" />
+              <Column field="before" header="Current" style="width: 8rem; text-align: right" />
+              <Column field="after" header="Recomputed" style="width: 8rem; text-align: right" />
+            </DataTable>
+            <div class="field">
+              <label for="recomputeReason">Reason (required — written to the audit log)</label>
+              <Textarea
+                id="recomputeReason"
+                v-model="recomputeReason"
+                rows="3"
+                maxlength="500"
+                auto-resize
+                placeholder="e.g. corrected to match filed return, Letterstream 13601563"
+              />
+            </div>
+          </template>
+          <div class="row dialog-actions">
+            <Button label="Cancel" text severity="secondary" @click="recomputeDialog = false" />
+            <Button
+              label="Recompute worksheet"
+              icon="pi pi-check"
+              severity="warn"
+              :loading="recomputeBusy"
+              :disabled="!recomputeReason.trim() || recomputeLoading"
+              @click="submitRecompute"
+            />
+          </div>
+        </div>
+      </Dialog>
 
       <Dialog v-model:visible="fileDialog" modal header="Mark as filed" :style="{ width: '26rem' }">
         <div class="stack">
