@@ -4,6 +4,22 @@ All notable changes to this project will be documented here. Format follows
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/); versioning follows
 [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [1.16.0] - 2026-09-12
+
+### Added
+
+- **Recompute worksheet for filed filings (PAY-25)**: a filed filing whose
+  frozen worksheet never matched the actual filing (precedent: the 2025
+  Form 940 corrected out-of-band on 2026-09-03) now has a supported admin
+  correction path. The filing detail page offers "Recompute worksheet" with
+  a line-by-line current-vs-recomputed diff preview and a mandatory
+  free-text reason; committing rewrites the worksheet + canonical hash from
+  frozen issued-run entries and current config, writes a
+  `tax_filing.correct_worksheet` audit event (before/after hashes + reason
+  + actor) in the same transaction, and leaves filing metadata (status,
+  filed date, method, reference) untouched. Past corrections are listed on
+  the detail page.
+
 ## [1.15.1] - 2026-09-12
 
 ### Fixed
