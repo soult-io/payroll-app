@@ -54,7 +54,8 @@ export class PayrollServiceError extends Error {
       | "void_reason_required"
       | "unsupported_frequency"
       | "not_w2_employee"
-      | "no_company",
+      | "no_company"
+      | "futa_cap_exceeded",
     message: string,
   ) {
     super(message);
@@ -242,6 +243,28 @@ export async function generateDraft(
           extraWithholding: w4Row ? Number(w4Row.extraWithholding) : 0,
         },
       });
+
+      // PAY-26: per-employee annual employer_futa must never exceed
+      // futaWageCap × futaRate for the run's tax year. The engine formula is
+      // correct, but a misconfigured rate (PAY-18/22 incident: 0.6% instead of
+      // 6%) would silently write wrong entries — assert the invariant at write
+      // time against issued-run YTD + this run.
+      const futaAnnualCap = round2(engineConfig.futaWageCap * engineConfig.futaRate);
+      // Per-period cent rounding can accumulate up to half a cent per period
+      // past the exact cap (the 940 worksheet reconciles this as
+      // roundingDelta) — the guard targets material violations like the
+      // incident's 10× rate error, not rounding noise.
+      const futaCapTolerance = round2(0.005 * periodsPerYear);
+      const priorFutaYtd = priorYtd.get("employer_futa") ?? 0;
+      const projectedFuta = round2(priorFutaYtd + result.employerFUTA);
+      if (projectedFuta > futaAnnualCap + futaCapTolerance) {
+        throw new PayrollServiceError(
+          "futa_cap_exceeded",
+          `employer_futa annual cap exceeded for employee ${input.employeeId} in ${taxYear}: ` +
+            `${projectedFuta.toFixed(2)} (issued YTD ${priorFutaYtd.toFixed(2)} + this run ${result.employerFUTA.toFixed(2)}) ` +
+            `> cap ${futaAnnualCap.toFixed(2)} (futa_wage_cap × futa_rate, +${futaCapTolerance.toFixed(2)} rounding tolerance) — check tax_config for ${taxYear}`,
+        );
+      }
 
       const snapshot: RunSnapshot = {
         inputs: {

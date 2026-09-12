@@ -120,6 +120,13 @@
       "when": 1788477976222,
       "tag": "0016_perpetual_proteus",
       "breakpoints": true
+    },
+    {
+      "idx": 17,
+      "version": "7",
+      "when": 1788501600000,
+      "tag": "0017_futa_annual_cap",
+      "breakpoints": true
     }
   ]
 }
