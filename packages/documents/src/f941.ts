@@ -81,19 +81,25 @@ export function splitEin(ein: string): { first2: string; last7: string } {
   return { first2: digits.slice(0, 2), last7: digits.slice(2) };
 }
 
-function fillText(form: PDFForm, fieldName: string, value: string | null): void {
+/** Shared official-form fill helpers (941 + 940): blank values stay blank. */
+export function fillText(form: PDFForm, fieldName: string, value: string | null): void {
   if (!value) return; // blank boxes stay blank
   form.getTextField(fieldName).setText(value);
 }
 
-function fillMoney(form: PDFForm, field: MoneyField, value: string | null): void {
+export function fillMoney(form: PDFForm, field: MoneyField, value: string | null): void {
   if (value === null) return;
   const { dollars, cents } = splitMoneyPair(value);
   form.getTextField(field.dollars).setText(dollars);
   form.getTextField(field.cents).setText(cents);
 }
 
-function fillEin(form: PDFForm, first2Field: string, last7Field: string, ein: string | null): void {
+export function fillEin(
+  form: PDFForm,
+  first2Field: string,
+  last7Field: string,
+  ein: string | null,
+): void {
   if (!ein) return;
   const { first2, last7 } = splitEin(ein);
   form.getTextField(first2Field).setText(first2);

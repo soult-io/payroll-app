@@ -465,6 +465,14 @@ export {
   type F941Input,
 } from "./f941.js";
 
+export { prepareF940, renderF940Pdf, type F940Input } from "./f940.js";
+
+export {
+  F940_FIELD_MAP,
+  F940_REVISION_DATE,
+  type F940FieldMap,
+} from "./forms/f940-field-map.js";
+
 export {
   F941_REVISION_DATE,
   f941FieldMap,
