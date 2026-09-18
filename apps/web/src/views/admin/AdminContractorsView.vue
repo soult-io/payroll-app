@@ -44,8 +44,74 @@ const notify = useNotify();
 
 // ------------------------------------------------------------- list + create
 
+function formLabel(taxForm: string): string {
+  return { w9: "W-9", w8ben: "W-8BEN", w8ben_e: "W-8BEN-E", w8eci: "W-8ECI" }[taxForm] ?? taxForm;
+}
+
+function formStatus(row: ContractorListRow): { label: string; status: string } {
+  if (!row.formCollectedAt)
+    return { label: `${formLabel(row.taxForm)} outstanding`, status: "awaiting_approval" };
+  if (row.formExpiresAt && row.formExpiresAt <= new Date().toISOString().slice(0, 10)) {
+    return {
+      label: `${formLabel(row.taxForm)} expired ${date(row.formExpiresAt)}`,
+      status: "void",
+    };
+  }
+  if (row.formExpiresAt)
+    return {
+      label: `${formLabel(row.taxForm)} on file · expires ${date(row.formExpiresAt)}`,
+      status: "issued",
+    };
+  return { label: `${formLabel(row.taxForm)} on file`, status: "issued" };
+}
+
 const loading = ref(true);
 const rows = ref<ContractorListRow[]>([]);
+const searchQuery = ref("");
+const taxStatusFilter = ref<"all" | TaxStatus>("all");
+const formStatusFilter = ref<"all" | "outstanding" | "expired" | "on_file">("all");
+
+// Filter and sort the rows
+const filteredRows = computed(() => {
+  let result = [...rows.value];
+
+  // Apply search filter
+  if (searchQuery.value) {
+    const query = searchQuery.value.toLowerCase();
+    result = result.filter(
+      (row) =>
+        row.legalName.toLowerCase().includes(query) ||
+        (row.preferredName && row.preferredName.toLowerCase().includes(query)),
+    );
+  }
+
+  // Apply tax status filter
+  if (taxStatusFilter.value !== "all") {
+    result = result.filter((row) => row.taxStatus === taxStatusFilter.value);
+  }
+
+  // Apply form status filter
+  if (formStatusFilter.value !== "all") {
+    if (formStatusFilter.value === "outstanding") {
+      result = result.filter((row) => !row.formCollectedAt);
+    } else if (formStatusFilter.value === "expired") {
+      result = result.filter(
+        (row) =>
+          row.formCollectedAt &&
+          row.formExpiresAt &&
+          row.formExpiresAt <= new Date().toISOString().slice(0, 10),
+      );
+    } else if (formStatusFilter.value === "on_file") {
+      result = result.filter(
+        (row) =>
+          row.formCollectedAt &&
+          (!row.formExpiresAt || row.formExpiresAt > new Date().toISOString().slice(0, 10)),
+      );
+    }
+  }
+
+  return result;
+});
 
 const createDialog = ref(false);
 const createBusy = ref(false);
@@ -87,27 +153,6 @@ function open(event: { data: ContractorListRow }) {
     params: { employeeId: event.data.employeeId },
     query: route.query,
   });
-}
-
-function formLabel(taxForm: string): string {
-  return { w9: "W-9", w8ben: "W-8BEN", w8ben_e: "W-8BEN-E", w8eci: "W-8ECI" }[taxForm] ?? taxForm;
-}
-
-function formStatus(row: ContractorListRow): { label: string; status: string } {
-  if (!row.formCollectedAt)
-    return { label: `${formLabel(row.taxForm)} outstanding`, status: "awaiting_approval" };
-  if (row.formExpiresAt && row.formExpiresAt <= new Date().toISOString().slice(0, 10)) {
-    return {
-      label: `${formLabel(row.taxForm)} expired ${date(row.formExpiresAt)}`,
-      status: "void",
-    };
-  }
-  if (row.formExpiresAt)
-    return {
-      label: `${formLabel(row.taxForm)} on file · expires ${date(row.formExpiresAt)}`,
-      status: "issued",
-    };
-  return { label: `${formLabel(row.taxForm)} on file`, status: "issued" };
 }
 
 async function create() {
@@ -239,17 +284,68 @@ onMounted(async () => {
       <TabPanels>
         <TabPanel value="list">
           <div class="card table-scroll">
-            <DataTable :value="rows" :loading="loading" striped-rows row-hover @row-click="open">
+            <div class="toolbar row" style="align-items: center; gap: 1rem; margin-bottom: 1rem">
+              <div class="field" style="flex: 1">
+                <InputText
+                  v-model="searchQuery"
+                  placeholder="Search name…"
+                  class="w-full"
+                  :pt="{ root: { class: 'w-full' } }"
+                />
+              </div>
+              <div class="field">
+                <Select
+                  v-model="taxStatusFilter"
+                  :options="[
+                    { label: 'All', value: 'all' },
+                    { label: 'US person', value: 'us_person' },
+                    { label: 'Nonresident', value: 'nonresident' },
+                  ]"
+                  option-label="label"
+                  option-value="value"
+                  :style="{ minWidth: '12rem' }"
+                />
+              </div>
+              <div class="field">
+                <Select
+                  v-model="formStatusFilter"
+                  :options="[
+                    { label: 'All', value: 'all' },
+                    { label: 'Outstanding', value: 'outstanding' },
+                    { label: 'Expired', value: 'expired' },
+                    { label: 'On file', value: 'on_file' },
+                  ]"
+                  option-label="label"
+                  option-value="value"
+                  :style="{ minWidth: '12rem' }"
+                />
+              </div>
+            </div>
+
+            <div class="row" style="justify-content: flex-end; margin-bottom: 0.5rem">
+              <span v-if="searchQuery || taxStatusFilter !== 'all' || formStatusFilter !== 'all'" class="muted small">
+                {{ filteredRows.length }} of {{ rows.length }} contractors
+              </span>
+            </div>
+
+            <DataTable :value="filteredRows" :loading="loading" striped-rows row-hover @row-click="open">
               <template #empty>
                 <EmptyState
+                  v-if="rows.length === 0"
                   icon="pi pi-briefcase"
                   title="No contractors yet"
                   body="Create the first contractor record — classification and tax form details come next."
                 >
                   <Button label="New contractor" size="small" @click="createDialog = true" />
                 </EmptyState>
+                <EmptyState
+                  v-else
+                  icon="pi pi-filter"
+                  title="No contractors match these filters"
+                  body="Try changing your search or filter criteria."
+                />
               </template>
-              <Column field="legalName" header="Name" />
+              <Column field="legalName" header="Name" sortable />
               <Column header="Status">
                 <template #body="{ data }">
                   <span class="small">{{ data.taxStatus === "us_person" ? "US person" : "Nonresident" }}</span>
@@ -261,10 +357,8 @@ onMounted(async () => {
                   <StatusChip :status="formStatus(data).status" :label="formStatus(data).label" />
                 </template>
               </Column>
-              <Column header="Services">
-                <template #body="{ data }"><span class="small">{{ data.servicesLocation }}</span></template>
-              </Column>
-              <Column header="Backup w/h">
+              <Column field="servicesLocation" header="Services" sortable />
+              <Column field="backupWithholding" header="Backup w/h" sortable>
                 <template #body="{ data }">
                   <span v-if="data.backupWithholding" class="small">24%</span>
                   <span v-else class="muted small">—</span>
