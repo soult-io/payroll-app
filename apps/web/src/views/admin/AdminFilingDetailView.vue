@@ -490,6 +490,15 @@ onMounted(async () => {
         >
           <Button label="Filled 941 PDF" icon="pi pi-download" text size="small" />
         </a>
+        <!-- PAY-33: filled official 940 PDF — unsigned, wet/e-sign after download -->
+        <a
+          v-if="filing.formType === '940' && filing.worksheet"
+          :href="adminFilingsApi.f940PdfUrl(filing.id)"
+          target="_blank"
+          rel="noopener"
+        >
+          <Button label="Filled 940 PDF" icon="pi pi-download" text size="small" />
+        </a>
         <Button
           v-if="filed"
           label="Recompute worksheet"

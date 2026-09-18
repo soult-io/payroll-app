@@ -1141,6 +1141,8 @@ export const adminFilingsApi = {
   w3PdfUrl: (year: number) => `/api/admin/annual-forms/w3/pdf?year=${year}`,
   // PAY-16 — filled official Form 941 PDF from the filing's worksheet
   f941PdfUrl: (id: number) => `/api/admin/tax-filings/${id}/941-pdf`,
+  // PAY-33 — filled official Form 940 PDF from the filing's worksheet
+  f940PdfUrl: (id: number) => `/api/admin/tax-filings/${id}/940-pdf`,
   // PAY-24 — confirmation/evidence attachments (stored encrypted at rest)
   listAttachments: (id: number) =>
     get<{ attachments: FilingAttachment[] }>(`/api/admin/tax-filings/${id}/attachments`),

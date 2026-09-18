@@ -10,10 +10,11 @@
 
 import type { FastifyInstance } from "fastify";
 import { z } from "zod";
-import { renderF941Pdf } from "@payroll/documents";
+import { renderF940Pdf, renderF941Pdf } from "@payroll/documents";
 import type { Db } from "../db.js";
 import type { AppConfig } from "../config.js";
 import type { Guards } from "../plugins/guards.js";
+import { f940PdfInputFor } from "../filings/form-940-pdf.js";
 import { f941PdfInputFor } from "../filings/form-941-pdf.js";
 import {
   addAdjustment,
@@ -187,6 +188,23 @@ export function registerAdminFilingRoutes(app: FastifyInstance, deps: Deps): voi
           "content-disposition",
           `inline; filename="f941-${input.taxYear}-q${input.quarter}.pdf"`,
         )
+        .send(pdf);
+    } catch (err) {
+      return serviceError(err, reply);
+    }
+  });
+
+  // PAY-33: filled official Form 940 PDF from the filing's annual FUTA
+  // worksheet snapshot — same doctrine as the 941 PDF (PAY-16).
+  app.get("/api/admin/tax-filings/:id/940-pdf", { preHandler: admin }, async (req, reply) => {
+    const id = intParam((req.params as { id: string }).id);
+    if (!id) return reply.code(400).send({ error: "invalid_id" });
+    try {
+      const input = await f940PdfInputFor({ db, config }, id);
+      const pdf = await renderF940Pdf(input);
+      return reply
+        .header("content-type", "application/pdf")
+        .header("content-disposition", `inline; filename="f940-${input.taxYear}.pdf"`)
         .send(pdf);
     } catch (err) {
       return serviceError(err, reply);
