@@ -4,6 +4,28 @@ All notable changes to this project will be documented here. Format follows
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/); versioning follows
 [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [1.18.0] - 2026-09-18
+
+### Added
+
+- **Filled official Form 940 PDF (PAY-33)**: the 940 filing detail now
+  offers a "Filled 940 PDF" download — the official IRS AcroForm (bundled
+  2025 revision, SHA-256-pinned) filled from the filing's frozen annual
+  FUTA worksheet: entity area (EIN, name, address), the Part 1 state
+  questions, Part 2 lines 3–8, the Part 3 credit-adjustment branch
+  (zero credit → line 9 = line 7 × 0.054; full 0.054 credit → Part 3
+  blank; partial credit → line 10 carries the delta to the worksheet's
+  line 12), Part 4 totals with line 13 derived from the balance due, and
+  the Form 940-V payment voucher filled when line 14 shows a balance due.
+  Form line 8 is always line 7 × 0.006 per the form's own definition; the
+  SUTA-credit delta lands in Part 3 instead of being folded into line 8.
+  Part 5 stays blank (only required when line 12 exceeds $500 and the
+  worksheet carries no per-quarter liability). Rendered on demand and
+  flattened (never stored); metadata is pinned to the template revision
+  so identical worksheets render byte-identical PDFs. The form ships
+  unsigned — signature/date stay blank for wet signature (or e-sign
+  after download) before the Letterstream mail upload, same as the 941.
+
 ## [1.17.0] - 2026-09-12
 
 ### Added
