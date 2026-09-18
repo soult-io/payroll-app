@@ -175,6 +175,31 @@ export const router = createRouter({
   ],
 });
 
+// Hard-reload fallback on chunk-load failure
+// Vite fires this when module preloading fails after a deploy; the only correct recovery is a reload.
+window.addEventListener("vite:preloadError", () => window.location.reload());
+
+// Router error handler for chunk loading failures
+let hadChunkLoadError = false;
+router.onError((err, to) => {
+  // Check if this is a dynamic import / chunk load failure
+  if (
+    /dynamically imported module|ChunkLoadError|Importing a module script failed|error loading module/i.test(
+      err.message,
+    )
+  ) {
+    // Don't loop - guard with a module-level flag or sessionStorage key
+    // so the fallback fires at most once per target path
+    const errorKey = `chunk-load-error-${to.fullPath}`;
+    if (!sessionStorage.getItem(errorKey) && !hadChunkLoadError) {
+      sessionStorage.setItem(errorKey, "1");
+      hadChunkLoadError = true;
+      // Do a full-page navigation to the target (hard load fetches a fresh index.html)
+      window.location.assign(to.fullPath);
+    }
+  }
+});
+
 router.beforeEach(async (to) => {
   const auth = useAuthStore(pinia);
   await auth.ensureLoaded();
