@@ -4,6 +4,31 @@ All notable changes to this project will be documented here. Format follows
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/); versioning follows
 [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [1.19.0] - 2026-09-19
+
+### Added
+
+- **Tax deposit detail view (PAY-36)**: each row on the Tax deposits page
+  now opens a detail view at `/admin/deposits/:id` — an EFTPS reference
+  card with the exact values to enter on eftps.gov (tax period, amount,
+  due date, jurisdiction; deposited rows also show the deposited date and
+  EFTPS confirmation number), a per-category breakdown table whose total
+  equals the deposit amount, the contributing issued payroll runs (row
+  click opens the run), and a read-only list of confirmation attachments.
+  Backed by a new `GET /api/admin/tax-deposits/:id` endpoint.
+- **Contractors list: search, filters, sorting (PAY-29)**: the
+  Contractors page gains a toolbar with search, status/type filters, and
+  column sorting; contractors no longer appear on the Employees page.
+
+### Fixed
+
+- **Admin dashboard redirect (PAY-31)**: admins visiting `/my/dashboard`
+  are now redirected to `/admin/dashboard`.
+- **Navigation dead after idle (PAY-30)**: navigation now recovers from
+  stale JS chunks after the app idles through a deploy — a chunk-load
+  failure triggers a hard reload, and hashed `/assets/*` files are served
+  with immutable caching so old tabs never poison the cache.
+
 ## [1.18.0] - 2026-09-18
 
 ### Added
