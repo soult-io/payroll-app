@@ -99,7 +99,19 @@ export async function buildApp(deps: BuildAppDeps = {}) {
         existsSync(p),
       );
   if (publicDir) {
-    await app.register(fastifyStatic, { root: publicDir, wildcard: true });
+    await app.register(fastifyStatic, {
+      root: publicDir,
+      wildcard: true,
+      setHeaders(res, path) {
+        // Files under /assets/ (Vite emits content-hashed filenames there):
+        // Cache-Control: public, max-age=31536000, immutable
+        // index.html (and anything else): keep the current behavior (public, max-age=0)
+        // index.html MUST stay revalidating, it is the deploy-detection mechanism for fallback #1
+        if (path.includes("/assets/")) {
+          res.header("Cache-Control", "public, max-age=31536000, immutable");
+        }
+      },
+    });
   }
   app.setNotFoundHandler(async (req, reply) => {
     if (req.method === "GET" && !req.url.startsWith("/api/") && publicDir) {
