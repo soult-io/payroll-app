@@ -109,6 +109,12 @@ export const router = createRouter({
       meta: { requiresAuth: true, requiresAdmin: true },
     },
     {
+      path: "/admin/deposits/:id",
+      name: "admin-deposit-detail",
+      component: () => import("./views/admin/AdminDepositDetailView.vue"),
+      meta: { requiresAuth: true, requiresAdmin: true },
+    },
+    {
       path: "/admin/filings",
       name: "admin-filings",
       component: () => import("./views/admin/AdminFilingsView.vue"),

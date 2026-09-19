@@ -651,3 +651,67 @@ describe("admin deposit list filters (PAY-15)", () => {
     expect(badStatus.json()).toMatchObject({ error: "invalid_query" });
   });
 });
+
+// ---------------------------------------------------------------------------
+// PAY-36 — deposit detail endpoint
+// ---------------------------------------------------------------------------
+
+describe("admin deposit detail endpoint (PAY-36)", () => {
+  it("returns 404 for unknown deposit id", async () => {
+    const res = await api("GET", "/api/admin/tax-deposits/999999");
+    expect(res.statusCode).toBe(404);
+    expect(res.json()).toMatchObject({ error: "not_found" });
+  });
+
+  it("returns deposit detail for existing id", async () => {
+    // Use August 2026 — untouched by earlier tests in this shared DB, so the
+    // deposit amount is computed fresh by our sync below (earlier tests froze
+    // the March deposit by marking it deposited).
+    const employee = await createEmployee();
+    await addCompensation(employee, 4000);
+    const run = await issueRun(employee, 2026, 8);
+
+    await syncDeposits({ db: t.db, config: t.config }, { today: "2026-09-01" });
+
+    // Get the deposit ID from the list response
+    const listRes = await api("GET", "/api/admin/tax-deposits");
+    expect(listRes.statusCode).toBe(200);
+    const deposits = (listRes.json() as { deposits: { id: number; periodStart: string }[] })
+      .deposits;
+    const deposit = deposits.find((d) => d.periodStart === "2026-08-01");
+
+    if (!deposit) {
+      throw new Error("Could not find test deposit");
+    }
+
+    const res = await api("GET", `/api/admin/tax-deposits/${deposit.id}`);
+    expect(res.statusCode, res.body).toBe(200);
+    const detail = res.json() as {
+      deposit: { id: number; periodStart: string; amount: string };
+      breakdown: { category: string; amount: string }[];
+      runs: { publicId: string }[];
+    };
+
+    expect(detail.deposit.id).toBe(deposit.id);
+    expect(detail.deposit.periodStart).toBe("2026-08-01");
+    expect(detail.breakdown).toHaveLength(5);
+    expect(detail.runs).toHaveLength(1);
+
+    // Check that all categories are present in breakdown
+    const categories = detail.breakdown.map((b) => b.category);
+    expect(categories).toEqual([
+      "federal_withholding",
+      "social_security",
+      "medicare",
+      "employer_social_security",
+      "employer_medicare",
+    ]);
+
+    // Assert the breakdown amounts sum exactly to deposit.amount
+    const total = detail.breakdown.reduce((sum, row) => sum + Number(row.amount), 0);
+    expect(total).toBeCloseTo(Number(detail.deposit.amount));
+
+    // Assert runs contains the issued fixture run's publicId
+    expect(detail.runs.map((r) => r.publicId)).toContain(run.publicId);
+  });
+});

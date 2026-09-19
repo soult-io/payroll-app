@@ -27,6 +27,7 @@ import {
   authUser,
   company,
   emailOutbox,
+  employees,
   payrollEntries,
   payrollRuns,
   taxDeposits,
@@ -41,6 +42,13 @@ import type { Db } from "../db.js";
 import type { AppConfig } from "../config.js";
 
 export type TaxDepositRow = typeof taxDeposits.$inferSelect;
+
+/** PAY-36 — detail payload for GET /api/admin/tax-deposits/:id. */
+export interface DepositDetailRow {
+  deposit: TaxDepositRow;
+  breakdown: { category: string; amount: string }[];
+  runs: { publicId: string; payDate: string; employeeName: string; amount: string }[];
+}
 
 export class DepositServiceError extends Error {
   constructor(
@@ -460,4 +468,81 @@ export async function sendDepositReminders(
     }
   }
   return { sent };
+}
+
+/**
+ * Fetch a deposit with its detail data for the admin view.
+ * Returns null when no deposit with id exists.
+ */
+export async function getDepositDetail(db: Db, id: number): Promise<DepositDetailRow | null> {
+  const depositRows = await db.select().from(taxDeposits).where(eq(taxDeposits.id, id)).limit(1);
+  const deposit = depositRows[0];
+  if (!deposit) return null;
+
+  // Get the breakdown by category
+  const periodStart = deposit.periodStart;
+
+  const breakdownRows = await db
+    .select({
+      category: payrollEntries.category,
+      amount: sql<string>`coalesce(sum(${payrollEntries.amount}), 0)::numeric(12,2)::text`,
+    })
+    .from(payrollEntries)
+    .innerJoin(payrollRuns, eq(payrollEntries.runId, payrollRuns.id))
+    .where(
+      and(
+        eq(payrollRuns.status, "issued"),
+        sql`date_trunc('month', ${payrollRuns.payDate})::date = ${periodStart}::date`,
+        sql`${payrollEntries.category} IN (${sql.join(
+          DEPOSIT_CATEGORIES.map((c) => sql`${c}`),
+          sql`, `,
+        )})`,
+      ),
+    )
+    .groupBy(payrollEntries.category);
+
+  // Ensure all categories are included, even if zero
+  const breakdown: DepositDetailRow["breakdown"] = [];
+  for (const category of DEPOSIT_CATEGORIES) {
+    const row = breakdownRows.find((r) => r.category === category);
+    breakdown.push({
+      category,
+      amount: row ? row.amount : "0.00",
+    });
+  }
+
+  // Get running contributions
+  const runs = await db
+    .select({
+      publicId: payrollRuns.publicId,
+      payDate: payrollRuns.payDate,
+      employeeName: employees.legalName,
+      amount: sql<string>`coalesce(sum(${payrollEntries.amount}), 0)::numeric(12,2)::text`,
+    })
+    .from(payrollRuns)
+    .innerJoin(payrollEntries, eq(payrollEntries.runId, payrollRuns.id))
+    .innerJoin(employees, eq(payrollRuns.employeeId, employees.id))
+    .where(
+      and(
+        eq(payrollRuns.status, "issued"),
+        sql`date_trunc('month', ${payrollRuns.payDate})::date = ${periodStart}::date`,
+        sql`${payrollEntries.category} IN (${sql.join(
+          DEPOSIT_CATEGORIES.map((c) => sql`${c}`),
+          sql`, `,
+        )})`,
+      ),
+    )
+    .groupBy(payrollRuns.publicId, payrollRuns.payDate, employees.legalName)
+    .orderBy(payrollRuns.payDate);
+
+  return {
+    deposit,
+    breakdown,
+    runs: runs.map((row) => ({
+      publicId: row.publicId,
+      payDate: row.payDate,
+      employeeName: row.employeeName,
+      amount: row.amount,
+    })),
+  };
 }
