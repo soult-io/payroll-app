@@ -55,8 +55,9 @@ async function submitLoginTotp(page: Page, secret: string): Promise<void> {
   for (let attempt = 0; attempt < 2; attempt++) {
     await page.locator("#totp").fill(await totp(secret));
     await page.getByRole("button", { name: "Verify", exact: true }).click();
+    // Admins now land on /admin/dashboard (PAY-31), employees on /my/dashboard.
     const landed = await page
-      .waitForURL("**/my/dashboard", { timeout: 8_000 })
+      .waitForURL(/\/(my|admin)\/dashboard/, { timeout: 8_000 })
       .then(() => true)
       .catch(() => false);
     if (landed) return;

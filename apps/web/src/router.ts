@@ -187,6 +187,9 @@ router.beforeEach(async (to) => {
   if (to.meta.requiresAuth && !auth.user) {
     return { name: "login", query: { redirect: to.fullPath } };
   }
+  if (to.name === "my-dashboard" && auth.isAdmin) {
+    return { name: "admin-dashboard" };
+  }
   if (to.meta.requiresAdmin && !auth.isAdmin) {
     return { name: "my-dashboard" };
   }

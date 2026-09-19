@@ -74,8 +74,9 @@ async function submitLoginTotp(page: Page, secret: string): Promise<void> {
   for (let attempt = 0; attempt < 2; attempt++) {
     await page.locator("#totp").fill(await totp(secret));
     await page.getByRole("button", { name: "Verify", exact: true }).click();
+    // Admins now land on /admin/dashboard (PAY-31), employees on /my/dashboard.
     const landed = await page
-      .waitForURL("**/my/dashboard", { timeout: 8_000 })
+      .waitForURL(/\/(my|admin)\/dashboard/, { timeout: 8_000 })
       .then(() => true)
       .catch(() => false);
     if (landed) return;
@@ -307,6 +308,21 @@ test("journey 5: back navigation preserves the list filter state (PAY-17)", asyn
   await page.goBack();
   await expect(page).toHaveURL(/\/admin\/payroll\?year=2025/);
   await expect(page.locator(".p-select").first()).toContainText("2025");
+  await ctx.close();
+});
+
+test("journey 6: admin user visiting /my/dashboard is redirected to /admin/dashboard", async ({
+  browser,
+}) => {
+  // Fresh context with the admin session saved in journey 2.
+  const ctx = await browser.newContext({ storageState: ADMIN_SESSION });
+  const page = await ctx.newPage();
+
+  await page.goto("/my/dashboard");
+  await page.waitForURL("**/admin/dashboard");
+
+  await page.goto("/");
+  await page.waitForURL("**/admin/dashboard");
 
   await ctx.close();
 });
