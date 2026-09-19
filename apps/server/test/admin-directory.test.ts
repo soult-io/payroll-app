@@ -66,11 +66,22 @@ describe("employee directory", () => {
     expect(res.body).not.toContain("enc:v1:");
   });
 
+  it("creates a contractor record for testing", async () => {
+    const res = await adminReq("POST", "/api/admin/employees", {
+      legalName: "Contractor Person",
+      employmentType: "1099",
+      hireDate: "2025-02-03",
+      address: { line1: "5 Oak Ave", city: "Madrid", state: "MD", zip: "28002", country: "ES" },
+    });
+    expect(res.statusCode).toBe(201);
+  });
+
   it("lists and reads employees with linked-user info", async () => {
     const list = await adminReq("GET", "/api/admin/employees");
     expect(list.statusCode).toBe(200);
     const { employees: rows } = list.json() as { employees: { id: number; legalName: string }[] };
     expect(rows.some((r) => r.legalName === "Directory Person")).toBe(true);
+    expect(rows.some((r) => r.legalName === "Contractor Person")).toBe(false); // Contractors are filtered out
 
     const detail = await adminReq("GET", `/api/admin/employees/${employeeId}`);
     expect(detail.statusCode).toBe(200);

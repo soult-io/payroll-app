@@ -6,7 +6,7 @@
  */
 
 import type { FastifyInstance } from "fastify";
-import { eq } from "drizzle-orm";
+import { eq, ne } from "drizzle-orm";
 import { z } from "zod";
 import { auditEvents, authUser, changeRequests, company, employees } from "@payroll/db";
 import { isoDate } from "@payroll/shared";
@@ -99,6 +99,7 @@ export function registerAdminEmployeeRoutes(app: FastifyInstance, deps: Deps): v
       })
       .from(employees)
       .leftJoin(authUser, eq(authUser.id, employees.userId))
+      .where(ne(employees.employmentType, "1099"))
       .orderBy(employees.legalName);
     return { employees: rows };
   });
