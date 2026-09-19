@@ -326,3 +326,35 @@ test("journey 6: admin user visiting /my/dashboard is redirected to /admin/dashb
 
   await ctx.close();
 });
+
+test("journey 7: deposit detail view (PAY-36)", async ({ browser }) => {
+  // Admin session from journey 2. The e2e fixture issues a 2025-10 run and
+  // syncs deposits at boot; the list defaults to the current year, so open it
+  // pinned to 2025 via the query param (PAY-17 filter state).
+  const ctx = await browser.newContext({ storageState: ADMIN_SESSION });
+  const page = await ctx.newPage();
+  await page.goto("/admin/deposits?year=2025");
+
+  // Click the first data row (not the header row).
+  const row = page.locator(".p-datatable-tbody tr").first();
+  await expect(row).toBeVisible();
+  await row.click();
+
+  // Should navigate to detail page.
+  await expect(page).toHaveURL(/\/admin\/deposits\/\d+/);
+
+  // Assert deposit details are visible.
+  await expect(page.getByText("EFTPS reference")).toBeVisible();
+  await expect(page.getByText("Breakdown")).toBeVisible();
+  await expect(page.getByText("Contributing runs")).toBeVisible();
+  await expect(page.getByRole("heading", { name: "Attachments" })).toBeVisible();
+
+  // Check that the breakdown contains a specific category
+  await expect(page.getByText("Medicare — employer")).toBeVisible();
+
+  // Go back to list view.
+  await page.getByRole("button", { name: "Back to deposits" }).click();
+  await expect(page).toHaveURL(/\/admin\/deposits/);
+
+  await ctx.close();
+});

@@ -8,6 +8,7 @@
  * on eftps.gov and are recorded here.
  */
 import { computed, onMounted, ref, watch } from "vue";
+import { useRouter } from "vue-router";
 import Button from "primevue/button";
 import DataTable from "primevue/datatable";
 import Column from "primevue/column";
@@ -184,7 +185,7 @@ async function submitAttachment() {
   }
 }
 
-// ---------------------------------------------------------- reminder schedule
+const router = useRouter();
 const scheduleLoading = ref(true);
 const scheduleBusy = ref(false);
 const offsetsText = ref("");
@@ -235,6 +236,10 @@ async function saveSchedule() {
   }
 }
 
+function handleRowClick(event: { data: TaxDepositRow }) {
+  router.push({ name: "admin-deposit-detail", params: { id: event.data.id } });
+}
+
 onMounted(async () => {
   try {
     // Unfiltered list: the source of the dynamic year options.
@@ -273,7 +278,7 @@ onMounted(async () => {
 
     <section class="card table-scroll">
       <Skeleton v-if="loading" height="10rem" />
-      <DataTable v-else :value="rows" data-key="id" striped-rows :row-class="rowClass">
+      <DataTable v-else :value="rows" data-key="id" striped-rows :row-class="rowClass" row-hover @row-click="handleRowClick">
         <template #empty>
           <EmptyState
             icon="pi pi-calendar"
@@ -313,14 +318,14 @@ onMounted(async () => {
               label="Mark as deposited"
               size="small"
               text
-              @click="openDepositDialog(data)"
+              @click.stop="openDepositDialog(data)"
             />
             <Button
               label="Attachments"
               icon="pi pi-paperclip"
               size="small"
               text
-              @click="openAttachments(data)"
+              @click.stop="openAttachments(data)"
             />
           </template>
         </Column>

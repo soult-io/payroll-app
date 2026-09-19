@@ -35,6 +35,7 @@ import { loadConfig } from "../config.js";
 import { buildApp } from "../app.js";
 import type { Db } from "../db.js";
 import { inviteUser } from "../auth/users.js";
+import { syncDeposits } from "../deposits/service.js";
 
 const HERE = dirname(fileURLToPath(import.meta.url));
 const REPO_ROOT = resolve(HERE, "../../../..");
@@ -251,6 +252,31 @@ writeFileSync(
     2,
   )}\n`,
 );
+
+// PAY-36 fixture: an ISSUED run (2025-10) + deposit sync, so the Tax deposits
+// page has a row for journey 6 (the scheduler's daily sync doesn't run here).
+const gen2 = await app.inject({
+  method: "POST",
+  url: "/api/admin/payroll-runs/generate",
+  headers: { ...ORIGIN, cookie: `payroll.session_token=${adminCookie}` },
+  payload: { year: 2025, month: 10, employeeId: empRow.id },
+});
+if (gen2.statusCode !== 201) throw new Error(`generate: ${gen2.body}`);
+const runPublicId2 = (gen2.json() as { generated: { publicId: string }[] }).generated[0]?.publicId;
+if (!runPublicId2) throw new Error("generate returned no run");
+
+for (const action of ["approve", "issue"] as const) {
+  const res = await app.inject({
+    method: "POST",
+    url: `/api/admin/payroll-runs/${runPublicId2}/${action}`,
+    headers: { ...ORIGIN, cookie: `payroll.session_token=${adminCookie}` },
+  });
+  if (res.statusCode !== 200) throw new Error(`${action}: ${res.body}`);
+}
+
+// Compute the deposit schedule from the issued run (no today override — the
+// Oct 2025 deposit shows as overdue, which also exercises the overdue chip).
+await syncDeposits({ db, config });
 
 await app.listen({ port: PORT, host: HOST });
 console.log(`e2e:serve ready at ${BASE_URL} (state → ${STATE_FILE})`);

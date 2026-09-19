@@ -14,6 +14,7 @@ import type { Guards } from "../plugins/guards.js";
 import {
   DEFAULT_REMINDER_OFFSETS,
   DepositServiceError,
+  getDepositDetail,
   getReminderOffsets,
   listDeposits,
   markDeposited,
@@ -73,6 +74,18 @@ export function registerAdminDepositRoutes(app: FastifyInstance, deps: Deps): vo
       return reply.code(400).send({ error: "invalid_query", details: q.error.issues });
     const deposits = await listDeposits(db, q.data);
     return { deposits };
+  });
+
+  app.get("/api/admin/tax-deposits/:id", { preHandler: admin }, async (req, reply) => {
+    const id = Number((req.params as { id: string }).id);
+    if (!Number.isInteger(id)) return reply.code(400).send({ error: "invalid_id" });
+    try {
+      const detail = await getDepositDetail(db, id);
+      if (!detail) return reply.code(404).send({ error: "not_found" });
+      return detail;
+    } catch (err) {
+      return serviceError(err, reply);
+    }
   });
 
   app.post("/api/admin/tax-deposits/:id/deposit", { preHandler: admin }, async (req, reply) => {

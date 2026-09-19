@@ -892,9 +892,25 @@ export interface TaxDepositRow {
   updatedAt: string | null;
 }
 
+export interface DepositBreakdownRow {
+  category: string;
+  amount: string;
+}
+
+export interface DepositRunRow {
+  publicId: string;
+  payDate: string;
+  employeeName: string;
+  amount: string;
+}
+
 export const adminDepositsApi = {
   list: (filter: { year?: number; status?: "pending" | "deposited" | "overdue" } = {}) =>
     get<{ deposits: TaxDepositRow[] }>(`/api/admin/tax-deposits${qs(filter)}`),
+  detail: (id: number) =>
+    get<{ deposit: TaxDepositRow; breakdown: DepositBreakdownRow[]; runs: DepositRunRow[] }>(
+      `/api/admin/tax-deposits/${id}`,
+    ),
   markDeposited: (id: number, input: { depositedOn: string; eftpsConfirmation: string }) =>
     post<{ deposit: TaxDepositRow }>(`/api/admin/tax-deposits/${id}/deposit`, input),
   reminderSchedule: () =>
