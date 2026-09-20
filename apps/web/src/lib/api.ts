@@ -1205,3 +1205,35 @@ export const myW2Api = {
   consentGive: () => post<W2ConsentStatus>("/api/my/w2/consent", {}),
   consentWithdraw: () => del<W2ConsentStatus>("/api/my/w2/consent"),
 };
+
+// ---------------------------------------------------------------------------
+// PAY-40 — admin calendar (month grid of company date obligations)
+// ---------------------------------------------------------------------------
+
+export type CalendarEventKind =
+  | "payday_scheduled"
+  | "payday_run"
+  | "contractor_invoice"
+  | "contractor_payment"
+  | "deposit_due"
+  | "deposit_made"
+  | "filing_due"
+  | "filing_filed"
+  | "w8_expiry";
+
+export interface CalendarEvent {
+  /** "YYYY-MM-DD" — always inside the requested month. */
+  date: string;
+  kind: CalendarEventKind;
+  label: string;
+  detail?: string;
+  /** vue-router target: { name: "admin-filing", params: { id: 3 } }. */
+  link: { name: string; params?: Record<string, string | number> } | null;
+}
+
+export const adminCalendarApi = {
+  month: (year: number, month: number) =>
+    get<{ year: number; month: number; events: CalendarEvent[] }>(
+      `/api/admin/calendar${qs({ year, month })}`,
+    ),
+};
