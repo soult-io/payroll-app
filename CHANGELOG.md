@@ -4,6 +4,26 @@ All notable changes to this project will be documented here. Format follows
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/); versioning follows
 [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [1.20.0] - 2026-09-20
+
+### Added
+
+- **Admin calendar (PAY-40)**: a month-grid view at /admin/calendar
+  aggregating every company date obligation into read-only, colour-coded
+  events that link to the matching detail view. The admin-only
+  `GET /api/admin/calendar?year=&month=` endpoint aggregates, date-sorted:
+  projected paydays from the current pay schedules (company default +
+  per-employee overrides), actual payroll-run pay dates (void excluded),
+  contractor recurring-invoice generation days (`last_day` / fixed) and the
+  following-month payment-due days (template `starts_on`/`ends_on` window
+  mirrored from the daily sweep), tax deposit due + deposited dates
+  (linking to the PAY-36 deposit detail), filing deadlines + filed dates
+  (941 quarterly / 940 / W-2/W-3), and W-8BEN/W-8BEN-E form expiries. All
+  date handling is date-only — no timezone math. The grid is Sunday-first
+  with adjacent-month days muted, today highlighted, prev/next/today
+  navigation via the bookmarkable `?year=&month=` route query, and a colour
+  legend; Calendar joins the admin nav.
+
 ## [1.19.0] - 2026-09-19
 
 ### Added
