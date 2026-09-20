@@ -115,6 +115,12 @@ export const router = createRouter({
       meta: { requiresAuth: true, requiresAdmin: true },
     },
     {
+      path: "/admin/calendar",
+      name: "admin-calendar",
+      component: () => import("./views/admin/AdminCalendarView.vue"),
+      meta: { requiresAuth: true, requiresAdmin: true },
+    },
+    {
       path: "/admin/filings",
       name: "admin-filings",
       component: () => import("./views/admin/AdminFilingsView.vue"),
