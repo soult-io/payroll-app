@@ -7,7 +7,13 @@
  * generator (`generate.ts`) reads/writes and calls {@link renderPage}.
  */
 
-import type { Outcome, SuiteResult, VerifySummary } from "@payroll/verify-summary";
+import type {
+  Outcome,
+  SuiteResult,
+  TestResult,
+  TestStatus,
+  VerifySummary,
+} from "@payroll/verify-summary";
 
 export function escapeHtml(value: string): string {
   return value
@@ -129,6 +135,109 @@ function headerCard(latest: VerifySummary, reportHref: string | undefined): stri
     </section>`;
 }
 
+// --- chunk C: rich cards (per-journey e2e + tax-worksheet correctness) ----
+
+function testStatusClass(status: TestStatus): string {
+  if (status === "passed") return "pass";
+  if (status === "failed") return "fail";
+  return "skip";
+}
+
+function testBadge(status: TestStatus): string {
+  const label = status === "passed" ? "PASS" : status === "failed" ? "FAIL" : "SKIP";
+  return `<span class="badge ${testStatusClass(status)}">${label}</span>`;
+}
+
+/** Reporter file basename minus the .test.ts / .spec.ts suffix. */
+function testFileKey(file: string | undefined): string {
+  if (!file) return "";
+  const base = file.split("/").pop() ?? file;
+  return base.replace(/\.(test|spec)\.[tj]s$/, "");
+}
+
+interface TaxGroup {
+  title: string;
+  files: string[];
+}
+
+// The descriptive test titles carry the expected figures (e.g. "zero credit →
+// 6.0% net, $420 per employee"), so a passing check IS the expected-vs-actual
+// proof. Groups are matched by reporter file basename.
+const TAX_GROUPS: TaxGroup[] = [
+  { title: "Form 940 / FUTA", files: ["futa-credit", "futa-cap", "in-year-940", "f940-pdf"] },
+  { title: "Form 941", files: ["f941-pdf"] },
+  { title: "W-2 / W-3 & annual forms", files: ["annual-forms"] },
+  { title: "State income-tax withholding", files: ["state-taxes"] },
+  {
+    title: "Filings & deposits",
+    files: ["filings", "filing-recompute", "deposits", "deposit-attachments", "filing-attachments"],
+  },
+];
+
+// Tests eligible for tax classification — everything except the e2e suite,
+// whose specs are shown as their own journey cards (never as tax checks).
+function taxCandidateTests(latest: VerifySummary): TestResult[] {
+  return latest.suites.filter((s) => s.key !== "e2e").flatMap((s) => s.tests);
+}
+
+function checkItem(test: TestResult): string {
+  return `<li>
+        <span class="check-name">${escapeHtml(test.name)}</span>
+        <span class="check-meta">${formatDurationMs(test.durationMs)} ${testBadge(test.status)}</span>
+      </li>`;
+}
+
+function groupOutcome(tests: TestResult[]): Outcome {
+  return tests.some((t) => t.status === "failed") ? "failed" : "passed";
+}
+
+function taxCard(title: string, tests: TestResult[]): string {
+  const failing = tests.filter((t) => t.status === "failed").length;
+  const items = tests.map(checkItem).join("\n");
+  return `<article class="tcard">
+      <div class="tcard-head"><h3>${escapeHtml(title)}</h3>${badge(groupOutcome(tests))}</div>
+      <p class="muted small">${tests.length} checks · ${failing} failing</p>
+      <ul class="checks">${items}</ul>
+    </article>`;
+}
+
+function provenance(latest: VerifySummary): string {
+  return `${escapeHtml(latest.source)} · ${escapeHtml(shortSha(latest.gitSha))} · ${formatInstant(latest.generatedAt)}`;
+}
+
+function taxCardsSection(latest: VerifySummary): string {
+  const tests = taxCandidateTests(latest);
+  const cards: string[] = [];
+  for (const group of TAX_GROUPS) {
+    const groupTests = tests.filter((t) => group.files.includes(testFileKey(t.file)));
+    if (groupTests.length > 0) cards.push(taxCard(group.title, groupTests));
+  }
+  if (cards.length === 0) return "";
+  return `<section class="card">
+      <h2>Tax-worksheet correctness</h2>
+      <p class="prov">The check titles state the expected figures; a passing check is the expected-vs-actual proof. Run ${provenance(latest)}.</p>
+      <div class="cards">${cards.join("\n")}</div>
+    </section>`;
+}
+
+function journeyCard(test: TestResult): string {
+  return `<article class="tcard ${testStatusClass(test.status)}-edge">
+      <div class="tcard-head"><h3>${escapeHtml(test.name)}</h3>${testBadge(test.status)}</div>
+      <p class="muted small">${formatDurationMs(test.durationMs)}</p>
+    </article>`;
+}
+
+function journeyCardsSection(latest: VerifySummary): string {
+  const e2e = latest.suites.find((s) => s.key === "e2e");
+  if (!e2e || e2e.tests.length === 0) return "";
+  const cards = e2e.tests.map(journeyCard).join("\n");
+  return `<section class="card">
+      <h2>End-to-end journeys</h2>
+      <p class="prov">Each card is a Playwright user journey. Run ${provenance(latest)}.</p>
+      <div class="cards">${cards}</div>
+    </section>`;
+}
+
 const EMPTY_PAGE_BODY = `<section class="card status pass">
       <div class="status-head"><h1>payroll-app — QA verification</h1></div>
       <p class="muted">No verification runs ingested yet. The dashboard populates after the first CI or nightly run publishes a summary.</p>
@@ -152,6 +261,8 @@ export function renderPage(history: VerifySummary[], options: RenderOptions = {}
       <h2>Suites</h2>
       ${suiteTable(latest)}
     </section>
+    ${journeyCardsSection(latest)}
+    ${taxCardsSection(latest)}
     <section class="card">
       <h2>Recent runs</h2>
       ${historyTable(sorted.slice(0, limit))}
@@ -231,5 +342,21 @@ td.num { text-align: right; font-variant-numeric: tabular-nums; }
 .bar-fill { display: block; height: 100%; }
 .bar-fill.pass { background: var(--pass); }
 .bar-fill.fail { background: var(--fail); }
+.badge.skip { color: var(--muted); background: var(--border); }
+.prov { color: var(--muted); font-size: 0.83rem; margin: 0 0 12px; }
+.small { font-size: 0.82rem; margin: 6px 0 0; }
+.cards { display: grid; grid-template-columns: repeat(auto-fill, minmax(min(100%, 300px), 1fr)); gap: 12px; }
+.tcard { border: 1px solid var(--border); border-radius: 10px; padding: 12px 14px; background: var(--panel); }
+.tcard.pass-edge { border-left: 4px solid var(--pass); }
+.tcard.fail-edge { border-left: 4px solid var(--fail); }
+.tcard.skip-edge { border-left: 4px solid var(--border); }
+.tcard-head { display: flex; justify-content: space-between; align-items: center; gap: 8px; }
+.tcard h3 { font-size: 0.92rem; margin: 0; line-height: 1.35; }
+.checks { list-style: none; margin: 10px 0 0; padding: 0; }
+.checks li { display: flex; justify-content: space-between; gap: 10px; align-items: baseline;
+  padding: 5px 0; border-top: 1px solid var(--border); font-size: 0.86rem; }
+.checks li:first-child { border-top: 0; }
+.check-name { color: var(--ink); }
+.check-meta { color: var(--muted); white-space: nowrap; }
 footer { margin-top: 24px; font-size: 0.82rem; text-align: center; }
 `;
