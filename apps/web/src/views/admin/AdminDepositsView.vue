@@ -25,7 +25,7 @@ import { adminDepositsApi, type DepositAttachment, type TaxDepositRow } from "..
 import { useDates } from "../../composables/useDates";
 import { useMoney } from "../../composables/useMoney";
 import { useNotify } from "../../composables/useNotify";
-import { useQueryEnum, useQueryNumber } from "../../composables/useQueryFilters";
+import { useQueryEnum, useQueryNumber, useQueryParam } from "../../composables/useQueryFilters";
 
 const { date, toIso } = useDates();
 const { money } = useMoney();
@@ -51,6 +51,10 @@ function periodLabel(periodStart: string): string {
   return `${MONTH_NAMES[month - 1] ?? periodStart} ${periodStart.slice(0, 4)}`;
 }
 
+function jurisdictionLabel(jurisdiction: string): string {
+  return jurisdiction === "federal" ? "Federal" : jurisdiction;
+}
+
 // -------------------------------------------------------------------- deposits
 const loading = ref(true);
 const rows = ref<TaxDepositRow[]>([]);
@@ -66,18 +70,31 @@ const statusOptions = [
   { label: "Overdue", value: "overdue" },
 ];
 
+const jurisdictionFilter = useQueryParam<string>("jurisdiction", null, (raw) =>
+  raw === "federal" || /^[A-Z]{2}$/.test(raw) ? raw : null,
+);
+
 const yearFilter = useQueryNumber("year", new Date().getFullYear());
 /** Year options derived from the DATA (never hardcoded), plus the current year. */
 const yearOptions = ref<{ label: string; value: number | null }[]>([
   { label: "All years", value: null },
 ]);
 
+const jurisdictionOptions = ref<{ label: string; value: string | null }[]>([
+  { label: "All jurisdictions", value: null },
+]);
+
 async function load() {
   loading.value = true;
   try {
-    const filter: { status?: "pending" | "deposited" | "overdue"; year?: number } = {};
+    const filter: {
+      status?: "pending" | "deposited" | "overdue";
+      year?: number;
+      jurisdiction?: string;
+    } = {};
     if (statusFilter.value) filter.status = statusFilter.value;
     if (yearFilter.value) filter.year = yearFilter.value;
+    if (jurisdictionFilter.value) filter.jurisdiction = jurisdictionFilter.value;
     const { deposits } = await adminDepositsApi.list(filter);
     rows.value = deposits;
   } catch (err) {
@@ -87,7 +104,7 @@ async function load() {
   }
 }
 
-watch([statusFilter, yearFilter], load);
+watch([statusFilter, yearFilter, jurisdictionFilter], load);
 
 const today = new Date().toISOString().slice(0, 10);
 function isOverdue(row: TaxDepositRow): boolean {
@@ -259,6 +276,31 @@ onMounted(async () => {
       { label: "All years", value: null },
       ...years.map((y) => ({ label: String(y), value: y })),
     ];
+
+    // Build jurisdiction options from unique values in 'all'
+    const jurisdictions = [...new Set(all.map((d) => d.jurisdiction))].sort((a, b) => {
+      if (a === "federal") return -1;
+      if (b === "federal") return 1;
+      return a < b ? -1 : a > b ? 1 : 0;
+    });
+    jurisdictionOptions.value = [
+      { label: "All jurisdictions", value: null },
+      ...jurisdictions.map((j) => ({
+        label: j === "federal" ? "Federal" : j,
+        value: j,
+      })),
+    ];
+
+    // If jurisdictionFilter.value is set and not already in the list, append it
+    if (
+      jurisdictionFilter.value &&
+      !jurisdictionOptions.value.some((o) => o.value === jurisdictionFilter.value)
+    ) {
+      jurisdictionOptions.value.push({
+        label: jurisdictionFilter.value === "federal" ? "Federal" : jurisdictionFilter.value,
+        value: jurisdictionFilter.value,
+      });
+    }
   } catch (err) {
     notify.error(err, "Could not load tax deposits");
   }
@@ -268,13 +310,14 @@ onMounted(async () => {
 
 <template>
   <div class="page stack">
-    <PageHeader
-      title="Tax deposits"
-      subtitle="Monthly federal payroll tax deposits — computed from issued payroll runs, due the 15th of the following month. Record-only: pay on eftps.gov, then record the confirmation here."
-    >
-      <Select v-model="yearFilter" :options="yearOptions" option-label="label" option-value="value" size="small" />
-      <Select v-model="statusFilter" :options="statusOptions" option-label="label" option-value="value" size="small" />
-    </PageHeader>
+<PageHeader
+  title="Tax deposits"
+  subtitle="Monthly federal and state payroll tax deposits — computed from issued payroll runs. Record-only: pay on eftps.gov (or the state portal), then record the confirmation here."
+>
+  <Select v-model="yearFilter" :options="yearOptions" option-label="label" option-value="value" size="small" />
+  <Select v-model="statusFilter" :options="statusOptions" option-label="label" option-value="value" size="small" />
+  <Select v-model="jurisdictionFilter" :options="jurisdictionOptions" option-label="label" option-value="value" size="small" />
+</PageHeader>
 
     <section class="card table-scroll">
       <Skeleton v-if="loading" height="10rem" />
@@ -289,7 +332,11 @@ onMounted(async () => {
         <Column header="Period" style="width: 10rem">
           <template #body="{ data }">{{ periodLabel(data.periodStart) }}</template>
         </Column>
-        <Column field="jurisdiction" header="Jurisdiction" style="width: 8rem" />
+        <Column field="jurisdiction" header="Jurisdiction" style="width: 8rem">
+  <template #body="{ data }">
+    {{ jurisdictionLabel(data.jurisdiction) }}
+  </template>
+</Column>
         <Column header="Amount" style="width: 9rem">
           <template #body="{ data }">{{ money(data.amount) }}</template>
         </Column>

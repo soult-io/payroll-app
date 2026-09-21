@@ -996,8 +996,13 @@ export interface DepositRunRow {
 }
 
 export const adminDepositsApi = {
-  list: (filter: { year?: number; status?: "pending" | "deposited" | "overdue" } = {}) =>
-    get<{ deposits: TaxDepositRow[] }>(`/api/admin/tax-deposits${qs(filter)}`),
+  list: (
+    filter: {
+      year?: number;
+      status?: "pending" | "deposited" | "overdue";
+      jurisdiction?: string;
+    } = {},
+  ) => get<{ deposits: TaxDepositRow[] }>(`/api/admin/tax-deposits${qs(filter)}`),
   detail: (id: number) =>
     get<{ deposit: TaxDepositRow; breakdown: DepositBreakdownRow[]; runs: DepositRunRow[] }>(
       `/api/admin/tax-deposits/${id}`,

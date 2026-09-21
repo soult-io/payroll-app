@@ -59,6 +59,10 @@ function periodLabel(periodStart: string): string {
   return `${MONTH_NAMES[month - 1] ?? periodStart} ${periodStart.slice(0, 4)}`;
 }
 
+function jurisdictionLabel(jurisdiction: string): string {
+  return jurisdiction === "federal" ? "Federal" : jurisdiction;
+}
+
 const isOverdue = computed(() => {
   if (!deposit.value) return false;
   const today = new Date().toISOString().slice(0, 10);
@@ -123,10 +127,10 @@ onMounted(async () => {
   <div class="page stack">
     <Skeleton v-if="loading" height="16rem" />
     <template v-else-if="deposit">
-      <PageHeader
-        :title="`${periodLabel(deposit.periodStart)} deposit`"
-        :subtitle="`Due ${date(deposit.dueDate)} · Amount ${money(deposit.amount)}`"
-      >
+<PageHeader
+  :title="`${periodLabel(deposit.periodStart)} ${jurisdictionLabel(deposit.jurisdiction)} deposit`"
+  :subtitle="`Due ${date(deposit.dueDate)} · Amount ${money(deposit.amount)}`"
+>
         <BackButton to="admin-deposits" label="Back to deposits" />
         <StatusChip :status="isOverdue ? 'overdue' : deposit.status" style="margin-left: 0.5rem" />
       </PageHeader>
@@ -152,7 +156,7 @@ onMounted(async () => {
             </div>
             <div class="col">
               <p class="muted small" style="margin: 0">Jurisdiction</p>
-              <p class="bold">{{ deposit.jurisdiction }}</p>
+              <p class="bold">{{ jurisdictionLabel(deposit.jurisdiction) }}</p>
             </div>
           </div>
           <div class="row" v-if="deposit.status !== 'deposited'">
