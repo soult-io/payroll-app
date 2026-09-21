@@ -25,7 +25,12 @@ import { adminDepositsApi, type DepositAttachment, type TaxDepositRow } from "..
 import { useDates } from "../../composables/useDates";
 import { useMoney } from "../../composables/useMoney";
 import { useNotify } from "../../composables/useNotify";
-import { useQueryEnum, useQueryNumber, useQueryParam } from "../../composables/useQueryFilters";
+import {
+  useQueryEnum,
+  useQueryNumber,
+  useQueryParam,
+  useSelectAll,
+} from "../../composables/useQueryFilters";
 
 const { date, toIso } = useDates();
 const { money } = useMoney();
@@ -63,8 +68,9 @@ const rows = ref<TaxDepositRow[]>([]);
 // PAY-17: filters live in the route query (?year=&status=) so list state is
 // bookmarkable and survives browser-back.
 const statusFilter = useQueryEnum("status", null, ["pending", "deposited", "overdue"] as const);
+const statusSelect = useSelectAll(statusFilter);
 const statusOptions = [
-  { label: "All statuses", value: null },
+  { label: "All statuses", value: "" },
   { label: "Pending", value: "pending" },
   { label: "Deposited", value: "deposited" },
   { label: "Overdue", value: "overdue" },
@@ -73,6 +79,7 @@ const statusOptions = [
 const jurisdictionFilter = useQueryParam<string>("jurisdiction", null, (raw) =>
   raw === "federal" || /^[A-Z]{2}$/.test(raw) ? raw : null,
 );
+const jurisdictionSelect = useSelectAll(jurisdictionFilter);
 
 const yearFilter = useQueryNumber("year", new Date().getFullYear());
 /** Year options derived from the DATA (never hardcoded), plus the current year. */
@@ -80,8 +87,8 @@ const yearOptions = ref<{ label: string; value: number | null }[]>([
   { label: "All years", value: null },
 ]);
 
-const jurisdictionOptions = ref<{ label: string; value: string | null }[]>([
-  { label: "All jurisdictions", value: null },
+const jurisdictionOptions = ref<{ label: string; value: string }[]>([
+  { label: "All jurisdictions", value: "" },
 ]);
 
 async function load() {
@@ -284,7 +291,7 @@ onMounted(async () => {
       return a < b ? -1 : a > b ? 1 : 0;
     });
     jurisdictionOptions.value = [
-      { label: "All jurisdictions", value: null },
+      { label: "All jurisdictions", value: "" },
       ...jurisdictions.map((j) => ({
         label: j === "federal" ? "Federal" : j,
         value: j,
@@ -310,14 +317,14 @@ onMounted(async () => {
 
 <template>
   <div class="page stack">
-<PageHeader
-  title="Tax deposits"
-  subtitle="Monthly federal and state payroll tax deposits — computed from issued payroll runs. Record-only: pay on eftps.gov (or the state portal), then record the confirmation here."
->
-  <Select v-model="yearFilter" :options="yearOptions" option-label="label" option-value="value" size="small" />
-  <Select v-model="statusFilter" :options="statusOptions" option-label="label" option-value="value" size="small" />
-  <Select v-model="jurisdictionFilter" :options="jurisdictionOptions" option-label="label" option-value="value" size="small" />
-</PageHeader>
+    <PageHeader
+      title="Tax deposits"
+      subtitle="Monthly federal and state payroll tax deposits — computed from issued payroll runs. Record-only: pay on eftps.gov (or the state portal), then record the confirmation here."
+    >
+      <Select v-model="yearFilter" :options="yearOptions" option-label="label" option-value="value" size="small" />
+      <Select v-model="statusSelect" :options="statusOptions" option-label="label" option-value="value" size="small" />
+      <Select v-model="jurisdictionSelect" :options="jurisdictionOptions" option-label="label" option-value="value" size="small" />
+    </PageHeader>
 
     <section class="card table-scroll">
       <Skeleton v-if="loading" height="10rem" />

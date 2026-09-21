@@ -54,3 +54,20 @@ export function useQueryEnum<T extends string>(
     (allowed as readonly string[]).includes(raw) ? (raw as T) : null,
   );
 }
+
+/**
+ * PrimeVue Select renders a blank label for a null model instead of matching
+ * a `value: null` option. Adapt a nullable query filter to a Select model
+ * where "" is the "All …" sentinel: the Select shows the "All …" option's
+ * label while the underlying filter keeps null (param omitted from the URL).
+ */
+export function useSelectAll<T extends string>(
+  filter: WritableComputedRef<T | null>,
+): WritableComputedRef<T | ""> {
+  return computed({
+    get: () => filter.value ?? "",
+    set: (v) => {
+      filter.value = v === "" ? null : v;
+    },
+  });
+}

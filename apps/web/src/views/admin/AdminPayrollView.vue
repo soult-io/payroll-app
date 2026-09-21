@@ -20,7 +20,7 @@ import {
 import { useMoney } from "../../composables/useMoney";
 import { useDates } from "../../composables/useDates";
 import { useNotify } from "../../composables/useNotify";
-import { useQueryEnum, useQueryNumber } from "../../composables/useQueryFilters";
+import { useQueryEnum, useQueryNumber, useSelectAll } from "../../composables/useQueryFilters";
 
 const route = useRoute();
 const router = useRouter();
@@ -42,8 +42,9 @@ const statusFilter = useQueryEnum<RunStatus>("status", null, [
   "issued",
   "void",
 ]);
+const statusSelect = useSelectAll(statusFilter);
 const statusOptions = [
-  { label: "All statuses", value: null },
+  { label: "All statuses", value: "" },
   { label: "Draft", value: "draft" },
   { label: "Awaiting approval", value: "awaiting_approval" },
   { label: "Approved", value: "approved" },
@@ -136,7 +137,7 @@ onMounted(async () => {
   <div class="page stack">
     <PageHeader title="Payroll runs" subtitle="Expand a row for the entries breakdown; click it for the full review.">
       <Select v-model="yearFilter" :options="yearOptions" option-label="label" option-value="value" size="small" />
-      <Select v-model="statusFilter" :options="statusOptions" option-label="label" option-value="value" size="small" />
+      <Select v-model="statusSelect" :options="statusOptions" option-label="label" option-value="value" size="small" />
     </PageHeader>
 
     <div class="card table-scroll">
