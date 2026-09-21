@@ -17,6 +17,7 @@ import {
   emailOutbox,
   employees,
   payrollRuns,
+  stateWithholdingElections,
   w4Elections,
 } from "@payroll/db";
 import {
@@ -306,6 +307,27 @@ export async function approveRequest(
             otherIncome: String(payload["otherIncome"] ?? "0"),
             deductionsAmount: String(payload["deductionsAmount"] ?? "0"),
             extraWithholding: String(payload["extraWithholding"] ?? "0"),
+            effectiveFrom,
+            filedDate: String(payload["filedDate"]),
+            note: String(payload["note"] ?? ""),
+          })
+          .returning();
+        after = inserted[0];
+        break;
+      }
+      case "state_election": {
+        // Append-only like w4: INSERT a new state election, never UPDATE
+        // history. Mirrors the admin state-elections route shape (PAY-13).
+        const inserted = await tx
+          .insert(stateWithholdingElections)
+          .values({
+            employeeId: employee.id,
+            stateCode: String(payload["stateCode"]),
+            filingStatus: String(payload["filingStatus"] ?? "single"),
+            allowances: Number(payload["allowances"] ?? 0),
+            additionalAllowances: Number(payload["additionalAllowances"] ?? 0),
+            extraWithholding: String(payload["extraWithholding"] ?? "0"),
+            exempt: Boolean(payload["exempt"] ?? false),
             effectiveFrom,
             filedDate: String(payload["filedDate"]),
             note: String(payload["note"] ?? ""),

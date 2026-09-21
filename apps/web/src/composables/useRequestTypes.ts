@@ -25,6 +25,12 @@ export const REQUEST_TYPES: {
     blurb: "File a new federal W-4 election",
   },
   {
+    value: "state_election",
+    label: "State withholding",
+    icon: "pi pi-map-marker",
+    blurb: "File a new state withholding election",
+  },
+  {
     value: "bank_details",
     label: "Bank details",
     icon: "pi pi-credit-card",
