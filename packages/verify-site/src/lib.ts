@@ -273,7 +273,7 @@ export function renderPage(history: VerifySummary[], options: RenderOptions = {}
 
 function renderDocument(body: string): string {
   return `<!doctype html>
-<html lang="en" data-theme="auto">
+<html lang="en" data-theme="dark">
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
@@ -294,22 +294,14 @@ ${body}
 }
 
 const STYLE = `
+/* Dark is the default (data-theme="dark" on <html>); light is an explicit opt-in. */
 :root {
-  --bg: #f6f7f9; --panel: #ffffff; --ink: #1b1f24; --muted: #5b6570;
-  --border: #e2e6ea; --pass: #1f8a4c; --pass-bg: #e7f6ec; --fail: #c62828; --fail-bg: #fdeaea;
-}
-:root:not([data-theme="light"]) {
-  --bg: #f6f7f9; --panel: #ffffff; --ink: #1b1f24;
-}
-@media (prefers-color-scheme: dark) {
-  :root:not([data-theme="light"]) {
-    --bg: #0f1216; --panel: #171b21; --ink: #e6e9ec; --muted: #9aa4af;
-    --border: #262c34; --pass: #4ccb7d; --pass-bg: #12321f; --fail: #f0716f; --fail-bg: #3a1b1b;
-  }
-}
-:root[data-theme="dark"] {
   --bg: #0f1216; --panel: #171b21; --ink: #e6e9ec; --muted: #9aa4af;
   --border: #262c34; --pass: #4ccb7d; --pass-bg: #12321f; --fail: #f0716f; --fail-bg: #3a1b1b;
+}
+:root[data-theme="light"] {
+  --bg: #f6f7f9; --panel: #ffffff; --ink: #1b1f24; --muted: #5b6570;
+  --border: #e2e6ea; --pass: #1f8a4c; --pass-bg: #e7f6ec; --fail: #c62828; --fail-bg: #fdeaea;
 }
 * { box-sizing: border-box; }
 body { margin: 0; background: var(--bg); color: var(--ink);
