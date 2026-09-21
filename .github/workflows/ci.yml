@@ -45,11 +45,24 @@ jobs:
       - name: Typecheck (all packages)
         run: pnpm -r run typecheck
 
+      # Spec 17 §2: also write the vitest json report (kept alongside the
+      # console reporter) so the verify-summary job can assemble the summary.
       - name: Engine unit tests + coverage (regression oracle — spec 2)
-        run: pnpm --filter @payroll/engine exec vitest run --coverage
+        run: pnpm --filter @payroll/engine exec vitest run --coverage --reporter=default --reporter=json --outputFile.json="$GITHUB_WORKSPACE/verify-artifacts/vitest-engine.json"
 
       - name: Server integration tests + coverage (PGlite — spec 2/3/4/6)
-        run: pnpm --filter @payroll/server exec vitest run --coverage
+        run: pnpm --filter @payroll/server exec vitest run --coverage --reporter=default --reporter=json --outputFile.json="$GITHUB_WORKSPACE/verify-artifacts/vitest-server.json"
+
+      # Upload even when a suite failed (spec 17 §2: emit on pass AND fail).
+      - name: Upload vitest reports
+        if: always()
+        uses: actions/upload-artifact@v7
+        with:
+          name: verify-reporters
+          path: verify-artifacts/
+          # warn (not ignore): a missing reporter is a producer bug worth surfacing.
+          if-no-files-found: warn
+          retention-days: 7
 
       - name: Build container image
         run: docker build -t ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}:sha-${{ github.sha }} .
@@ -92,13 +105,81 @@ jobs:
       - name: E2E (Playwright journeys)
         run: pnpm --filter @payroll/e2e e2e
 
-      - name: Upload Playwright report on failure
-        if: failure()
+      # Spec 17 §2: always upload the Playwright json + html report (pass AND
+      # fail) for the verify-summary job and the pay-verify site.
+      - name: Upload Playwright report + json
+        if: always()
         uses: actions/upload-artifact@v7
         with:
-          name: playwright-report
-          path: e2e/playwright-report/
+          name: e2e-reporters
+          path: |
+            e2e/playwright-results.json
+            e2e/playwright-report/
+          # warn (not ignore): a missing json report is a producer bug worth surfacing.
+          if-no-files-found: warn
           retention-days: 7
+
+  # Spec 17 §2 (PAY-43): assemble the versioned, PII-free result summary from
+  # the verify + e2e reporter artifacts and publish it (with the html report)
+  # on EVERY run — the ingest source of truth for the pay-verify site (PAY-44).
+  # This job never gates merge; the test gate stays on verify + e2e.
+  verify-summary:
+    needs: [verify, e2e]
+    if: always()
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: pnpm/action-setup@v6
+        with:
+          version: 11.17.0
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: pnpm
+
+      - name: Install
+        run: pnpm install --frozen-lockfile
+
+      - name: Build verify-summary
+        run: pnpm --filter @payroll/verify-summary run build
+
+      - name: Download vitest reports
+        continue-on-error: true
+        uses: actions/download-artifact@v7
+        with:
+          name: verify-reporters
+          path: _reporters/verify
+
+      - name: Download e2e reports
+        continue-on-error: true
+        uses: actions/download-artifact@v7
+        with:
+          name: e2e-reporters
+          path: _reporters/e2e
+
+      - name: Assemble summary
+        run: |
+          node packages/verify-summary/dist/cli.js \
+            --source ci \
+            --out verify-artifacts/summary.json \
+            --vitest engine=_reporters/verify/vitest-engine.json \
+            --vitest server=_reporters/verify/vitest-server.json \
+            --playwright e2e=_reporters/e2e/playwright-results.json \
+            --require engine,server,e2e
+          if [ -d _reporters/e2e/playwright-report ]; then
+            cp -r _reporters/e2e/playwright-report verify-artifacts/playwright-report
+          fi
+
+      - name: Upload verify summary + report
+        if: always()
+        uses: actions/upload-artifact@v7
+        with:
+          name: pay-verify-summary
+          path: verify-artifacts/
+          if-no-files-found: ignore
+          retention-days: 14
 
   push-image:
     # Image is pushed only from main (spec 8/13). This repo is artifact-only:

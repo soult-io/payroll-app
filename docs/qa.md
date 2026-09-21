@@ -127,6 +127,13 @@ documented value above (this repo intentionally holds no repo secrets).
 On failure (scheduled runs only) it opens or comments on an open issue
 labelled `e2e-nightly` instead of spamming duplicates.
 
+**Verify summary (spec 17 §2):** on **every** run — pass or fail, in both
+`ci.yml` and this nightly — the suites' json reporter output is assembled by
+`@payroll/verify-summary` into a versioned, PII-free `summary.json` and
+uploaded (with the Playwright html report) as an artifact
+(`pay-verify-summary` in CI, `pay-verify-summary-nightly` here). That summary
+is the ingest source of truth for the `pay-verify` visibility site (PAY-41).
+
 **Runner (spec 14 amendment 2026-08-06):** QA sits behind a reverse-proxy
 access list (LAN/VPN only), so this job runs on a **repo-scoped self-hosted
 runner inside the QA network** (label `qa-e2e`) — GitHub-hosted runners get

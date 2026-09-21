@@ -23,7 +23,11 @@ export default defineConfig({
   fullyParallel: false,
   workers: 1,
   retries: process.env.CI ? 1 : 0,
-  reporter: process.env.CI ? [["github"], ["html", { open: "never" }]] : [["list"]],
+  // CI also writes a json report (spec 17 §2) — the verify-summary job and the
+  // pay-verify site consume it. Output path is relative to this config's dir.
+  reporter: process.env.CI
+    ? [["github"], ["html", { open: "never" }], ["json", { outputFile: "playwright-results.json" }]]
+    : [["list"]],
   use: {
     baseURL: liveBaseUrl ?? "http://127.0.0.1:9898",
     trace: "on-first-retry",

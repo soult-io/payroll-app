@@ -36,6 +36,11 @@ coverage/
 e2e/.state/
 e2e/test-results/
 e2e/playwright-report/
+e2e/playwright-results.json
+
+# Verify summary (spec 17) — generated reporter json + assembled summary
+verify-artifacts/
+_reporters/
 
 # Local data (dev postgres etc.)
 pgdata/
