@@ -1,0 +1,11 @@
+{
+  "state": "PA",
+  "taxYear": 2026,
+  "source": "PA DOR Employer Withholding guide (pa.gov, rev-1667) & 72 P.S. § 7302, 2026: flat 3.07% on gross compensation; Pennsylvania has no standard deduction, personal exemption, or allowance — every dollar is taxed.",
+  "jurisdictions": {
+    "PA": {
+      "kind": "flat",
+      "flatRate": 0.0307
+    }
+  }
+}

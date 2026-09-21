@@ -1,0 +1,27 @@
+{
+  "state": "ME",
+  "taxYear": 2026,
+  "source": "Maine Revenue Services 2026 withholding formula (W-4ME basis, reproduced in NFC bulletin NFC-26-1771620053, eff. pay period 04-2026): standard deduction $12,450 single / $27,750 married; exemption $5,300/yr per allowance; tables 5.8% / 6.75% / 7.15%. CLOSEST-FIT EXCEPTION: the standard deduction PHASES OUT ($102,250–$177,250 single / $204,550–$354,550 married) — the phase-out is not modeled, so wages inside/above those ranges under-withhold; reconcile via extraWithholding.",
+  "jurisdictions": {
+    "ME": {
+      "kind": "progressive",
+      "standardDeduction": 12450,
+      "allowanceDeduction": 5300,
+      "brackets": [
+        { "min": 0, "max": 27400, "rate": 0.058 },
+        { "min": 27400, "max": 64850, "rate": 0.0675 },
+        { "min": 64850, "max": null, "rate": 0.0715 }
+      ]
+    },
+    "ME:married_joint": {
+      "kind": "progressive",
+      "standardDeduction": 27750,
+      "allowanceDeduction": 5300,
+      "brackets": [
+        { "min": 0, "max": 54850, "rate": 0.058 },
+        { "min": 54850, "max": 129750, "rate": 0.0675 },
+        { "min": 129750, "max": null, "rate": 0.0715 }
+      ]
+    }
+  }
+}

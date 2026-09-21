@@ -26,6 +26,7 @@ export type ChangeRequestType =
   | "address"
   | "mailing_address"
   | "w4"
+  | "state_election"
   | "bank_details"
   | "legal_name"
   | "tax_id";

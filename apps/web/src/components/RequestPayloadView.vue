@@ -45,6 +45,17 @@ const rows = computed<{ label: string; value: string }[]>(() => {
         { label: "Filed date", value: date(str(p.filedDate)) },
         ...(p.note ? [{ label: "Note", value: str(p.note) }] : []),
       ];
+    case "state_election":
+      return [
+        { label: "State", value: str(p.stateCode) },
+        { label: "Filing status", value: filingStatusLabel(str(p.filingStatus)) },
+        { label: "Allowances", value: str(p.allowances) },
+        { label: "Additional allowances", value: str(p.additionalAllowances) },
+        { label: "Extra withholding", value: money(p.extraWithholding as number) },
+        { label: "Exempt", value: p.exempt ? "Yes" : "No" },
+        { label: "Filed date", value: date(str(p.filedDate)) },
+        ...(p.note ? [{ label: "Note", value: str(p.note) }] : []),
+      ];
     case "bank_details":
       return [
         { label: "Account type", value: str(p.type) },

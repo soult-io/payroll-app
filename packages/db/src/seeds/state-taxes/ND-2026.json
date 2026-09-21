@@ -1,0 +1,23 @@
+{
+  "state": "ND",
+  "taxYear": 2026,
+  "source": "ND Office of State Tax Commissioner 2026 income tax withholding tables (reproduced in NFC bulletin NFC-26-1767646699, eff. pay period 13-2026): 0% / 1.95% / 2.5% brackets applied to annualized wages (post-2020 W-4 basis — no exemption deduction; pre-2020 W-4 $5,050/exemption variant not modeled). Head-of-household table not modeled (falls back to single).",
+  "jurisdictions": {
+    "ND": {
+      "kind": "progressive",
+      "brackets": [
+        { "min": 0, "max": 57625, "rate": 0 },
+        { "min": 57625, "max": 258450, "rate": 0.0195 },
+        { "min": 258450, "max": null, "rate": 0.025 }
+      ]
+    },
+    "ND:married_joint": {
+      "kind": "progressive",
+      "brackets": [
+        { "min": 0, "max": 57500, "rate": 0 },
+        { "min": 57500, "max": 168525, "rate": 0.0195 },
+        { "min": 168525, "max": null, "rate": 0.025 }
+      ]
+    }
+  }
+}

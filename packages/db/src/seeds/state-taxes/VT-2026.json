@@ -1,0 +1,29 @@
+{
+  "state": "VT",
+  "taxYear": 2026,
+  "source": "Vermont Department of Taxes 2026 withholding formula (W-4VT basis, NFC bulletin NFC-26-1780320782, eff. pay period 09-2026): $5,400 exemption allowance per allowance; Single/Head-of-Household table 0% to $3,925, 3.35% to $54,675, 6.60% to $126,775, 7.60% to $260,225, 8.75% above; Married table 0% to $11,775, 3.35% to $96,475, 6.60% to $216,525, 7.60% to $323,825, 8.75% above. CLOSEST-FIT EXCEPTION: Vermont adds 30% of any elected ADDITIONAL FEDERAL withholding to state withholding — not modeled; employees should fold this into extraWithholding.",
+  "jurisdictions": {
+    "VT": {
+      "kind": "progressive",
+      "allowanceDeduction": 5400,
+      "brackets": [
+        { "min": 0, "max": 3925, "rate": 0 },
+        { "min": 3925, "max": 54675, "rate": 0.0335 },
+        { "min": 54675, "max": 126775, "rate": 0.066 },
+        { "min": 126775, "max": 260225, "rate": 0.076 },
+        { "min": 260225, "max": null, "rate": 0.0875 }
+      ]
+    },
+    "VT:married_joint": {
+      "kind": "progressive",
+      "allowanceDeduction": 5400,
+      "brackets": [
+        { "min": 0, "max": 11775, "rate": 0 },
+        { "min": 11775, "max": 96475, "rate": 0.0335 },
+        { "min": 96475, "max": 216525, "rate": 0.066 },
+        { "min": 216525, "max": 323825, "rate": 0.076 },
+        { "min": 323825, "max": null, "rate": 0.0875 }
+      ]
+    }
+  }
+}

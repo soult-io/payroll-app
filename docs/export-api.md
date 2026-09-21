@@ -71,6 +71,12 @@ keyed on when wages were *paid*.
   "company": { "legalName": "Example Corp", "ein": "12-3456789" },
   "status": "issued",
   "range": { "from": "2026-01-01", "to": "2026-03-31" },
+  "stateWithholding": {
+    "byJurisdiction": [
+      { "jurisdiction": "CA", "runCount": 2, "stateWithholding": "184.82" },
+      { "jurisdiction": "IL", "runCount": 3, "stateWithholding": "490.05" }
+    ]
+  },
   "runs": [
     {
       "employeeId": 1,
@@ -79,13 +85,14 @@ keyed on when wages were *paid*.
       "payDate": "2026-01-15",
       "status": "issued",
       "snapshotHash": "<sha256 of the frozen run snapshot>",
+      "stateJurisdiction": "IL",
       "entries": {
         "gross_pay": "4200.00",
         "federal_withholding": "400.00",
         "social_security": "260.40",
         "medicare": "60.90",
-        "state_withholding": "0.00",
-        "net_pay": "3478.70",
+        "state_withholding": "163.35",
+        "net_pay": "3315.35",
         "employer_social_security": "260.40",
         "employer_medicare": "60.90",
         "employer_futa": "25.20"
@@ -99,16 +106,28 @@ keyed on when wages were *paid*.
 - `ein` is decrypted at read; `null` until configured in admin settings.
 - A missing entry category is `null`, never silently `"0.00"` — treat any
   `null` as data corruption and alert.
+- `stateJurisdiction` (PAY-13) is the work state that produced
+  `state_withholding`, read from the frozen run snapshot (template ≥1.2.0).
+  It is `null` for pre-1.2.0 snapshots and legacy flat-rate runs — a nonzero
+  `state_withholding` with a `null` jurisdiction means "legacy run,
+  jurisdiction not recorded".
+- `stateWithholding.byJurisdiction` (PAY-13) totals `state_withholding` per
+  jurisdiction (integer-cent sums, sorted by jurisdiction code) — the input
+  for state quarterly filings. Only runs with a recorded jurisdiction
+  contribute.
 
 ### CSV response (`format=csv`)
 
 One header row + one row per issued run, columns:
 
 ```
-employee_id,period_start,period_end,pay_date,status,snapshot_hash,gross_pay,federal_withholding,social_security,medicare,state_withholding,net_pay,employer_social_security,employer_medicare,employer_futa
+employee_id,period_start,period_end,pay_date,status,snapshot_hash,gross_pay,federal_withholding,social_security,medicare,state_withholding,net_pay,employer_social_security,employer_medicare,employer_futa,state_jurisdiction
 ```
 
-The company header is JSON-only; CSV consumers key on one known company.
+`state_jurisdiction` is appended as the LAST column so consumers of the
+original 15-column layout are unaffected. Empty for legacy runs (see
+`stateJurisdiction` above). The company header is JSON-only; CSV consumers
+key on one known company.
 
 ## Contractor payments (Spec 10, D18)
 
@@ -189,6 +208,10 @@ only address-like data is the company header (`legalName`, decrypted `ein`).
   FICA and federal withholding; wages = sum of `gross_pay`.
 - **Annual Form 940 (FUTA)**: year range; FUTA wages and
   `employer_futa` totals (per-employee $7,000 cap is already applied per run).
+- **State quarterly filings** (PAY-13): quarter range on pay_date; use
+  `stateWithholding.byJurisdiction` for the per-state totals, or group runs
+  by `stateJurisdiction` for per-employee detail. `null` jurisdictions are
+  legacy flat-rate runs — reconcile those separately.
 - **W-2/W-3**: year range per employee; Box 1/3/5 wages = `gross_pay` (adjust
   per form rules), Box 2 = `federal_withholding`, Box 4 = `social_security`,
   Box 6 = `medicare`.

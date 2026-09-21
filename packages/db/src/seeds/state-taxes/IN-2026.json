@@ -1,0 +1,12 @@
+{
+  "state": "IN",
+  "taxYear": 2026,
+  "source": "Indiana DOR Departmental Notice #1 (effective 2026-01-01): flat state rate 2.95% (IC 6-3-2-1 stepdown). WH-4 exemptions: $1,000 personal / $1,500 dependent / $3,000 adopted-child — modeled as a flat $1,000 deduction per allowance. CLOSEST-FIT EXCEPTIONS: tiered exemption values collapsed to $1,000/allowance; county local income tax (LIT, 0.5%–3%+ by county) not modeled (local tax out of scope).",
+  "jurisdictions": {
+    "IN": {
+      "kind": "flat",
+      "flatRate": 0.0295,
+      "allowanceDeduction": 1000
+    }
+  }
+}

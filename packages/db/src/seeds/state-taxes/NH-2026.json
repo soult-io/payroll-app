@@ -1,0 +1,8 @@
+{
+  "state": "NH",
+  "taxYear": 2026,
+  "source": "New Hampshire has no tax on wage income; the former 3% interest & dividends tax was fully repealed effective January 1, 2025 (RSA 77, as amended by 2023 N.H. Laws ch. 179) — explicit zero-tax row so NH work-state assignment resolves to $0 by configuration, never by absence.",
+  "jurisdictions": {
+    "NH": { "kind": "none" }
+  }
+}

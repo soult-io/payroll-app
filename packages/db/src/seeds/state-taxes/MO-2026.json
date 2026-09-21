@@ -1,0 +1,49 @@
+{
+  "state": "MO",
+  "taxYear": 2026,
+  "source": "Missouri DOR 2026 Withholding Tax Formula (dor.mo.gov, Withholding_Formula_2026.pdf): federal-conformed standard deduction $16,100 single/married-spouse-works/married-separate, $32,200 married spouse-not-working (encoded as married_joint), $24,150 HoH; graduated 0%–4.7% brackets; the FEDERAL income tax deduction is ELIMINATED effective 2026. Kansas City / St. Louis 1% earnings taxes not modeled (local, out of scope).",
+  "jurisdictions": {
+    "MO": {
+      "kind": "progressive",
+      "standardDeduction": 16100,
+      "brackets": [
+        { "min": 0, "max": 1313, "rate": 0 },
+        { "min": 1313, "max": 2626, "rate": 0.02 },
+        { "min": 2626, "max": 3939, "rate": 0.025 },
+        { "min": 3939, "max": 5252, "rate": 0.03 },
+        { "min": 5252, "max": 6565, "rate": 0.035 },
+        { "min": 6565, "max": 7878, "rate": 0.04 },
+        { "min": 7878, "max": 9191, "rate": 0.045 },
+        { "min": 9191, "max": null, "rate": 0.047 }
+      ]
+    },
+    "MO:married_joint": {
+      "kind": "progressive",
+      "standardDeduction": 32200,
+      "brackets": [
+        { "min": 0, "max": 1313, "rate": 0 },
+        { "min": 1313, "max": 2626, "rate": 0.02 },
+        { "min": 2626, "max": 3939, "rate": 0.025 },
+        { "min": 3939, "max": 5252, "rate": 0.03 },
+        { "min": 5252, "max": 6565, "rate": 0.035 },
+        { "min": 6565, "max": 7878, "rate": 0.04 },
+        { "min": 7878, "max": 9191, "rate": 0.045 },
+        { "min": 9191, "max": null, "rate": 0.047 }
+      ]
+    },
+    "MO:head_of_household": {
+      "kind": "progressive",
+      "standardDeduction": 24150,
+      "brackets": [
+        { "min": 0, "max": 1313, "rate": 0 },
+        { "min": 1313, "max": 2626, "rate": 0.02 },
+        { "min": 2626, "max": 3939, "rate": 0.025 },
+        { "min": 3939, "max": 5252, "rate": 0.03 },
+        { "min": 5252, "max": 6565, "rate": 0.035 },
+        { "min": 6565, "max": 7878, "rate": 0.04 },
+        { "min": 7878, "max": 9191, "rate": 0.045 },
+        { "min": 9191, "max": null, "rate": 0.047 }
+      ]
+    }
+  }
+}

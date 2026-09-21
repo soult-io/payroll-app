@@ -144,9 +144,9 @@ export function registerChangeRequestRoutes(app: FastifyInstance, deps: Deps): v
     if (!parsed.success) {
       return reply.code(400).send({ error: "invalid_payload", details: parsed.error.issues });
     }
-    // Top-level effective_from is authoritative (W-4 payload carries one too).
+    // Top-level effective_from is authoritative (W-4 / state-election payloads carry one too).
     const payload =
-      requestType === "w4"
+      requestType === "w4" || requestType === "state_election"
         ? { ...parsed.data, effectiveFrom }
         : (parsed.data as Record<string, unknown>);
 

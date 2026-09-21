@@ -1,0 +1,25 @@
+{
+  "state": "IA",
+  "taxYear": 2026,
+  "source": "Iowa DOR 2026 withholding formulas and tables (issued 2025-11-03, accommodating OBBBA; IA W-4 form 44-019c 11/13/2025): flat 3.8%; standard deduction $13,000 single/married-dual-income/other, $19,500 head of household, $26,000 married single-income (encoded as the married_joint jurisdiction); $40/yr tax credit per allowance (after-bracket credit). School-district surtax / EMS surtax not modeled (local, out of scope).",
+  "jurisdictions": {
+    "IA": {
+      "kind": "flat",
+      "flatRate": 0.038,
+      "standardDeduction": 13000,
+      "allowanceCredit": 40
+    },
+    "IA:married_joint": {
+      "kind": "flat",
+      "flatRate": 0.038,
+      "standardDeduction": 26000,
+      "allowanceCredit": 40
+    },
+    "IA:head_of_household": {
+      "kind": "flat",
+      "flatRate": 0.038,
+      "standardDeduction": 19500,
+      "allowanceCredit": 40
+    }
+  }
+}

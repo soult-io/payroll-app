@@ -231,7 +231,7 @@ describe("export API payload", () => {
     expect(lines[0]).toBe(
       "employee_id,period_start,period_end,pay_date,status,snapshot_hash," +
         "gross_pay,federal_withholding,social_security,medicare,state_withholding," +
-        "net_pay,employer_social_security,employer_medicare,employer_futa",
+        "net_pay,employer_social_security,employer_medicare,employer_futa,state_jurisdiction",
     );
     expect(lines).toHaveLength(3); // header + 2 issued runs
     expect(lines[1]).toContain("2026-01-15,issued,");
@@ -256,5 +256,159 @@ describe("export API payload", () => {
     const csvCall = rows.find((r) => (r.after as { format: string }).format === "csv");
     expect(csvCall).toMatchObject({ action: "export.payroll_runs", entity: "export" });
     expect((csvCall!.after as { runCount: number }).runCount).toBe(2);
+  });
+});
+
+/**
+ * PAY-13: per-jurisdiction state withholding. Runs frozen with snapshot
+ * template 1.2.0 carry inputs.state.workState — the export must attribute
+ * each run's state_withholding to that jurisdiction and total it per
+ * jurisdiction (e.g. IL + CA employees in the same export).
+ */
+describe("per-jurisdiction state withholding (PAY-13)", () => {
+  const IL_EMPLOYEE = 2;
+  const CA_EMPLOYEE = 3;
+
+  function stateSnapshotFor(workState: string, month: string): RunSnapshot {
+    const base = snapshotFor(`${month}-01`, `${month}-28`, `${month}-15`);
+    base.templateVersion = "1.2.0";
+    base.inputs.state = {
+      workState,
+      jurisdiction: workState,
+      taxYear: 2026,
+      kind: workState === "IL" ? "flat" : "progressive",
+      flatRate: workState === "IL" ? 0.0495 : null,
+      standardDeduction: null,
+      standardDeductionAlt: null,
+      altMinAllowances: null,
+      lowIncomeExemption: null,
+      lowIncomeExemptionAlt: null,
+      allowanceDeduction: workState === "IL" ? 2850 : null,
+      allowanceCredit: null,
+      additionalAllowanceDeduction: null,
+      election: null,
+      brackets: workState === "CA" ? [{ min: 0, max: null, rate: 0.02 }] : [],
+    };
+    return base;
+  }
+
+  async function insertStateRun(opts: {
+    employeeId: number;
+    workState: string;
+    month: string;
+    stateWithholding: string;
+  }): Promise<void> {
+    const snapshot = stateSnapshotFor(opts.workState, opts.month);
+    const inserted = await t.db
+      .insert(payrollRuns)
+      .values({
+        employeeId: opts.employeeId,
+        periodStart: `${opts.month}-01`,
+        periodEnd: `${opts.month}-28`,
+        payDate: `${opts.month}-15`,
+        status: "issued",
+        runSnapshot: snapshot,
+        snapshotHash: snapshotHash(snapshot),
+        createdBy: "legacy-import",
+      })
+      .returning();
+    const runId = inserted[0]!.id;
+    await t.db.insert(payrollEntries).values([
+      { runId, category: "gross_pay", amount: "4000.00" },
+      { runId, category: "federal_withholding", amount: "310.13" },
+      { runId, category: "social_security", amount: "248.00" },
+      { runId, category: "medicare", amount: "58.00" },
+      { runId, category: "state_withholding", amount: opts.stateWithholding },
+      { runId, category: "net_pay", amount: "3000.00" },
+      { runId, category: "employer_social_security", amount: "248.00" },
+      { runId, category: "employer_medicare", amount: "58.00" },
+      { runId, category: "employer_futa", amount: "24.00" },
+    ]);
+  }
+
+  it("attributes each run to its work state and totals per jurisdiction", async () => {
+    await t.db.insert(employees).values([
+      {
+        companyId: 1,
+        employmentType: "w2",
+        legalName: "Il Employee",
+        hireDate: "2025-01-01",
+        status: "active",
+      },
+      {
+        companyId: 1,
+        employmentType: "w2",
+        legalName: "Ca Employee",
+        hireDate: "2025-01-01",
+        status: "active",
+      },
+    ]);
+    await insertStateRun({
+      employeeId: IL_EMPLOYEE,
+      workState: "IL",
+      month: "2026-05",
+      stateWithholding: "163.35",
+    });
+    await insertStateRun({
+      employeeId: IL_EMPLOYEE,
+      workState: "IL",
+      month: "2026-06",
+      stateWithholding: "163.35",
+    });
+    await insertStateRun({
+      employeeId: CA_EMPLOYEE,
+      workState: "CA",
+      month: "2026-05",
+      stateWithholding: "92.41",
+    });
+
+    const res = await t.app.inject({
+      method: "GET",
+      url: "/api/export/payroll-runs?from=2026-05-01&to=2026-06-30",
+      headers: AUTH,
+    });
+    expect(res.statusCode).toBe(200);
+    const body = res.json();
+    expect(body.runs).toHaveLength(3);
+
+    const il = body.runs.find((r: { employeeId: number }) => r.employeeId === IL_EMPLOYEE);
+    expect(il.stateJurisdiction).toBe("IL");
+    const ca = body.runs.find((r: { employeeId: number }) => r.employeeId === CA_EMPLOYEE);
+    expect(ca.stateJurisdiction).toBe("CA");
+
+    // Sorted by jurisdiction; integer-cent sums over the stored entries.
+    expect(body.stateWithholding).toEqual({
+      byJurisdiction: [
+        { jurisdiction: "CA", runCount: 1, stateWithholding: "92.41" },
+        { jurisdiction: "IL", runCount: 2, stateWithholding: "326.70" },
+      ],
+    });
+  });
+
+  it("legacy (pre-1.2.0) runs report a null jurisdiction, CSV carries the trailing column", async () => {
+    const res = await t.app.inject({
+      method: "GET",
+      url: "/api/export/payroll-runs?from=2026-01-01&to=2026-02-28&format=csv",
+      headers: AUTH,
+    });
+    expect(res.statusCode).toBe(200);
+    const lines = res.body.trim().split("\n");
+    expect(lines[0]).toMatch(/,state_jurisdiction$/);
+    // The two legacy runs: empty trailing jurisdiction, no column shift.
+    for (const line of lines.slice(1)) {
+      expect(line.split(",")).toHaveLength(16);
+      expect(line).toMatch(/,$/);
+    }
+
+    const json = await t.app.inject({
+      method: "GET",
+      url: "/api/export/payroll-runs?from=2026-01-01&to=2026-02-28",
+      headers: AUTH,
+    });
+    const body = json.json();
+    expect(
+      body.runs.every((r: { stateJurisdiction: string | null }) => r.stateJurisdiction === null),
+    ).toBe(true);
+    expect(body.stateWithholding).toEqual({ byJurisdiction: [] });
   });
 });

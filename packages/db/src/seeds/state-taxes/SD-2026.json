@@ -1,0 +1,8 @@
+{
+  "state": "SD",
+  "taxYear": 2026,
+  "source": "South Dakota has no individual income tax (S.D. Const. art. XI § 2) — explicit zero-tax row so SD work-state assignment resolves to $0 by configuration, never by absence.",
+  "jurisdictions": {
+    "SD": { "kind": "none" }
+  }
+}

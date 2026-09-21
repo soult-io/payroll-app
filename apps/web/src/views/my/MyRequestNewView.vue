@@ -17,6 +17,7 @@ import PageHeader from "../../components/PageHeader.vue";
 import RequestPayloadView from "../../components/RequestPayloadView.vue";
 import AddressRequestForm from "../../components/requests/AddressRequestForm.vue";
 import W4RequestForm from "../../components/requests/W4RequestForm.vue";
+import StateElectionRequestForm from "../../components/requests/StateElectionRequestForm.vue";
 import BankRequestForm from "../../components/requests/BankRequestForm.vue";
 import LegalNameRequestForm from "../../components/requests/LegalNameRequestForm.vue";
 import TaxIdRequestForm from "../../components/requests/TaxIdRequestForm.vue";
@@ -59,6 +60,8 @@ const formComponent = computed(() => {
       return AddressRequestForm;
     case "w4":
       return W4RequestForm;
+    case "state_election":
+      return StateElectionRequestForm;
     case "bank_details":
       return BankRequestForm;
     case "legal_name":
@@ -93,9 +96,17 @@ async function submit() {
   }
   busy.value = true;
   try {
+    // The w4/state_election payload schemas carry effectiveFrom too (the
+    // server validates it before the top-level value overrides it) — merge
+    // the wizard's date in for those types. (This also fixes W-4 submits,
+    // which were 400ing on the missing payload key.)
+    const mergesEffectiveFrom =
+      selectedType.value === "w4" || selectedType.value === "state_election";
     const { request } = await changeRequestsApi.submit({
       requestType: selectedType.value,
-      payload: payload.value,
+      payload: mergesEffectiveFrom
+        ? { ...payload.value, effectiveFrom: effectiveIso }
+        : payload.value,
       effectiveFrom: effectiveIso,
     });
     notify.success("Request submitted", "Your administrator will review it.");

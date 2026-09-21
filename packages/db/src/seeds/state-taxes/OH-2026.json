@@ -1,0 +1,15 @@
+{
+  "state": "OH",
+  "taxYear": 2026,
+  "source": "Ohio DOR 2026 withholding tables (H.B. 96 flat-tax transition, new tables effective Aug 1, 2026): 0% up to $26,050 of annual taxable income, flat 2.75% above; $650 personal-exemption deduction per exemption. CLOSEST-FIT EXCEPTIONS: mid-year table change encoded as full-year effective; employer school-district income tax and municipal (RITA/CCA) local taxes NOT modeled.",
+  "jurisdictions": {
+    "OH": {
+      "kind": "progressive",
+      "allowanceDeduction": 650,
+      "brackets": [
+        { "min": 0, "max": 26050, "rate": 0 },
+        { "min": 26050, "max": null, "rate": 0.0275 }
+      ]
+    }
+  }
+}

@@ -1,0 +1,19 @@
+{
+  "state": "GA",
+  "taxYear": 2026,
+  "source": "Georgia 2026 Employer's Tax Guide (HB 463 rate 4.99%)",
+  "jurisdictions": {
+    "GA": {
+      "kind": "flat",
+      "flatRate": 0.0499,
+      "standardDeduction": 15000,
+      "allowanceDeduction": 5000
+    },
+    "GA:married_joint": {
+      "kind": "flat",
+      "flatRate": 0.0499,
+      "standardDeduction": 30000,
+      "allowanceDeduction": 5000
+    }
+  }
+}

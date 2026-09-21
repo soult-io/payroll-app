@@ -1,0 +1,29 @@
+{
+  "state": "WI",
+  "taxYear": 2026,
+  "source": "Wisconsin DOR Publication W-166 2026 Alternate Method withholding (WT-4 basis): $400 per exemption; single table for all statuses 3.54% to $12,760, 4.65% to $25,520, 5.30% to $280,950, 7.65% above. CLOSEST-FIT EXCEPTION: Wisconsin's sliding payroll standard deduction (max $6,702 single / $9,461 married, phasing out 12%/20% of wages above the threshold to $0 at ~$73k) cannot be expressed as a fixed deduction — engine encodes the MAXIMUM, under-withholding for employees in the phase-out range; affected employees should compensate via extraWithholding.",
+  "jurisdictions": {
+    "WI": {
+      "kind": "progressive",
+      "standardDeduction": 6702,
+      "allowanceDeduction": 400,
+      "brackets": [
+        { "min": 0, "max": 12760, "rate": 0.0354 },
+        { "min": 12760, "max": 25520, "rate": 0.0465 },
+        { "min": 25520, "max": 280950, "rate": 0.053 },
+        { "min": 280950, "max": null, "rate": 0.0765 }
+      ]
+    },
+    "WI:married_joint": {
+      "kind": "progressive",
+      "standardDeduction": 9461,
+      "allowanceDeduction": 400,
+      "brackets": [
+        { "min": 0, "max": 12760, "rate": 0.0354 },
+        { "min": 12760, "max": 25520, "rate": 0.0465 },
+        { "min": 25520, "max": 280950, "rate": 0.053 },
+        { "min": 280950, "max": null, "rate": 0.0765 }
+      ]
+    }
+  }
+}

@@ -1,0 +1,8 @@
+{
+  "state": "TN",
+  "taxYear": 2026,
+  "source": "Tennessee has no individual income tax on wages; the Hall income tax on interest and dividends was fully repealed effective January 1, 2021 (Tenn. Code Ann. § 67-2-110) — explicit zero-tax row so TN work-state assignment resolves to $0 by configuration, never by absence.",
+  "jurisdictions": {
+    "TN": { "kind": "none" }
+  }
+}

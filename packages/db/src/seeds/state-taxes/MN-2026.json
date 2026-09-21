@@ -1,0 +1,29 @@
+{
+  "state": "MN",
+  "taxYear": 2026,
+  "source": "Minnesota DOR 2026 withholding formula (W-4MN basis, reproduced in NFC bulletin NFC-26-1782924992, eff. pay period 13-2026): exemption allowance $5,300/yr each; 0% / 5.35% / 6.80% / 7.85% / 9.85% tables. Minnesota's 1% net-investment-income surtax over $1M does not apply to wages.",
+  "jurisdictions": {
+    "MN": {
+      "kind": "progressive",
+      "allowanceDeduction": 5300,
+      "brackets": [
+        { "min": 0, "max": 4700, "rate": 0 },
+        { "min": 4700, "max": 38010, "rate": 0.0535 },
+        { "min": 38010, "max": 114130, "rate": 0.068 },
+        { "min": 114130, "max": 207850, "rate": 0.0785 },
+        { "min": 207850, "max": null, "rate": 0.0985 }
+      ]
+    },
+    "MN:married_joint": {
+      "kind": "progressive",
+      "allowanceDeduction": 5300,
+      "brackets": [
+        { "min": 0, "max": 14700, "rate": 0 },
+        { "min": 14700, "max": 63400, "rate": 0.0535 },
+        { "min": 63400, "max": 208180, "rate": 0.068 },
+        { "min": 208180, "max": 352630, "rate": 0.0785 },
+        { "min": 352630, "max": null, "rate": 0.0985 }
+      ]
+    }
+  }
+}

@@ -1,0 +1,19 @@
+{
+  "state": "AR",
+  "taxYear": 2026,
+  "source": "Arkansas DFA Withholding Tax Formula (updated May 29, 2026 per H.B. 1001, top rate 3.9%→3.7% retroactive to Jan 1, 2026; reproduced in NFC bulletin NFC-26-1781190112, eff. pay period 15-2026): standard deduction $2,470; standard table 0%/2%/3%/3.4%/3.7% with minus-adjustments (encoded as marginal brackets — verified continuous through $94,701); $29 personal tax credit per exemption (encoded as allowanceCredit). CLOSEST-FIT EXCEPTIONS: (1) high-income bracket adjustment — above $94,701 Arkansas phases OUT the lower-bracket benefit via shrinking minus-adjustments, adding up to ~$287 of extra annual tax our marginal encoding under-withholds; (2) low-income tax tables / credit formulas (single <$17,500, married <$36,100, HoH <$29,000 wage phase-outs) NOT modeled — low-wage employees must elect the low-income table out-of-band; (3) truncate-to-$100/add-$50 rounding step not modeled (±$50 annual noise).",
+  "jurisdictions": {
+    "AR": {
+      "kind": "progressive",
+      "standardDeduction": 2470,
+      "allowanceCredit": 29,
+      "brackets": [
+        { "min": 0, "max": 5600, "rate": 0 },
+        { "min": 5600, "max": 11200, "rate": 0.02 },
+        { "min": 11200, "max": 16000, "rate": 0.03 },
+        { "min": 16000, "max": 26400, "rate": 0.034 },
+        { "min": 26400, "max": null, "rate": 0.037 }
+      ]
+    }
+  }
+}

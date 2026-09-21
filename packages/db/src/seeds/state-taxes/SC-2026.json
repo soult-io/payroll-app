@@ -1,0 +1,17 @@
+{
+  "state": "SC",
+  "taxYear": 2026,
+  "source": "South Carolina DOR 2026 withholding formula (SC-4 basis, NFC bulletin NFC-26-1773173131, eff. pay period 03-2026): standard deduction = lesser of 10% of annual wages or $7,500 when 1+ exemptions claimed; $5,000 deduction per personal exemption; table 0% to $3,640, 3.0% to $18,230, 6.0% above. CLOSEST-FIT EXCEPTIONS: (1) the 10%-of-wages standard deduction for annual wages under $75,000 is not modeled — engine always deducts the $7,500 maximum (under-withholds for wages <$75k); (2) zero-exemption elections receive NO standard deduction under the state formula but our engine still deducts $7,500.",
+  "jurisdictions": {
+    "SC": {
+      "kind": "progressive",
+      "standardDeduction": 7500,
+      "allowanceDeduction": 5000,
+      "brackets": [
+        { "min": 0, "max": 3640, "rate": 0 },
+        { "min": 3640, "max": 18230, "rate": 0.03 },
+        { "min": 18230, "max": null, "rate": 0.06 }
+      ]
+    }
+  }
+}

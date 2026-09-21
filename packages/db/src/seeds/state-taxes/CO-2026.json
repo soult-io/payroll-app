@@ -1,0 +1,17 @@
+{
+  "state": "CO",
+  "taxYear": 2026,
+  "source": "Colorado DOR DR 1098 Colorado Income Tax Withholding Worksheet for Employers (2026): flat 4.40% on annual wages minus the annual withholding allowance; DEFAULT allowance (no Form DR 0004 on file) $5,000 single/married-separate/head-of-household, $10,000 married filing joint — encoded as standardDeduction. CLOSEST-FIT EXCEPTION: DR 0004 Line 2 is a DOLLAR allowance (Table 1: $12,500 single one-job / $20,000 HoH / $27,500 MFJ; or Worksheet 1) with no count-based equivalent — employees should reconcile via extraWithholding or an admin-set election; FAMLI premium and city occupational privilege taxes not modeled.",
+  "jurisdictions": {
+    "CO": {
+      "kind": "flat",
+      "flatRate": 0.044,
+      "standardDeduction": 5000
+    },
+    "CO:married_joint": {
+      "kind": "flat",
+      "flatRate": 0.044,
+      "standardDeduction": 10000
+    }
+  }
+}

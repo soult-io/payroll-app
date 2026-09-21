@@ -1,0 +1,8 @@
+{
+  "state": "FL",
+  "taxYear": 2026,
+  "source": "Florida has no individual income tax (Fla. Const. art. VII § 5(a)) — explicit zero-tax row so FL work-state assignment resolves to $0 by configuration, never by absence.",
+  "jurisdictions": {
+    "FL": { "kind": "none" }
+  }
+}

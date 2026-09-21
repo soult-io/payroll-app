@@ -1,0 +1,37 @@
+{
+  "state": "MD",
+  "taxYear": 2026,
+  "source": "Maryland Comptroller 2026 withholding formula (MW 507 basis, reproduced in NFC bulletin NFC-26-1783003892, eff. pay period 12-2026): standard deduction $3,400; exemption allowance $3,200 each; no withholding under $5,000/yr; graduated 4.75%–6.50% tables (6.25%/6.50% high-income brackets added for 2026). CLOSEST-FIT EXCEPTION: Maryland COUNTY income tax (2.25%–3.30% + Anne Arundel/Frederick graduated tables) is NOT modeled — local tax is out of ticket scope, so real Maryland net withholding will be materially higher; employers must add county tax outside this engine.",
+  "jurisdictions": {
+    "MD": {
+      "kind": "progressive",
+      "standardDeduction": 3400,
+      "lowIncomeExemption": 5000,
+      "allowanceDeduction": 3200,
+      "brackets": [
+        { "min": 0, "max": 100000, "rate": 0.0475 },
+        { "min": 100000, "max": 125000, "rate": 0.05 },
+        { "min": 125000, "max": 150000, "rate": 0.0525 },
+        { "min": 150000, "max": 250000, "rate": 0.055 },
+        { "min": 250000, "max": 500000, "rate": 0.0575 },
+        { "min": 500000, "max": 1000000, "rate": 0.0625 },
+        { "min": 1000000, "max": null, "rate": 0.065 }
+      ]
+    },
+    "MD:married_joint": {
+      "kind": "progressive",
+      "standardDeduction": 3400,
+      "lowIncomeExemption": 5000,
+      "allowanceDeduction": 3200,
+      "brackets": [
+        { "min": 0, "max": 150000, "rate": 0.0475 },
+        { "min": 150000, "max": 175000, "rate": 0.05 },
+        { "min": 175000, "max": 225000, "rate": 0.0525 },
+        { "min": 225000, "max": 300000, "rate": 0.055 },
+        { "min": 300000, "max": 600000, "rate": 0.0575 },
+        { "min": 600000, "max": 1200000, "rate": 0.0625 },
+        { "min": 1200000, "max": null, "rate": 0.065 }
+      ]
+    }
+  }
+}

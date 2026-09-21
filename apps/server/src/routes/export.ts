@@ -63,6 +63,13 @@ interface RunPayload {
   payDate: string;
   status: string;
   snapshotHash: string | null;
+  /**
+   * PAY-13: the work state that produced `state_withholding` (frozen in the
+   * run snapshot, template ≥1.2.0). null for pre-1.2.0 snapshots and runs on
+   * the legacy flat stateWithholdingRate path — a nonzero state_withholding
+   * with a null jurisdiction means "legacy run, jurisdiction not recorded".
+   */
+  stateJurisdiction: string | null;
   entries: Record<string, string | null>;
 }
 
@@ -111,6 +118,13 @@ function parseParams(req: FastifyRequest, reply: FastifyReply): ExportParams | n
   return { from: q.from, to: q.to, format };
 }
 
+/** The work state frozen in a run snapshot (template ≥1.2.0), else null. */
+function extractStateJurisdiction(snapshot: unknown): string | null {
+  if (!snapshot || typeof snapshot !== "object") return null;
+  const state = (snapshot as { inputs?: { state?: { workState?: unknown } } }).inputs?.state;
+  return typeof state?.workState === "string" && state.workState ? state.workState : null;
+}
+
 /** Issued runs in range (pay_date-keyed) with their stored entries, canonical order. */
 async function fetchRuns(db: Db, params: ExportParams): Promise<RunPayload[]> {
   const conditions = [eq(payrollRuns.status, "issued")];
@@ -126,6 +140,7 @@ async function fetchRuns(db: Db, params: ExportParams): Promise<RunPayload[]> {
       payDate: payrollRuns.payDate,
       status: payrollRuns.status,
       snapshotHash: payrollRuns.snapshotHash,
+      runSnapshot: payrollRuns.runSnapshot,
     })
     .from(payrollRuns)
     .where(and(...conditions))
@@ -164,13 +179,45 @@ async function fetchRuns(db: Db, params: ExportParams): Promise<RunPayload[]> {
     payDate: r.payDate,
     status: r.status,
     snapshotHash: r.snapshotHash,
+    stateJurisdiction: extractStateJurisdiction(r.runSnapshot),
     // Canonical order; null (not "0.00") if a category is missing — a
     // corrupted run must be visible, never silently zeroed.
     entries: Object.fromEntries(ENTRY_CATEGORIES.map((c) => [c, byRun.get(r.id)?.get(c) ?? null])),
   }));
 }
 
+/**
+ * PAY-13: state_withholding totals per jurisdiction (integer-cent sums,
+ * sorted by jurisdiction for byte-determinism). Jurisdictions come from the
+ * frozen run snapshots, so the totals are reproducible from stored data
+ * alone; runs whose snapshot predates template 1.2.0 contribute nothing.
+ */
+function stateWithholdingByJurisdiction(
+  runs: RunPayload[],
+): { jurisdiction: string; runCount: number; stateWithholding: string }[] {
+  const cents = new Map<string, { total: number; runCount: number }>();
+  for (const run of runs) {
+    if (!run.stateJurisdiction) continue;
+    const amount = run.entries.state_withholding;
+    const amountCents =
+      amount === null || amount === undefined ? 0 : Math.round(Number(amount) * 100);
+    const acc = cents.get(run.stateJurisdiction) ?? { total: 0, runCount: 0 };
+    acc.total += amountCents;
+    acc.runCount += 1;
+    cents.set(run.stateJurisdiction, acc);
+  }
+  return [...cents.entries()]
+    .sort(([a], [b]) => (a < b ? -1 : a > b ? 1 : 0))
+    .map(([jurisdiction, acc]) => ({
+      jurisdiction,
+      runCount: acc.runCount,
+      stateWithholding: (acc.total / 100).toFixed(2),
+    }));
+}
+
 function toCsv(runs: RunPayload[]): string {
+  // state_jurisdiction is appended LAST so existing column-position consumers
+  // of the original 15-column layout are unaffected.
   const header = [
     "employee_id",
     "period_start",
@@ -179,6 +226,7 @@ function toCsv(runs: RunPayload[]): string {
     "status",
     "snapshot_hash",
     ...ENTRY_CATEGORIES,
+    "state_jurisdiction",
   ].join(",");
   const lines = runs.map((r) =>
     [
@@ -189,6 +237,7 @@ function toCsv(runs: RunPayload[]): string {
       r.status,
       r.snapshotHash,
       ...ENTRY_CATEGORIES.map((c) => r.entries[c] ?? ""),
+      r.stateJurisdiction ?? "",
     ].join(","),
   );
   return `${[header, ...lines].join("\n")}\n`;
@@ -255,6 +304,8 @@ export function registerExportRoutes(app: FastifyInstance, deps: ExportDeps): vo
       company: companyPayload,
       status: "issued",
       range: { from: params.from ?? null, to: params.to ?? null },
+      // PAY-13: per-jurisdiction state withholding (state quarterly filings).
+      stateWithholding: { byJurisdiction: stateWithholdingByJurisdiction(runsPayload) },
       runs: runsPayload,
     };
   });

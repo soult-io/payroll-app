@@ -169,6 +169,7 @@ const CHANGE_REQUEST_LABELS: Record<string, string> = {
   address: "address",
   mailing_address: "mailing address",
   w4: "withholding (W-4) election",
+  state_election: "state withholding election",
   bank_details: "bank details",
   legal_name: "legal name",
   tax_id: "tax ID",

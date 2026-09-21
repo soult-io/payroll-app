@@ -28,6 +28,7 @@ import {
   type AdminEmployeeDetail,
   type ChangeRequest,
   type ChangeRequestComment,
+  type StateElectionRow,
   type W4ElectionRow,
 } from "../../lib/api";
 import { requestTypeLabel, filingStatusLabel } from "../../composables/useRequestTypes";
@@ -48,6 +49,7 @@ const request = ref<ChangeRequest | null>(null);
 const comments = ref<ChangeRequestComment[]>([]);
 const employee = ref<AdminEmployeeDetail | null>(null);
 const currentW4 = ref<W4ElectionRow | null>(null);
+const currentStateElection = ref<StateElectionRow | null>(null);
 
 // Decision controls
 const effectiveFrom = ref<Date | null>(null);
@@ -73,7 +75,37 @@ async function revealTaxId() {
   }
 }
 
-const currentRows = computed<{ label: string; value: string }[]>(() => {
+type Row = { label: string; value: string };
+
+function w4CurrentRows(w: W4ElectionRow | null): Row[] {
+  if (!w) return [{ label: "W-4 election", value: "None on file" }];
+  return [
+    { label: "Tax year", value: String(w.taxYear) },
+    { label: "Filing status", value: filingStatusLabel(w.filingStatus) },
+    { label: "Federal exempt", value: w.federalExempt ? "Yes" : "No" },
+    { label: "Multiple jobs", value: w.multipleJobs ? "Yes" : "No" },
+    { label: "Dependents amount", value: money(Number(w.dependentsAmount)) },
+    { label: "Other income", value: money(Number(w.otherIncome)) },
+    { label: "Deductions", value: money(Number(w.deductionsAmount)) },
+    { label: "Extra withholding", value: money(Number(w.extraWithholding)) },
+    { label: "Effective from", value: date(w.effectiveFrom) },
+  ];
+}
+
+function stateElectionCurrentRows(s: StateElectionRow | null): Row[] {
+  if (!s) return [{ label: "State election", value: "None on file for this state" }];
+  return [
+    { label: "State", value: s.stateCode },
+    { label: "Filing status", value: filingStatusLabel(s.filingStatus) },
+    { label: "Allowances", value: String(s.allowances) },
+    { label: "Additional allowances", value: String(s.additionalAllowances) },
+    { label: "Extra withholding", value: money(Number(s.extraWithholding)) },
+    { label: "Exempt", value: s.exempt ? "Yes" : "No" },
+    { label: "Effective from", value: date(s.effectiveFrom) },
+  ];
+}
+
+const currentRows = computed<Row[]>(() => {
   const req = request.value;
   const emp = employee.value;
   if (!req) return [];
@@ -97,21 +129,10 @@ const currentRows = computed<{ label: string; value: string }[]>(() => {
       return [
         { label: "Tax ID", value: emp?.hasTaxId ? "On file (masked — not shown)" : "Not on file" },
       ];
-    case "w4": {
-      const w = currentW4.value;
-      if (!w) return [{ label: "W-4 election", value: "None on file" }];
-      return [
-        { label: "Tax year", value: String(w.taxYear) },
-        { label: "Filing status", value: filingStatusLabel(w.filingStatus) },
-        { label: "Federal exempt", value: w.federalExempt ? "Yes" : "No" },
-        { label: "Multiple jobs", value: w.multipleJobs ? "Yes" : "No" },
-        { label: "Dependents amount", value: money(Number(w.dependentsAmount)) },
-        { label: "Other income", value: money(Number(w.otherIncome)) },
-        { label: "Deductions", value: money(Number(w.deductionsAmount)) },
-        { label: "Extra withholding", value: money(Number(w.extraWithholding)) },
-        { label: "Effective from", value: date(w.effectiveFrom) },
-      ];
-    }
+    case "w4":
+      return w4CurrentRows(currentW4.value);
+    case "state_election":
+      return stateElectionCurrentRows(currentStateElection.value);
     default:
       return [];
   }
@@ -136,6 +157,18 @@ async function load() {
         currentW4.value = w4Elections[0] ?? null;
       } catch {
         currentW4.value = null;
+      }
+    }
+    if (detail.request.requestType === "state_election") {
+      try {
+        const stateCode = (detail.request.payload as { stateCode?: string }).stateCode;
+        const { elections } = await adminPayrollApi.stateElections(
+          detail.request.employeeId,
+          stateCode,
+        );
+        currentStateElection.value = elections[0] ?? null;
+      } catch {
+        currentStateElection.value = null;
       }
     }
   } catch (err) {

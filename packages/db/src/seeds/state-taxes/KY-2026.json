@@ -1,0 +1,12 @@
+{
+  "state": "KY",
+  "taxYear": 2026,
+  "source": "Kentucky DOR Employer Payroll Withholding (revenue.ky.gov) & NFC bulletin NFC-26-1770145550 (eff. pay period 02-2026): flat 3.5% for 2026 (H.B. 8 trigger reduction from 4.0%); standard deduction $3,360; no allowance component. Local occupational taxes not modeled (out of scope).",
+  "jurisdictions": {
+    "KY": {
+      "kind": "flat",
+      "flatRate": 0.035,
+      "standardDeduction": 3360
+    }
+  }
+}

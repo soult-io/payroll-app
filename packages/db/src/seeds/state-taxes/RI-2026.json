@@ -1,0 +1,16 @@
+{
+  "state": "RI",
+  "taxYear": 2026,
+  "source": "Rhode Island Division of Taxation 2026 withholding formula (RI W-4 basis, NFC bulletin NFC-26-1772030778, eff. pay period 03-2026): $1,000 exemption amount per allowance; table 3.75% to $82,050, 4.75% to $186,450, 5.99% above. CLOSEST-FIT EXCEPTION: the $1,000 exemption is ELIMINATED when annualized wages exceed $290,800 — not modeled, engine always grants it (under-withholds ~$38/yr per allowance above the threshold).",
+  "jurisdictions": {
+    "RI": {
+      "kind": "progressive",
+      "allowanceDeduction": 1000,
+      "brackets": [
+        { "min": 0, "max": 82050, "rate": 0.0375 },
+        { "min": 82050, "max": 186450, "rate": 0.0475 },
+        { "min": 186450, "max": null, "rate": 0.0599 }
+      ]
+    }
+  }
+}

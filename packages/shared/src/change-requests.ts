@@ -52,6 +52,47 @@ export const w4Payload = z.object({
 export type W4Payload = z.infer<typeof w4Payload>;
 
 /**
+ * state_election → INSERT into state_withholding_elections (append-only
+ * history, mirroring the w4 flow; PAY-13 phase 2). The state withholding
+ * certificate shape (IL-W-4 / DE 4 / G-4 …): status, regular + additional
+ * allowances, per-period extra, exempt flag.
+ *
+ * The fields object and the exempt check are exported separately because
+ * zod's .omit() cannot be applied to a refined schema — the web form omits
+ * effectiveFrom (the wizard owns it) and re-applies the same rule.
+ */
+export const stateElectionFields = z.object({
+  stateCode: z.string().regex(/^[A-Z]{2}$/, "expected a 2-letter state code"),
+  filingStatus: z.enum(["single", "married_joint", "married_separate", "head_of_household"]),
+  allowances: z.number().int().min(0).max(99).default(0),
+  additionalAllowances: z.number().int().min(0).max(99).default(0),
+  /** Per-period extra withholding. */
+  extraWithholding: moneyAmount.default(0),
+  exempt: z.boolean().default(false),
+  /** NOT retroactive: applies to pay periods on/after this date. */
+  effectiveFrom: isoDate,
+  filedDate: isoDate,
+  note: z.string().max(2000).default(""),
+});
+
+/** Exempt supersedes the worksheet: an exempt election cannot also claim
+ * allowances or extra withholding (same rule as the admin election route). */
+export const stateElectionExemptCheck = (v: {
+  exempt: boolean;
+  allowances: number;
+  extraWithholding: number;
+}): boolean => !v.exempt || (v.allowances === 0 && v.extraWithholding === 0);
+
+export const STATE_ELECTION_EXEMPT_MESSAGE =
+  "an exempt election cannot also claim allowances or extra withholding";
+
+export const stateElectionPayload = stateElectionFields.refine(stateElectionExemptCheck, {
+  message: STATE_ELECTION_EXEMPT_MESSAGE,
+  path: ["exempt"],
+});
+export type StateElectionPayload = z.infer<typeof stateElectionPayload>;
+
+/**
  * ABA routing-number checksum (3·(d1+d4+d7) + 7·(d2+d5+d8) + (d3+d6+d9)) ≡ 0 mod 10.
  */
 function validRoutingChecksum(routing: string): boolean {
@@ -101,6 +142,7 @@ export const changeRequestPayloads = {
   address: addressPayload,
   mailing_address: addressPayload,
   w4: w4Payload,
+  state_election: stateElectionPayload,
   bank_details: bankDetailsPayload,
   legal_name: legalNamePayload,
   tax_id: taxIdPayload,
@@ -110,6 +152,7 @@ export const changeRequestType = z.enum([
   "address",
   "mailing_address",
   "w4",
+  "state_election",
   "bank_details",
   "legal_name",
   "tax_id",

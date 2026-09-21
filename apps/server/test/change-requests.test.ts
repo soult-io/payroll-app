@@ -17,6 +17,7 @@ import {
   emailOutbox,
   employees,
   seedDatabase,
+  stateWithholdingElections,
   w4Elections,
   type SeedDb,
 } from "@payroll/db";
@@ -351,6 +352,117 @@ describe("W-4 append-only", () => {
     expect(profile.statusCode).toBe(200);
     const body = profile.json() as { profile: { w4: { filingStatus: string } | null } };
     expect(body.profile.w4?.filingStatus).toBe("married_joint");
+  });
+});
+
+describe("state election append-only (PAY-13 phase 2)", () => {
+  it("approval INSERTs a new state_withholding_elections row and notifies", async () => {
+    const effectiveFrom = nextMonthStart();
+    const res = await submit(employeeCookie, {
+      requestType: "state_election",
+      payload: {
+        stateCode: "IL",
+        filingStatus: "married_joint",
+        allowances: 2,
+        additionalAllowances: 1,
+        extraWithholding: 25,
+        effectiveFrom, // payload copy; top-level is authoritative
+        filedDate: "2026-01-05",
+        note: "New IL-W-4",
+      },
+      effectiveFrom,
+    });
+    expect(res.statusCode).toBe(201);
+    const publicId = (res.json() as { request: { publicId: string } }).request.publicId;
+
+    const approve = await t.app.inject({
+      method: "POST",
+      url: `/api/change-requests/${publicId}/approve`,
+      headers: sessionHeader(adminCookie),
+      payload: {},
+    });
+    expect(approve.statusCode).toBe(200);
+
+    const elections = await t.db
+      .select()
+      .from(stateWithholdingElections)
+      .where(eq(stateWithholdingElections.employeeId, employeeId))
+      .orderBy(desc(stateWithholdingElections.effectiveFrom));
+    expect(elections).toHaveLength(1);
+    expect(elections[0]).toMatchObject({
+      stateCode: "IL",
+      filingStatus: "married_joint",
+      allowances: 2,
+      additionalAllowances: 1,
+      exempt: false,
+      effectiveFrom, // top-level wins over any payload copy
+      filedDate: "2026-01-05",
+      note: "New IL-W-4",
+    });
+    expect(Number(elections[0]!.extraWithholding)).toBe(25);
+
+    // Audit trail records the approval against this request.
+    const audits = await t.db
+      .select()
+      .from(auditEvents)
+      .where(
+        and(eq(auditEvents.action, "change_request.approve"), eq(auditEvents.entityId, publicId)),
+      );
+    expect(audits).toHaveLength(1);
+
+    // approved → that employee (outbox).
+    const approvedMail = await outboxFor(employeeUserId, "change_request_approved");
+    expect(approvedMail.length).toBeGreaterThanOrEqual(1);
+  });
+
+  it("rejects an exempt election that also claims allowances or extra", async () => {
+    const res = await submit(employeeCookie, {
+      requestType: "state_election",
+      payload: {
+        stateCode: "CA",
+        filingStatus: "single",
+        allowances: 1,
+        exempt: true,
+        effectiveFrom: nextMonthStart(),
+        filedDate: "2026-01-05",
+      },
+      effectiveFrom: nextMonthStart(),
+    });
+    expect(res.statusCode).toBe(400);
+    expect((res.json() as { error: string }).error).toBe("invalid_payload");
+  });
+
+  it("one pending per (employee, type): a second state_election submit 409s", async () => {
+    const payload = {
+      stateCode: "GA",
+      filingStatus: "single",
+      effectiveFrom: nextMonthStart(),
+      filedDate: "2026-01-05",
+    };
+    const first = await submit(employeeCookie, {
+      requestType: "state_election",
+      payload,
+      effectiveFrom: nextMonthStart(),
+    });
+    expect(first.statusCode).toBe(201);
+    const publicId = (first.json() as { request: { publicId: string } }).request.publicId;
+
+    const dupe = await submit(employeeCookie, {
+      requestType: "state_election",
+      payload: { ...payload, stateCode: "NY" },
+      effectiveFrom: nextMonthStart(),
+    });
+    expect(dupe.statusCode).toBe(409);
+    expect((dupe.json() as { error: string }).error).toBe("duplicate_pending");
+
+    // Clean up: leave no pending state_election request behind.
+    const cleanup = await t.app.inject({
+      method: "POST",
+      url: `/api/change-requests/${publicId}/deny`,
+      headers: sessionHeader(adminCookie),
+      payload: { reason: "Cleanup." },
+    });
+    expect(cleanup.statusCode).toBe(200);
   });
 });
 
