@@ -1,10 +1,11 @@
 /**
- * Monthly federal tax deposits (PAY-9) — computed schedule, due-date
- * reminders, deposit tracking. Record-only (D3): EFTPS has no API, so the app
- * computes the amount, reminds admins, and records the deposit date +
- * confirmation number; the payment itself always happens on eftps.gov.
+ * Monthly tax deposits (PAY-9 federal, PAY-47 state) — computed schedule,
+ * due-date reminders, deposit tracking. Record-only (D3): EFTPS has no API,
+ * so the app computes the amount, reminds admins, and records the deposit
+ * date + confirmation number; the payment itself always happens on
+ * eftps.gov (or the state equivalent).
  *
- * Monthly-depositor rule: the deposit for a month = employee
+ * Monthly-depositor rule: the federal deposit for a month = employee
  * federal_withholding + social_security + medicare + employer_social_security
  * + employer_medicare across ISSUED payroll runs with pay_date in that month
  * (frozen entry snapshots, never live config — recomputation reproduces the
@@ -12,9 +13,12 @@
  * 15th of the following month, rolled forward off weekends (federal-holiday
  * roll deferred, V1).
  *
- * Jurisdiction-ready (D2): jurisdiction is 'federal' today; state rows
- * activate with PAY-13. The (jurisdiction, period_start) unique constraint
- * makes the daily sync idempotent.
+ * State rows (PAY-47): one row per work state per month from the frozen run
+ * snapshots (inputs.state.workState), amount = the month's state_withholding
+ * sum for that state; states with zero withholding get no row. Same due-date
+ * convention V1 (15th of the following month, informational — real per-state
+ * schedules differ and are a future refinement). The (jurisdiction,
+ * period_start) unique constraint makes the daily sync idempotent.
  *
  * All business logic lives here and is integration-tested WITHOUT pg-boss
  * (which needs a real Postgres) — payroll/scheduler.ts only wires the queue.
@@ -162,6 +166,84 @@ export async function computeDepositAmount(db: Db, year: number, month: number):
   return rows[0]?.total ?? "0.00";
 }
 
+/**
+ * Compute per-state sums for state_withholding entries across all issued
+ * runs in a month. Returns an array of {workState, amount} for each distinct
+ * workState with non-zero state withholding. Runs without a frozen
+ * inputs.state (legacy / no work state) group under a NULL workState — they
+ * necessarily sum to 0.00 and are dropped by the zero filter.
+ */
+export async function computeStateDepositAmounts(
+  db: Db,
+  year: number,
+  month: number,
+): Promise<{ workState: string; amount: string }[]> {
+  const periodStart = periodStartFor(year, month);
+  const rows = await db
+    .select({
+      workState: sql<string>`(${payrollRuns.runSnapshot}#>>'{inputs,state,workState}')`,
+      amount: sql<string>`coalesce(sum(${payrollEntries.amount}), 0)::numeric(12,2)::text`,
+    })
+    .from(payrollEntries)
+    .innerJoin(payrollRuns, eq(payrollEntries.runId, payrollRuns.id))
+    .where(
+      and(
+        eq(payrollRuns.status, "issued"),
+        sql`date_trunc('month', ${payrollRuns.payDate})::date = ${periodStart}::date`,
+        eq(payrollEntries.category, "state_withholding"),
+      ),
+    )
+    .groupBy(sql`${payrollRuns.runSnapshot}#>>'{inputs,state,workState}'`);
+
+  return rows
+    .filter((row) => row.workState && row.amount !== "0.00")
+    .map((row) => ({ workState: row.workState, amount: row.amount }));
+}
+
+/**
+ * Upsert the state deposit rows for one month (PAY-47): one row per work
+ * state with non-zero withholding, keyed by the existing (jurisdiction,
+ * period_start) unique constraint. Pending rows recompute; deposited/overdue
+ * rows are never rewritten.
+ */
+async function syncStateDepositRows(
+  db: Db,
+  periodStart: string,
+  result: SyncResult,
+): Promise<void> {
+  const year = Number(periodStart.slice(0, 4));
+  const month = Number(periodStart.slice(5, 7));
+  const stateDeposits = await computeStateDepositAmounts(db, year, month);
+
+  for (const { workState, amount } of stateDeposits) {
+    const existing = await db
+      .select()
+      .from(taxDeposits)
+      .where(and(eq(taxDeposits.jurisdiction, workState), eq(taxDeposits.periodStart, periodStart)))
+      .limit(1);
+    const row = existing[0];
+
+    if (!row) {
+      await db.insert(taxDeposits).values({
+        jurisdiction: workState,
+        periodStart,
+        amount,
+        dueDate: dueDateFor(year, month),
+        status: "pending",
+        createdBy: "scheduler",
+      });
+      result.created += 1;
+    } else if (row.status === "pending" && row.amount !== amount) {
+      await db
+        .update(taxDeposits)
+        .set({ amount, updatedAt: new Date() })
+        .where(eq(taxDeposits.id, row.id));
+      result.recomputed += 1;
+    }
+    // deposited/overdue rows are never rewritten.
+  }
+}
+
 // ---------------------------------------------------------------------------
 // Reminder-offsets setting (D1 — admin-editable, app_settings key/value row)
 // ---------------------------------------------------------------------------
@@ -241,6 +323,9 @@ export interface SyncResult {
  * the figure, and 'deposited'/'overdue' rows are never rewritten. Due dates,
  * the overdue flip, and reminders are all relative to the 15th of the
  * FOLLOWING month, so a current-month row is never overdue and never reminds.
+ *
+ * After the federal loop, state rows are synced per month via
+ * syncStateDepositRows (see its doc comment).
  */
 export async function syncDeposits(deps: Deps, opts: { today?: string } = {}): Promise<SyncResult> {
   const { db } = deps;
@@ -290,6 +375,11 @@ export async function syncDeposits(deps: Deps, opts: { today?: string } = {}): P
     }
   }
 
+  // PAY-47: state deposit rows after the federal loop.
+  for (const { periodStart } of months) {
+    await syncStateDepositRows(db, periodStart, result);
+  }
+
   const flipped = await db
     .update(taxDeposits)
     .set({ status: "overdue", updatedAt: new Date() })
@@ -310,6 +400,7 @@ export async function listDeposits(
   filter: {
     year?: number | undefined;
     status?: "pending" | "deposited" | "overdue" | undefined;
+    jurisdiction?: string | undefined;
   } = {},
 ): Promise<TaxDepositRow[]> {
   const conditions = [];
@@ -322,6 +413,7 @@ export async function listDeposits(
     );
   }
   if (filter.status) conditions.push(eq(taxDeposits.status, filter.status));
+  if (filter.jurisdiction) conditions.push(eq(taxDeposits.jurisdiction, filter.jurisdiction));
   return db
     .select()
     .from(taxDeposits)
@@ -479,70 +571,136 @@ export async function getDepositDetail(db: Db, id: number): Promise<DepositDetai
   const deposit = depositRows[0];
   if (!deposit) return null;
 
-  // Get the breakdown by category
-  const periodStart = deposit.periodStart;
+  // Federal deposit: current behavior
+  if (deposit.jurisdiction === "federal") {
+    // Get the breakdown by category
+    const periodStart = deposit.periodStart;
 
-  const breakdownRows = await db
-    .select({
-      category: payrollEntries.category,
-      amount: sql<string>`coalesce(sum(${payrollEntries.amount}), 0)::numeric(12,2)::text`,
-    })
-    .from(payrollEntries)
-    .innerJoin(payrollRuns, eq(payrollEntries.runId, payrollRuns.id))
-    .where(
-      and(
-        eq(payrollRuns.status, "issued"),
-        sql`date_trunc('month', ${payrollRuns.payDate})::date = ${periodStart}::date`,
-        sql`${payrollEntries.category} IN (${sql.join(
-          DEPOSIT_CATEGORIES.map((c) => sql`${c}`),
-          sql`, `,
-        )})`,
-      ),
-    )
-    .groupBy(payrollEntries.category);
+    const breakdownRows = await db
+      .select({
+        category: payrollEntries.category,
+        amount: sql<string>`coalesce(sum(${payrollEntries.amount}), 0)::numeric(12,2)::text`,
+      })
+      .from(payrollEntries)
+      .innerJoin(payrollRuns, eq(payrollEntries.runId, payrollRuns.id))
+      .where(
+        and(
+          eq(payrollRuns.status, "issued"),
+          sql`date_trunc('month', ${payrollRuns.payDate})::date = ${periodStart}::date`,
+          sql`${payrollEntries.category} IN (${sql.join(
+            DEPOSIT_CATEGORIES.map((c) => sql`${c}`),
+            sql`, `,
+          )})`,
+        ),
+      )
+      .groupBy(payrollEntries.category);
 
-  // Ensure all categories are included, even if zero
-  const breakdown: DepositDetailRow["breakdown"] = [];
-  for (const category of DEPOSIT_CATEGORIES) {
-    const row = breakdownRows.find((r) => r.category === category);
+    // Ensure all categories are included, even if zero
+    const breakdown: DepositDetailRow["breakdown"] = [];
+    for (const category of DEPOSIT_CATEGORIES) {
+      const row = breakdownRows.find((r) => r.category === category);
+      breakdown.push({
+        category,
+        amount: row ? row.amount : "0.00",
+      });
+    }
+
+    // Get running contributions
+    const runs = await db
+      .select({
+        publicId: payrollRuns.publicId,
+        payDate: payrollRuns.payDate,
+        employeeName: employees.legalName,
+        amount: sql<string>`coalesce(sum(${payrollEntries.amount}), 0)::numeric(12,2)::text`,
+      })
+      .from(payrollRuns)
+      .innerJoin(payrollEntries, eq(payrollEntries.runId, payrollRuns.id))
+      .innerJoin(employees, eq(payrollRuns.employeeId, employees.id))
+      .where(
+        and(
+          eq(payrollRuns.status, "issued"),
+          sql`date_trunc('month', ${payrollRuns.payDate})::date = ${periodStart}::date`,
+          sql`${payrollEntries.category} IN (${sql.join(
+            DEPOSIT_CATEGORIES.map((c) => sql`${c}`),
+            sql`, `,
+          )})`,
+        ),
+      )
+      .groupBy(payrollRuns.publicId, payrollRuns.payDate, employees.legalName)
+      .orderBy(payrollRuns.payDate);
+
+    return {
+      deposit,
+      breakdown,
+      runs: runs.map((row) => ({
+        publicId: row.publicId,
+        payDate: row.payDate,
+        employeeName: row.employeeName,
+        amount: row.amount,
+      })),
+    };
+  } else {
+    // State deposit: breakdown is a single row state_withholding only
+    const periodStart = deposit.periodStart;
+    const jurisdiction = deposit.jurisdiction;
+
+    // Get the breakdown by category (single state_withholding row only)
+    const breakdownRows = await db
+      .select({
+        category: payrollEntries.category,
+        amount: sql<string>`coalesce(sum(${payrollEntries.amount}), 0)::numeric(12,2)::text`,
+      })
+      .from(payrollEntries)
+      .innerJoin(payrollRuns, eq(payrollEntries.runId, payrollRuns.id))
+      .where(
+        and(
+          eq(payrollRuns.status, "issued"),
+          sql`date_trunc('month', ${payrollRuns.payDate})::date = ${periodStart}::date`,
+          eq(payrollEntries.category, "state_withholding"),
+          sql`(${payrollRuns.runSnapshot}#>>'{inputs,state,workState}') = ${jurisdiction}`,
+        ),
+      )
+      .groupBy(payrollEntries.category);
+
+    // Ensure single category with the sum
+    const breakdown: DepositDetailRow["breakdown"] = [];
+    const row = breakdownRows.find((r) => r.category === "state_withholding");
     breakdown.push({
-      category,
+      category: "state_withholding",
       amount: row ? row.amount : "0.00",
     });
+
+    // Get running contributions (only runs in the jurisdiction)
+    const runs = await db
+      .select({
+        publicId: payrollRuns.publicId,
+        payDate: payrollRuns.payDate,
+        employeeName: employees.legalName,
+        amount: sql<string>`coalesce(sum(${payrollEntries.amount}), 0)::numeric(12,2)::text`,
+      })
+      .from(payrollRuns)
+      .innerJoin(payrollEntries, eq(payrollEntries.runId, payrollRuns.id))
+      .innerJoin(employees, eq(payrollRuns.employeeId, employees.id))
+      .where(
+        and(
+          eq(payrollRuns.status, "issued"),
+          sql`date_trunc('month', ${payrollRuns.payDate})::date = ${periodStart}::date`,
+          eq(payrollEntries.category, "state_withholding"),
+          sql`(${payrollRuns.runSnapshot}#>>'{inputs,state,workState}') = ${jurisdiction}`,
+        ),
+      )
+      .groupBy(payrollRuns.publicId, payrollRuns.payDate, employees.legalName)
+      .orderBy(payrollRuns.payDate);
+
+    return {
+      deposit,
+      breakdown,
+      runs: runs.map((row) => ({
+        publicId: row.publicId,
+        payDate: row.payDate,
+        employeeName: row.employeeName,
+        amount: row.amount,
+      })),
+    };
   }
-
-  // Get running contributions
-  const runs = await db
-    .select({
-      publicId: payrollRuns.publicId,
-      payDate: payrollRuns.payDate,
-      employeeName: employees.legalName,
-      amount: sql<string>`coalesce(sum(${payrollEntries.amount}), 0)::numeric(12,2)::text`,
-    })
-    .from(payrollRuns)
-    .innerJoin(payrollEntries, eq(payrollEntries.runId, payrollRuns.id))
-    .innerJoin(employees, eq(payrollRuns.employeeId, employees.id))
-    .where(
-      and(
-        eq(payrollRuns.status, "issued"),
-        sql`date_trunc('month', ${payrollRuns.payDate})::date = ${periodStart}::date`,
-        sql`${payrollEntries.category} IN (${sql.join(
-          DEPOSIT_CATEGORIES.map((c) => sql`${c}`),
-          sql`, `,
-        )})`,
-      ),
-    )
-    .groupBy(payrollRuns.publicId, payrollRuns.payDate, employees.legalName)
-    .orderBy(payrollRuns.payDate);
-
-  return {
-    deposit,
-    breakdown,
-    runs: runs.map((row) => ({
-      publicId: row.publicId,
-      payDate: row.payDate,
-      employeeName: row.employeeName,
-      amount: row.amount,
-    })),
-  };
 }

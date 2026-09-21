@@ -15,7 +15,7 @@
  */
 
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
-import { and, desc, eq } from "drizzle-orm";
+import { and, desc, eq, ne } from "drizzle-orm";
 import {
   auditEvents,
   company,
@@ -713,5 +713,237 @@ describe("admin deposit detail endpoint (PAY-36)", () => {
 
     // Assert runs contains the issued fixture run's publicId
     expect(detail.runs.map((r) => r.publicId)).toContain(run.publicId);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// PAY-13 — state deposits
+// ---------------------------------------------------------------------------
+
+describe("PAY-13 state deposits", () => {
+  /** Assign an effective-dated work state via the admin route (PAY-13). */
+  async function assignWorkState(employeeId: number, stateCode: string, effectiveFrom: string) {
+    const res = await api("PUT", `/api/admin/employees/${employeeId}/work-state`, {
+      stateCode,
+      effectiveFrom,
+    });
+    expect(res.statusCode, res.body).toBe(201);
+  }
+
+  /** The run's frozen state_withholding entry (asserts exactly one exists). */
+  async function stateWithholdingFor(runId: number): Promise<string> {
+    const rows = await t.db
+      .select({ amount: payrollEntries.amount })
+      .from(payrollEntries)
+      .where(
+        and(eq(payrollEntries.runId, runId), eq(payrollEntries.category, "state_withholding")),
+      );
+    expect(rows).toHaveLength(1);
+    expect(Number(rows[0]!.amount)).toBeGreaterThan(0);
+    return rows[0]!.amount;
+  }
+
+  async function stateDepositRow(jurisdiction: string, periodStart: string) {
+    const rows = await t.db
+      .select()
+      .from(taxDeposits)
+      .where(
+        and(eq(taxDeposits.jurisdiction, jurisdiction), eq(taxDeposits.periodStart, periodStart)),
+      );
+    return rows[0];
+  }
+
+  it("creates a state deposit row for a (state, month) with issued state-withholding runs", async () => {
+    const employee = await createEmployee();
+    await addCompensation(employee, 3500);
+    await assignWorkState(employee, "IL", "2026-01-01");
+
+    const run = await issueRun(employee, 2026, 7);
+    const expected = await stateWithholdingFor(run.id);
+    // The frozen snapshot is the jurisdiction source.
+    const snapshot = run.runSnapshot as { inputs: { state?: { workState?: string } } };
+    expect(snapshot.inputs.state?.workState).toBe("IL");
+
+    await syncDeposits({ db: t.db, config: t.config }, { today: "2026-08-10" });
+
+    const row = await stateDepositRow("IL", "2026-07-01");
+    expect(row).toBeDefined();
+    expect(row!.amount).toBe(expected);
+    expect(row!.dueDate).toBe(dueDateFor(2026, 7));
+    expect(row!.status).toBe("pending");
+    expect(row!.createdBy).toBe("scheduler");
+  });
+
+  it("creates separate rows for two work states in the same month; federal row unaffected", async () => {
+    const ilEmployee = await createEmployee();
+    const caEmployee = await createEmployee();
+    await addCompensation(ilEmployee, 3500);
+    await addCompensation(caEmployee, 4500);
+    await assignWorkState(ilEmployee, "IL", "2026-01-01");
+    await assignWorkState(caEmployee, "CA", "2026-01-01");
+
+    const ilRun = await issueRun(ilEmployee, 2026, 8);
+    const caRun = await issueRun(caEmployee, 2026, 8);
+    const ilExpected = await stateWithholdingFor(ilRun.id);
+    const caExpected = await stateWithholdingFor(caRun.id);
+
+    await syncDeposits({ db: t.db, config: t.config }, { today: "2026-09-10" });
+
+    const il = await stateDepositRow("IL", "2026-08-01");
+    const ca = await stateDepositRow("CA", "2026-08-01");
+    expect(il!.amount).toBe(ilExpected);
+    expect(ca!.amount).toBe(caExpected);
+
+    // The federal row for the month still sums only the five federal categories.
+    const federal = await stateDepositRow("federal", "2026-08-01");
+    expect(federal!.amount).toBe(await computeDepositAmount(t.db, 2026, 8));
+  });
+
+  it("creates NO state row when runs have no snapshot state", async () => {
+    const employee = await createEmployee();
+    await addCompensation(employee, 3500);
+    await issueRun(employee, 2026, 9); // no work state assigned
+
+    await syncDeposits({ db: t.db, config: t.config }, { today: "2026-10-10" });
+
+    const stateRows = await t.db
+      .select()
+      .from(taxDeposits)
+      .where(
+        and(ne(taxDeposits.jurisdiction, "federal"), eq(taxDeposits.periodStart, "2026-09-01")),
+      );
+    expect(stateRows).toHaveLength(0);
+  });
+
+  it("is idempotent: re-sync creates nothing, pending rows recompute, deposited rows untouched", async () => {
+    const first = await createEmployee();
+    await addCompensation(first, 3500);
+    await assignWorkState(first, "IL", "2026-01-01");
+    const run1 = await issueRun(first, 2026, 10);
+    const amount1 = await stateWithholdingFor(run1.id);
+
+    await syncDeposits({ db: t.db, config: t.config }, { today: "2026-11-10" });
+    const sync2 = await syncDeposits({ db: t.db, config: t.config }, { today: "2026-11-10" });
+    expect(sync2.created).toBe(0);
+    expect(sync2.recomputed).toBe(0);
+    let row = await stateDepositRow("IL", "2026-10-01");
+    expect(row!.amount).toBe(amount1);
+
+    // A late-issued second IL run in the same month recomputes the pending row.
+    const second = await createEmployee();
+    await addCompensation(second, 2000);
+    await assignWorkState(second, "IL", "2026-01-01");
+    const run2 = await issueRun(second, 2026, 10);
+    const amount2 = await stateWithholdingFor(run2.id);
+
+    const sync3 = await syncDeposits({ db: t.db, config: t.config }, { today: "2026-11-11" });
+    row = await stateDepositRow("IL", "2026-10-01");
+    expect(row!.amount).toBe(round2(Number(amount1) + Number(amount2)).toFixed(2));
+    expect(sync3.recomputed).toBeGreaterThanOrEqual(1);
+
+    // Once deposited, the row is never rewritten.
+    await api("POST", `/api/admin/tax-deposits/${row!.id}/deposit`, {
+      depositedOn: "2026-11-12",
+      eftpsConfirmation: "IL-CONF-123",
+    });
+    const third = await createEmployee();
+    await addCompensation(third, 1000);
+    await assignWorkState(third, "IL", "2026-01-01");
+    await issueRun(third, 2026, 10);
+    await syncDeposits({ db: t.db, config: t.config }, { today: "2026-11-12" });
+
+    row = await stateDepositRow("IL", "2026-10-01");
+    expect(row!.status).toBe("deposited");
+    expect(row!.amount).toBe(round2(Number(amount1) + Number(amount2)).toFixed(2));
+  });
+
+  // ---------------------------------------------------------------------------
+  // Tests for jurisdiction filter (PAY-13 state deposits)
+  // ---------------------------------------------------------------------------
+
+  it("GET /api/admin/tax-deposits?jurisdiction=IL returns only IL rows while the unfiltered list includes federal too", async () => {
+    // Use November 2026 (not used by other tests in the block)
+    const employee = await createEmployee();
+    await addCompensation(employee, 3500);
+    await assignWorkState(employee, "IL", "2026-01-01");
+
+    const run = await issueRun(employee, 2026, 11);
+    const expected = await stateWithholdingFor(run.id);
+
+    await syncDeposits({ db: t.db, config: t.config }, { today: "2026-12-10" });
+
+    // Check that we have both IL and federal deposit rows
+    const allDeposits = (
+      (await api("GET", "/api/admin/tax-deposits")).json() as {
+        deposits: { jurisdiction: string }[];
+      }
+    ).deposits;
+    const hasFederal = allDeposits.some((d) => d.jurisdiction === "federal");
+    const hasIL = allDeposits.some((d) => d.jurisdiction === "IL");
+    expect(hasFederal).toBe(true);
+    expect(hasIL).toBe(true);
+
+    // Filter by jurisdiction IL — the shared test DB already holds IL rows from
+    // other months, so assert every returned row is IL and find ours by period.
+    const ilDeposits = (
+      (await api("GET", "/api/admin/tax-deposits?jurisdiction=IL")).json() as {
+        deposits: { jurisdiction: string; periodStart: string; amount: string }[];
+      }
+    ).deposits;
+    expect(ilDeposits.length).toBeGreaterThan(0);
+    expect(ilDeposits.every((d) => d.jurisdiction === "IL")).toBe(true);
+    const ours = ilDeposits.find((d) => d.periodStart === "2026-11-01");
+    expect(ours?.amount).toBe(expected);
+  });
+
+  it("GET /api/admin/tax-deposits/:id for a state row returns the single-category state_withholding breakdown and only that state's runs in the runs array", async () => {
+    // Use December 2026 — the filter test above already occupies November, and a
+    // second IL run in the same month would legitimately recompute that row.
+    const ilEmployee = await createEmployee();
+    const caEmployee = await createEmployee();
+    await addCompensation(ilEmployee, 3500);
+    await addCompensation(caEmployee, 4500);
+    await assignWorkState(ilEmployee, "IL", "2026-01-01");
+    await assignWorkState(caEmployee, "CA", "2026-01-01");
+
+    const ilRun = await issueRun(ilEmployee, 2026, 12);
+    await issueRun(caEmployee, 2026, 12);
+    const ilExpected = await stateWithholdingFor(ilRun.id);
+
+    await syncDeposits({ db: t.db, config: t.config }, { today: "2027-01-10" });
+
+    // Get the IL deposit ID from the list response
+    const listRes = await api("GET", "/api/admin/tax-deposits");
+    expect(listRes.statusCode).toBe(200);
+    const deposits = (
+      listRes.json() as { deposits: { id: number; jurisdiction: string; periodStart: string }[] }
+    ).deposits;
+    const ilDeposit = deposits.find(
+      (d) => d.jurisdiction === "IL" && d.periodStart === "2026-12-01",
+    );
+
+    if (!ilDeposit) {
+      throw new Error("Could not find IL test deposit");
+    }
+
+    const detailRes = await api("GET", `/api/admin/tax-deposits/${ilDeposit.id}`);
+    expect(detailRes.statusCode, detailRes.body).toBe(200);
+    const detail = detailRes.json() as {
+      deposit: { id: number; jurisdiction: string; amount: string };
+      breakdown: { category: string; amount: string }[];
+      runs: { publicId: string }[];
+    };
+
+    // Check that it's an IL deposit
+    expect(detail.deposit.jurisdiction).toBe("IL");
+
+    // Check breakdown has only one category (state_withholding)
+    expect(detail.breakdown).toHaveLength(1);
+    expect(detail.breakdown[0]!.category).toBe("state_withholding");
+    expect(detail.breakdown[0]!.amount).toBe(ilExpected);
+
+    // Check that runs only contain IL runs (not CA runs)
+    expect(detail.runs).toHaveLength(1);
+    expect(detail.runs[0]!.publicId).toBe(ilRun.publicId);
   });
 });
