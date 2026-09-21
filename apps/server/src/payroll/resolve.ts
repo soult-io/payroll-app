@@ -10,14 +10,24 @@
 import { and, desc, eq, gt, gte, isNull, lt, lte, or, sql } from "drizzle-orm";
 import {
   compensation,
+  employeeWorkStates,
   payrollEntries,
   payrollRuns,
+  stateTaxBrackets,
+  stateTaxConfigs,
+  stateWithholdingElections,
   taxBrackets,
   taxConfig,
   w4Elections,
 } from "@payroll/db";
 import type { Db } from "../db.js";
-import type { SnapshotBracket, SnapshotTaxConfig, SnapshotW4 } from "./snapshot.js";
+import type {
+  SnapshotBracket,
+  SnapshotState,
+  SnapshotStateElection,
+  SnapshotTaxConfig,
+  SnapshotW4,
+} from "./snapshot.js";
 
 /** drizzle transaction or root db — both expose the query API we use. */
 export type DbLike = Pick<Db, "select">;
@@ -199,5 +209,172 @@ export function toSnapshotW4(row: W4Row): SnapshotW4 {
     extraWithholding: Number(row.extraWithholding),
     effectiveFrom: row.effectiveFrom,
     filedDate: row.filedDate,
+  };
+}
+
+// ---------------------------------------------------------------------------
+// PAY-13 phase 1 — per-state withholding resolution
+// ---------------------------------------------------------------------------
+
+export type WorkStateRow = typeof employeeWorkStates.$inferSelect;
+export type StateElectionRow = typeof stateWithholdingElections.$inferSelect;
+
+/**
+ * Work state effective on `asOf`: latest row with effective_from <= asOf whose
+ * window is still open (effective_to NULL or > asOf). V1 = single work state;
+ * overlapping windows resolve to the most recent effective_from.
+ */
+export async function resolveWorkState(
+  db: DbLike,
+  employeeId: number,
+  asOf: string,
+): Promise<WorkStateRow | null> {
+  const rows = await db
+    .select()
+    .from(employeeWorkStates)
+    .where(
+      and(
+        eq(employeeWorkStates.employeeId, employeeId),
+        lte(employeeWorkStates.effectiveFrom, asOf),
+        or(isNull(employeeWorkStates.effectiveTo), gt(employeeWorkStates.effectiveTo, asOf)),
+      ),
+    )
+    .orderBy(desc(employeeWorkStates.effectiveFrom))
+    .limit(1);
+  return rows[0] ?? null;
+}
+
+/**
+ * State election for (employee, stateCode) effective on `periodStart` — the
+ * latest row with effective_from <= period_start, mirroring resolveW4. State
+ * exempt elections have no renewal deadline in V1 (IL-W-4/DE 4 exempt claims
+ * are the employee's annual responsibility, not an enforced lapse).
+ */
+export async function resolveStateElection(
+  db: DbLike,
+  employeeId: number,
+  stateCode: string,
+  periodStart: string,
+): Promise<StateElectionRow | null> {
+  const rows = await db
+    .select()
+    .from(stateWithholdingElections)
+    .where(
+      and(
+        eq(stateWithholdingElections.employeeId, employeeId),
+        eq(stateWithholdingElections.stateCode, stateCode),
+        lte(stateWithholdingElections.effectiveFrom, periodStart),
+      ),
+    )
+    .orderBy(desc(stateWithholdingElections.effectiveFrom))
+    .limit(1);
+  return rows[0] ?? null;
+}
+
+/**
+ * State filing-status mapping: states that don't publish a married-separate
+ * table use the single table (same convention as the federal Pub 15-T
+ * percentage method). married_joint / head_of_household map to themselves.
+ */
+export function mapStateFilingStatus(
+  filingStatus: SnapshotW4["filingStatus"],
+): "single" | "married_joint" | "head_of_household" {
+  return filingStatus === "married_separate" ? "single" : filingStatus;
+}
+
+export type StateConfigRow = typeof stateTaxConfigs.$inferSelect;
+export type StateBracketRow = typeof stateTaxBrackets.$inferSelect;
+
+/**
+ * State tax config + brackets for a year and (already mapped) filing status.
+ * Jurisdiction fallback '<state>:<status>' → '<state>' mirrors the federal
+ * 'federal:<status>' → 'federal' pattern. Returns null when the state has no
+ * config row for the year at either jurisdiction — the caller decides whether
+ * that is an error (it is, once a work state is set: kind='none' is the
+ * explicit zero-tax row, absence means "not configured").
+ */
+export async function resolveStateTaxConfig(
+  db: DbLike,
+  stateCode: string,
+  taxYear: number,
+  mappedStatus: "single" | "married_joint" | "head_of_household",
+): Promise<{ config: StateConfigRow; brackets: StateBracketRow[] } | null> {
+  const jurisdictions = [`${stateCode}:${mappedStatus}`, stateCode];
+
+  let configRow: StateConfigRow | undefined;
+  for (const j of jurisdictions) {
+    const rows = await db
+      .select()
+      .from(stateTaxConfigs)
+      .where(and(eq(stateTaxConfigs.jurisdiction, j), eq(stateTaxConfigs.taxYear, taxYear)))
+      .limit(1);
+    if (rows[0]) {
+      configRow = rows[0];
+      break;
+    }
+  }
+  if (!configRow) return null;
+
+  // Brackets follow the same fallback but are required only for 'progressive'.
+  let bracketRows: StateBracketRow[] = [];
+  for (const j of jurisdictions) {
+    bracketRows = await db
+      .select()
+      .from(stateTaxBrackets)
+      .where(and(eq(stateTaxBrackets.jurisdiction, j), eq(stateTaxBrackets.taxYear, taxYear)))
+      .orderBy(stateTaxBrackets.ordinal);
+    if (bracketRows.length > 0) break;
+  }
+  if (configRow.kind === "progressive" && bracketRows.length === 0) return null;
+
+  return { config: configRow, brackets: bracketRows };
+}
+
+/** Freeze a resolved state election for the snapshot. */
+export function toSnapshotStateElection(row: StateElectionRow): SnapshotStateElection {
+  return {
+    filingStatus: row.filingStatus as SnapshotStateElection["filingStatus"],
+    allowances: row.allowances,
+    additionalAllowances: row.additionalAllowances,
+    extraWithholding: Number(row.extraWithholding),
+    exempt: row.exempt,
+    effectiveFrom: row.effectiveFrom,
+    filedDate: row.filedDate,
+  };
+}
+
+/**
+ * Freeze the resolved state input for the snapshot (template 1.2.0). The
+ * bracket set is the one actually applied (status-specific when present).
+ */
+export function toSnapshotState(input: {
+  stateCode: string;
+  jurisdiction: string;
+  taxYear: number;
+  config: StateConfigRow;
+  brackets: StateBracketRow[];
+  election: StateElectionRow | null;
+}): SnapshotState {
+  const num = (v: string | null): number | null => (v === null ? null : Number(v));
+  return {
+    workState: input.stateCode,
+    jurisdiction: input.jurisdiction,
+    taxYear: input.taxYear,
+    kind: input.config.kind as SnapshotState["kind"],
+    flatRate: num(input.config.flatRate),
+    standardDeduction: num(input.config.standardDeduction),
+    standardDeductionAlt: num(input.config.standardDeductionAlt),
+    altMinAllowances: input.config.altMinAllowances,
+    lowIncomeExemption: num(input.config.lowIncomeExemption),
+    lowIncomeExemptionAlt: num(input.config.lowIncomeExemptionAlt),
+    allowanceDeduction: num(input.config.allowanceDeduction),
+    allowanceCredit: num(input.config.allowanceCredit),
+    additionalAllowanceDeduction: num(input.config.additionalAllowanceDeduction),
+    election: input.election ? toSnapshotStateElection(input.election) : null,
+    brackets: input.brackets.map((b) => ({
+      min: Number(b.minAmount),
+      max: b.maxAmount === null ? null : Number(b.maxAmount),
+      rate: Number(b.rate),
+    })),
   };
 }

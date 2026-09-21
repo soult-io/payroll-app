@@ -25,6 +25,7 @@ import {
   type Address,
   type CompanyProfile,
   type PaySchedule,
+  type StateTaxConfigRow,
 } from "../../lib/api";
 import { useNotify } from "../../composables/useNotify";
 
@@ -193,6 +194,189 @@ async function saveTax() {
 
 watch(taxYear, (y) => fillTaxForm(y));
 
+// --------------------------------------------------------- state taxes tab
+// PAY-13: per-state config. jurisdiction is the USPS code ('IL') or
+// '<state>:<filing_status>' for status-specific sets (CA); the server falls
+// back '<state>:<status>' → '<state>' exactly like the federal tables.
+interface StateScalarField {
+  key: string;
+  label: string;
+  kind: "money" | "rate" | "int";
+}
+const STATE_SCALAR_FIELDS: StateScalarField[] = [
+  { key: "flatRate", label: "Flat rate (kind=flat)", kind: "rate" },
+  { key: "standardDeduction", label: "Standard deduction", kind: "money" },
+  { key: "standardDeductionAlt", label: "Standard deduction (alt)", kind: "money" },
+  { key: "altMinAllowances", label: "Alt values when allowances ≥", kind: "int" },
+  { key: "lowIncomeExemption", label: "Low-income exemption", kind: "money" },
+  { key: "lowIncomeExemptionAlt", label: "Low-income exemption (alt)", kind: "money" },
+  { key: "allowanceDeduction", label: "Deduction per allowance", kind: "money" },
+  { key: "allowanceCredit", label: "Credit per allowance", kind: "money" },
+  {
+    key: "additionalAllowanceDeduction",
+    label: "Deduction per additional allowance",
+    kind: "money",
+  },
+];
+const STATE_KIND_OPTIONS = [
+  { label: "No income tax (explicit zero — e.g. TX)", value: "none" },
+  { label: "Flat rate (e.g. IL)", value: "flat" },
+  { label: "Progressive brackets (e.g. CA)", value: "progressive" },
+];
+
+const stateLoading = ref(true);
+const stateSaving = ref(false);
+const stateJurisdictionOptions = ref<string[]>([]);
+const stateJurisdiction = ref<string>("IL");
+const stateTaxYear = ref<number>(new Date().getFullYear());
+const stateKind = ref<"none" | "flat" | "progressive">("flat");
+const stateScalars = ref<Record<string, number | null>>({});
+const stateBrackets = ref<BracketEdit[]>([]);
+const stateNote = ref("");
+/** Cache keyed by `${jurisdiction}:${year}`. */
+const rawStateByKey = ref<
+  Map<
+    string,
+    {
+      config: StateTaxConfigRow;
+      brackets: { minAmount: string; maxAmount: string | null; rate: string }[];
+    }
+  >
+>(new Map());
+
+const stateYearOptions = computed(() => {
+  const current = new Date().getFullYear();
+  const years = new Set<number>([current, current + 1]);
+  for (const key of rawStateByKey.value.keys()) years.add(Number(key.split(":").pop()));
+  return [...years].sort((a, b) => b - a).map((y) => ({ label: String(y), value: y }));
+});
+
+function stateKey(jurisdiction: string, year: number) {
+  return `${jurisdiction}:${year}`;
+}
+
+/** Map a raw config row's nullable columns to UI scalars (rates → percents; null stays null). */
+function stateScalarsFrom(config: StateTaxConfigRow | undefined): Record<string, number | null> {
+  const raw = config as unknown as Record<string, string | number | null> | undefined;
+  const next: Record<string, number | null> = {};
+  for (const f of STATE_SCALAR_FIELDS) {
+    const v = raw?.[f.key];
+    const n = v === null || v === undefined ? null : Number(v);
+    next[f.key] = n === null || Number.isNaN(n) ? null : f.kind === "rate" ? n * 100 : n;
+  }
+  return next;
+}
+
+function fillStateForm(jurisdiction: string, year: number) {
+  const raw =
+    rawStateByKey.value.get(stateKey(jurisdiction, year)) ??
+    rawStateByKey.value.get(stateKey(jurisdiction, year - 1));
+  stateKind.value = raw?.config.kind ?? "flat";
+  stateScalars.value = stateScalarsFrom(raw?.config);
+  stateBrackets.value = (raw?.brackets ?? []).map((b) => ({
+    minAmount: Number(b.minAmount),
+    maxAmount: b.maxAmount === null ? null : Number(b.maxAmount),
+    rate: Number(b.rate) * 100,
+    top: b.maxAmount === null,
+  }));
+  if (stateBrackets.value.length === 0) {
+    stateBrackets.value = [{ minAmount: 0, maxAmount: null, rate: null, top: true }];
+  }
+  stateNote.value = raw?.config.note ?? "";
+}
+
+async function loadStateTax() {
+  stateLoading.value = true;
+  try {
+    const { stateTaxConfig, stateTaxBrackets } = await adminPayrollApi.stateTaxConfig();
+    const map = new Map<
+      string,
+      {
+        config: StateTaxConfigRow;
+        brackets: { minAmount: string; maxAmount: string | null; rate: string }[];
+      }
+    >();
+    for (const c of stateTaxConfig) {
+      map.set(stateKey(c.jurisdiction, c.taxYear), { config: c, brackets: [] });
+    }
+    for (const b of stateTaxBrackets) {
+      map
+        .get(stateKey(b.jurisdiction, b.taxYear))
+        ?.brackets.push({ minAmount: b.minAmount, maxAmount: b.maxAmount, rate: b.rate });
+    }
+    rawStateByKey.value = map;
+    stateJurisdictionOptions.value = [...new Set(stateTaxConfig.map((c) => c.jurisdiction))].sort();
+    if (
+      stateJurisdictionOptions.value.length > 0 &&
+      !stateJurisdictionOptions.value.includes(stateJurisdiction.value)
+    ) {
+      stateJurisdiction.value = stateJurisdictionOptions.value[0]!;
+    }
+    fillStateForm(stateJurisdiction.value, stateTaxYear.value);
+  } catch (err) {
+    notify.error(err, "Could not load state tax tables");
+  } finally {
+    stateLoading.value = false;
+  }
+}
+
+function addStateBracket() {
+  stateBrackets.value.push({ minAmount: null, maxAmount: null, rate: null, top: false });
+}
+
+function removeStateBracket(index: number) {
+  stateBrackets.value.splice(index, 1);
+}
+
+async function saveStateTax() {
+  const jurisdiction = stateJurisdiction.value.trim().toUpperCase();
+  if (!/^[A-Z]{2}(:[A-Z_]+)?$/.test(jurisdiction)) {
+    notify.info("Invalid jurisdiction", "Use a USPS code like IL, or CA:married_joint.");
+    return;
+  }
+  const config: Record<string, number | string | null> = { kind: stateKind.value };
+  for (const f of STATE_SCALAR_FIELDS) {
+    const v = stateScalars.value[f.key];
+    config[f.key] =
+      v === null || v === undefined || Number.isNaN(v) ? null : f.kind === "rate" ? v / 100 : v;
+  }
+  config.note = stateNote.value;
+  const rows = stateBrackets.value
+    .map((b, i) => ({
+      ordinal: i + 1,
+      minAmount: b.minAmount,
+      maxAmount: b.top ? null : b.maxAmount,
+      rate: b.rate === null ? null : b.rate / 100,
+    }))
+    .filter((b) => b.minAmount !== null && b.rate !== null) as {
+    ordinal: number;
+    minAmount: number;
+    maxAmount: number | null;
+    rate: number;
+  }[];
+  if (stateKind.value === "progressive" && rows.length === 0) {
+    notify.info("Brackets required", "Progressive states need at least one complete bracket row.");
+    return;
+  }
+  stateSaving.value = true;
+  try {
+    await adminPayrollApi.putStateTaxConfig({
+      jurisdiction,
+      taxYear: stateTaxYear.value,
+      config: config as never,
+      brackets: rows,
+    });
+    notify.success("State tax saved", `${jurisdiction} ${stateTaxYear.value} updated.`);
+    await loadStateTax();
+  } catch (err) {
+    notify.error(err, "Could not save state tax table");
+  } finally {
+    stateSaving.value = false;
+  }
+}
+
+watch([stateJurisdiction, stateTaxYear], ([j, y]) => fillStateForm(j, y));
+
 // ------------------------------------------------------------- schedule tab
 const scheduleLoading = ref(true);
 const scheduleSaving = ref(false);
@@ -337,6 +521,7 @@ async function saveCompany() {
 
 onMounted(() => {
   void loadTax();
+  void loadStateTax();
   void loadSchedule();
   void loadCompany();
 });
@@ -349,6 +534,7 @@ onMounted(() => {
     <Tabs value="tax">
       <TabList>
         <Tab value="tax">Tax tables</Tab>
+        <Tab value="state">State taxes</Tab>
         <Tab value="schedule">Pay schedule</Tab>
         <Tab value="company">Company</Tab>
       </TabList>
@@ -421,6 +607,104 @@ onMounted(() => {
               <div class="row">
                 <Button label="Add bracket" icon="pi pi-plus" text @click="addBracket" />
                 <Button label="Save tax tables" icon="pi pi-save" :loading="taxSaving" @click="saveTax" />
+              </div>
+            </template>
+          </section>
+        </TabPanel>
+
+        <!-- ---------------------------------------------------------- state -->
+        <TabPanel value="state">
+          <section class="card stack">
+            <div class="row">
+              <div class="field">
+                <label for="stateJurisdiction">Jurisdiction</label>
+                <Select
+                  v-model="stateJurisdiction"
+                  input-id="stateJurisdiction"
+                  :options="stateJurisdictionOptions"
+                  editable
+                  placeholder="IL or CA:married_joint"
+                />
+              </div>
+              <div class="field">
+                <label for="stateTaxYear">Tax year</label>
+                <Select v-model="stateTaxYear" input-id="stateTaxYear" :options="stateYearOptions" option-label="label" option-value="value" />
+              </div>
+              <div class="field">
+                <label for="stateKind">Computation kind</label>
+                <Select v-model="stateKind" input-id="stateKind" :options="STATE_KIND_OPTIONS" option-label="label" option-value="value" />
+              </div>
+            </div>
+            <p class="muted small">
+              Jurisdiction is the USPS code (IL) or &lt;state&gt;:&lt;filing_status&gt; for status-specific sets
+              (CA publishes separate tables); resolution falls back to the bare state code. Fields left blank are
+              unused by that state's form. An unconfigured work state fails run generation loudly — use
+              “No income tax” for explicit zero-tax states like TX.
+            </p>
+
+            <Skeleton v-if="stateLoading" height="16rem" />
+            <template v-else>
+              <div class="form-grid">
+                <div v-for="f in STATE_SCALAR_FIELDS" :key="f.key" class="field">
+                  <label :for="`st-${f.key}`">{{ f.label }}</label>
+                  <InputNumber
+                    v-model="stateScalars[f.key]"
+                    :input-id="`st-${f.key}`"
+                    v-bind="f.kind === 'money'
+                      ? { mode: 'currency' as const, currency: 'USD', locale: 'en-US' }
+                      : f.kind === 'rate'
+                        ? { suffix: ' %', minFractionDigits: 1, maxFractionDigits: 3, max: 100 }
+                        : { useGrouping: false, min: 0, max: 99 }"
+                  />
+                </div>
+                <div class="field">
+                  <label for="stateNote">Statutory source note</label>
+                  <InputText id="stateNote" v-model="stateNote" placeholder="e.g. EDD 2026 Method B, 26methb.pdf" />
+                </div>
+              </div>
+
+              <template v-if="stateKind === 'progressive'">
+                <h3>Withholding brackets (annual)</h3>
+                <div class="table-scroll">
+                  <table class="bracket-grid">
+                    <thead>
+                      <tr>
+                        <th>#</th>
+                        <th>From</th>
+                        <th>To (blank = no cap)</th>
+                        <th>Rate</th>
+                        <th></th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      <tr v-for="(b, i) in stateBrackets" :key="i">
+                        <td>{{ i + 1 }}</td>
+                        <td>
+                          <InputNumber v-model="b.minAmount" mode="currency" currency="USD" locale="en-US" />
+                        </td>
+                        <td>
+                          <div class="row">
+                            <InputNumber v-model="b.maxAmount" mode="currency" currency="USD" locale="en-US" :disabled="b.top" />
+                            <ToggleSwitch v-model="b.top" title="No cap (top bracket)" />
+                          </div>
+                        </td>
+                        <td>
+                          <InputNumber v-model="b.rate" suffix=" %" :min-fraction-digits="2" :max-fraction-digits="3" :max="100" />
+                        </td>
+                        <td>
+                          <Button icon="pi pi-trash" text severity="danger" :disabled="stateBrackets.length <= 1" @click="removeStateBracket(i)" />
+                        </td>
+                      </tr>
+                    </tbody>
+                  </table>
+                </div>
+                <div class="row">
+                  <Button label="Add bracket" icon="pi pi-plus" text @click="addStateBracket" />
+                </div>
+              </template>
+
+              <div class="row">
+                <Button label="Save state tax table" icon="pi pi-save" :loading="stateSaving" @click="saveStateTax" />
               </div>
             </template>
           </section>

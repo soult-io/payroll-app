@@ -955,3 +955,154 @@ export const w2DeliveryConsents = pgTable(
   },
   (t) => [unique("w2_delivery_consents_employee_uniq").on(t.employeeId)],
 );
+
+// ---------------------------------------------------------------------------
+// 12. PAY-13 phase 1 — per-state income-tax withholding
+// ---------------------------------------------------------------------------
+
+/**
+ * Effective-dated, per-year state withholding config — the state mirror of
+ * tax_config. jurisdiction is the USPS state code ('IL', 'CA', 'TX') or
+ * '<state>:<filing_status>' for status-specific parameter sets (CA publishes
+ * separate tables per marital status); resolution falls back
+ * '<state>:<status>' → '<state>' exactly like 'federal:<status>' → 'federal'.
+ *
+ * kind:
+ *  - 'none'        — EXPLICIT zero-tax jurisdiction (TX). A row, not an
+ *                    absence: unconfigured states fail run generation loudly
+ *                    instead of silently withholding $0.
+ *  - 'flat'        — flat rate on the allowance-reduced wage base (IL).
+ *  - 'progressive' — bracket walk over state_tax_brackets (CA).
+ *
+ * Generic allowance semantics (which fields a state uses depends on its form):
+ *  - allowanceDeduction            annual wage-base deduction per REGULAR
+ *                                  allowance (IL-W-4 line 1: $2,925 in 2026)
+ *  - allowanceCredit               annual after-bracket credit per REGULAR
+ *                                  allowance (CA DE 4: $168.30 in 2026)
+ *  - additionalAllowanceDeduction  annual wage-base deduction per ADDITIONAL
+ *                                  (estimated-deduction) allowance (CA DE 4
+ *                                  item 2 / IL-W-4 line 2: $1,000 both)
+ *  - standardDeduction             annual deduction before brackets (CA)
+ *  - standardDeductionAlt + altMinAllowances — CA's married split: the alt
+ *    standard deduction / low-income exemption applies when regular
+ *    allowances >= altMinAllowances (married claiming 2+)
+ *  - lowIncomeExemption[_Alt]      annual wage floor: at or below it, nothing
+ *                                  is withheld (CA)
+ */
+export const stateTaxConfigs = pgTable(
+  "state_tax_configs",
+  {
+    id: serial("id").primaryKey(),
+    jurisdiction: text("jurisdiction").notNull(),
+    taxYear: integer("tax_year").notNull(),
+    kind: text("kind").notNull(),
+    flatRate: rate("flat_rate"),
+    standardDeduction: money("standard_deduction"),
+    standardDeductionAlt: money("standard_deduction_alt"),
+    altMinAllowances: integer("alt_min_allowances"),
+    lowIncomeExemption: money("low_income_exemption"),
+    lowIncomeExemptionAlt: money("low_income_exemption_alt"),
+    allowanceDeduction: money("allowance_deduction"),
+    allowanceCredit: money("allowance_credit"),
+    additionalAllowanceDeduction: money("additional_allowance_deduction"),
+    /** Statutory source (e.g. 'EDD 2026 Method B, 26methb.pdf'). */
+    note: text("note").notNull().default(""),
+    createdAt: createdAt(),
+    updatedAt: updatedAt(),
+  },
+  (t) => [
+    unique("state_tax_configs_jurisdiction_year_uniq").on(t.jurisdiction, t.taxYear),
+    check("state_tax_configs_kind_check", sql`${t.kind} IN ('none','flat','progressive')`),
+  ],
+);
+
+/** Per-jurisdiction, per-year state brackets — the mirror of tax_brackets. */
+export const stateTaxBrackets = pgTable(
+  "state_tax_brackets",
+  {
+    id: serial("id").primaryKey(),
+    jurisdiction: text("jurisdiction").notNull(),
+    taxYear: integer("tax_year").notNull(),
+    ordinal: integer("ordinal").notNull(),
+    minAmount: money("min_amount").notNull(),
+    /** NULL = open top bracket. */
+    maxAmount: money("max_amount"),
+    rate: rate("rate").notNull(),
+  },
+  (t) => [
+    unique("state_tax_brackets_jurisdiction_year_ordinal_uniq").on(
+      t.jurisdiction,
+      t.taxYear,
+      t.ordinal,
+    ),
+  ],
+);
+
+/**
+ * The employee's WORK state, effective-dated (state income tax follows the
+ * work location). V1: a single work state per employee — the resolver picks
+ * the latest row effective on the period start; multi-state allocation is a
+ * phase-2 concern.
+ */
+export const employeeWorkStates = pgTable(
+  "employee_work_states",
+  {
+    id: serial("id").primaryKey(),
+    employeeId: integer("employee_id")
+      .notNull()
+      .references(() => employees.id),
+    /** USPS 2-letter code, uppercase. */
+    stateCode: text("state_code").notNull(),
+    effectiveFrom: date("effective_from").notNull(),
+    /** NULL = open-ended. */
+    effectiveTo: date("effective_to"),
+    createdAt: createdAt(),
+  },
+  (t) => [
+    unique("employee_work_states_employee_effective_uniq").on(t.employeeId, t.effectiveFrom),
+    check("employee_work_states_code_check", sql`${t.stateCode} ~ '^[A-Z]{2}$'`),
+  ],
+);
+
+/**
+ * Generic per-state withholding elections, effective-dated like the federal
+ * W-4 (w4_elections): latest row effective on the period start wins. Fields
+ * are the union of IL-W-4 and DE 4 concepts (see stateTaxConfigs); states
+ * ignore the fields they don't use. Exempt zeroes state withholding only.
+ */
+export const stateWithholdingElections = pgTable(
+  "state_withholding_elections",
+  {
+    id: serial("id").primaryKey(),
+    employeeId: integer("employee_id")
+      .notNull()
+      .references(() => employees.id),
+    stateCode: text("state_code").notNull(),
+    filingStatus: text("filing_status").notNull().default("single"),
+    /** Regular allowances (IL-W-4 line 1 / DE 4 item 1). */
+    allowances: integer("allowances").notNull().default(0),
+    /** Estimated-deduction allowances (DE 4 item 2 / IL-W-4 line 2). */
+    additionalAllowances: integer("additional_allowances").notNull().default(0),
+    /** Flat per-period add-on (IL-W-4 line 3 / DE 4 item 3). */
+    extraWithholding: money("extra_withholding").notNull().default("0"),
+    exempt: boolean("exempt").notNull().default(false),
+    /** NOT retroactive — applies to pay periods on/after this date. */
+    effectiveFrom: date("effective_from").notNull(),
+    filedDate: date("filed_date").notNull(),
+    note: text("note").default(""),
+    createdAt: createdAt(),
+  },
+  (t) => [
+    unique("state_withholding_elections_employee_state_effective_uniq").on(
+      t.employeeId,
+      t.stateCode,
+      t.effectiveFrom,
+    ),
+    check(
+      "state_withholding_elections_status_check",
+      sql`${t.filingStatus} IN ('single','married_joint','married_separate','head_of_household')`,
+    ),
+    check("state_withholding_elections_allowances_check", sql`${t.allowances} >= 0`),
+    check("state_withholding_elections_additional_check", sql`${t.additionalAllowances} >= 0`),
+  ],
+);
