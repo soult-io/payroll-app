@@ -26,7 +26,7 @@ import {
 } from "../../lib/api";
 import { useDates } from "../../composables/useDates";
 import { useNotify } from "../../composables/useNotify";
-import { useQueryEnum, useQueryNumber } from "../../composables/useQueryFilters";
+import { useQueryEnum, useQueryNumber, useSelectAll } from "../../composables/useQueryFilters";
 
 const route = useRoute();
 const router = useRouter();
@@ -57,16 +57,18 @@ const statusFilter = useQueryEnum<TaxFilingStatus>("status", null, [
   "ready",
   "filed",
 ]);
+const statusSelect = useSelectAll(statusFilter);
 const statusOptions = [
-  { label: "All statuses", value: null },
+  { label: "All statuses", value: "" },
   { label: "Not started", value: "not_started" },
   { label: "Ready", value: "ready" },
   { label: "Filed", value: "filed" },
 ];
 
 const formFilter = useQueryEnum<TaxFormType>("form", null, ["941", "940", "w2_w3"]);
+const formSelect = useSelectAll(formFilter);
 const formOptions = [
-  { label: "All forms", value: null },
+  { label: "All forms", value: "" },
   { label: "Form 941", value: "941" },
   { label: "Form 940", value: "940" },
   { label: "W-2/W-3", value: "w2_w3" },
@@ -183,8 +185,8 @@ onMounted(async () => {
       subtitle="Quarterly Form 941 plus the annual Form 940 and W-2/W-3 — worksheets compute themselves from issued payroll runs when the period ends. File by mail or e-file, then record the filing here."
     >
       <Select v-model="yearFilter" :options="yearOptions" option-label="label" option-value="value" size="small" />
-      <Select v-model="formFilter" :options="formOptions" option-label="label" option-value="value" size="small" />
-      <Select v-model="statusFilter" :options="statusOptions" option-label="label" option-value="value" size="small" />
+      <Select v-model="formSelect" :options="formOptions" option-label="label" option-value="value" size="small" />
+      <Select v-model="statusSelect" :options="statusOptions" option-label="label" option-value="value" size="small" />
     </PageHeader>
 
     <section class="card table-scroll">
