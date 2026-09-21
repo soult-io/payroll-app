@@ -8,7 +8,7 @@
 import { createHash } from "node:crypto";
 import type { PayrollResult } from "@payroll/engine";
 
-export const SNAPSHOT_TEMPLATE_VERSION = "1.1.0";
+export const SNAPSHOT_TEMPLATE_VERSION = "1.2.0";
 
 /**
  * Year-to-date accumulations THROUGH this run (inclusive), employee-side.
@@ -63,6 +63,46 @@ export interface SnapshotBracket {
   rate: number;
 }
 
+/**
+ * The employee's frozen state election (template 1.2.0). Mirrors
+ * state_withholding_elections; generic union of IL-W-4 / DE 4 concepts.
+ */
+export interface SnapshotStateElection {
+  filingStatus: "single" | "married_joint" | "married_separate" | "head_of_household";
+  allowances: number;
+  additionalAllowances: number;
+  extraWithholding: number;
+  exempt: boolean;
+  effectiveFrom: string;
+  filedDate: string;
+}
+
+/**
+ * Frozen state-withholding input (template 1.2.0, PAY-13): the work state,
+ * the jurisdiction actually resolved ('CA:married_joint' when a status-specific
+ * set applied), the config numbers, the election (or null = form never filed —
+ * engine defaults to zero allowances), and the bracket set actually applied.
+ * Optional so pre-1.2.0 snapshots still typecheck; absent means the run used
+ * the legacy flat stateWithholdingRate path.
+ */
+export interface SnapshotState {
+  workState: string;
+  jurisdiction: string;
+  taxYear: number;
+  kind: "none" | "flat" | "progressive";
+  flatRate: number | null;
+  standardDeduction: number | null;
+  standardDeductionAlt: number | null;
+  altMinAllowances: number | null;
+  lowIncomeExemption: number | null;
+  lowIncomeExemptionAlt: number | null;
+  allowanceDeduction: number | null;
+  allowanceCredit: number | null;
+  additionalAllowanceDeduction: number | null;
+  election: SnapshotStateElection | null;
+  brackets: SnapshotBracket[];
+}
+
 export interface RunSnapshot {
   inputs: {
     periodAmount: number;
@@ -72,6 +112,8 @@ export interface RunSnapshot {
     taxConfig: SnapshotTaxConfig;
     /** Bracket set actually applied (filing-status resolved). */
     brackets: SnapshotBracket[];
+    /** PAY-13: frozen state input when a work state was effective (template 1.2.0). */
+    state?: SnapshotState;
     priorYtdGross: number;
     periodStart: string;
     periodEnd: string;

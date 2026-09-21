@@ -185,6 +185,14 @@ export interface PayrollInput {
   taxConfig: TaxConfig;
   /** Whether the on-file W-4 elects exempt from federal withholding for the year. */
   federalExempt: boolean;
+  /**
+   * PAY-13: resolved per-state withholding config + election for the
+   * employee's work state. When PRESENT, state withholding is computed by
+   * computeStateWithholding (annualized EDD Method B / IL-700-T formula
+   * method); when ABSENT, the legacy flat `stateWithholdingRate` path applies
+   * bit-identically (pre-PAY-13 behavior).
+   */
+  state?: { config: StateTaxConfig; election?: StateElectionInput };
 }
 
 /**
@@ -215,11 +223,131 @@ export const PERIODS_PER_YEAR = {
 
 export type PayFrequency = keyof typeof PERIODS_PER_YEAR;
 
+// ---------------------------------------------------------------------------
+// PAY-13 phase 1 — per-state income-tax withholding
+// ---------------------------------------------------------------------------
+
+/**
+ * Resolved per-state withholding config for one tax year (from
+ * state_tax_configs + state_tax_brackets, post filing-status fallback).
+ * Which optional fields a state uses depends on its form — see the schema
+ * comment on stateTaxConfigs and packages/db/src/seeds/state-taxes/README.md.
+ */
+export interface StateTaxConfig {
+  /** State code as resolved ('CA' even when the bracket set came from 'CA:married_joint'). */
+  state: string;
+  year: number;
+  kind: "none" | "flat" | "progressive";
+  /** kind='flat': rate on the allowance-reduced wage base. */
+  flatRate?: number;
+  /** Annual standard deduction before brackets (CA). */
+  standardDeduction?: number;
+  /** Alt values when regular allowances >= altMinAllowances (CA married 2+). */
+  standardDeductionAlt?: number;
+  altMinAllowances?: number;
+  /** Annual wage floor: at or below it, withhold $0 (CA). */
+  lowIncomeExemption?: number;
+  lowIncomeExemptionAlt?: number;
+  /** Annual wage-base deduction per REGULAR allowance (IL line 1). */
+  allowanceDeduction?: number;
+  /** Annual after-bracket credit per REGULAR allowance (CA DE 4). */
+  allowanceCredit?: number;
+  /** Annual wage-base deduction per ADDITIONAL allowance (CA AWAID / IL line 2). */
+  additionalAllowanceDeduction?: number;
+  /** kind='progressive': annual brackets (exclusive max; Infinity = top). */
+  brackets?: FederalBracket[];
+}
+
+/** The employee's effective-dated state election (state_withholding_elections). */
+export interface StateElectionInput {
+  /** Regular allowances (IL-W-4 line 1 / DE 4 item 1). */
+  allowances?: number;
+  /** Estimated-deduction allowances (DE 4 item 2 / IL-W-4 line 2). */
+  additionalAllowances?: number;
+  /** Flat per-period add-on (IL-W-4 line 3 / DE 4 item 3). */
+  extraWithholding?: number;
+  /** Exempt from STATE withholding only (FICA/federal untouched). */
+  exempt?: boolean;
+}
+
+function bracketTax(taxable: number, brackets: FederalBracket[]): number {
+  let tax = 0;
+  let remaining = taxable;
+  for (const bracket of brackets) {
+    const inBracket = Math.min(remaining, bracket.max - bracket.min);
+    if (inBracket <= 0) break;
+    tax += inBracket * bracket.rate;
+    remaining -= inBracket;
+  }
+  return tax;
+}
+
+/**
+ * Annualized state withholding (EDD Method B / IL-700-T formula method).
+ * Returns the PER-PERIOD amount. Optional config fields default to absent =
+ * unused, so a state only models what its form actually publishes.
+ */
+export function computeStateWithholding(
+  annualGross: number,
+  periodsPerYear: number,
+  config: StateTaxConfig,
+  election: StateElectionInput,
+): number {
+  if (config.kind === "none" || election.exempt) return 0;
+  const allowances = election.allowances ?? 0;
+  const additional = election.additionalAllowances ?? 0;
+  const useAlt = config.altMinAllowances !== undefined && allowances >= config.altMinAllowances;
+
+  const lowIncome = pick(config.lowIncomeExemption, config.lowIncomeExemptionAlt, useAlt);
+  if (lowIncome !== undefined && annualGross <= lowIncome) return 0;
+
+  const standardDeduction = pick(config.standardDeduction, config.standardDeductionAlt, useAlt);
+  const base = stateWageBase(annualGross, config, allowances, additional, standardDeduction);
+  const annualTax = stateAnnualTax(base, config, allowances);
+
+  return annualTax / periodsPerYear + (election.extraWithholding ?? 0);
+}
+
+/** Alt-variant field resolution: the alt value applies when the allowance count crosses altMinAllowances. */
+function pick(
+  base: number | undefined,
+  alt: number | undefined,
+  useAlt: boolean,
+): number | undefined {
+  return useAlt ? (alt ?? base) : base;
+}
+
+/** Allowance/deduction-reduced annual wage base (IL lines 1–2, CA SD + AWAID), floored at 0. */
+function stateWageBase(
+  annualGross: number,
+  config: StateTaxConfig,
+  allowances: number,
+  additional: number,
+  standardDeduction: number | undefined,
+): number {
+  const reduced =
+    annualGross -
+    additional * (config.additionalAllowanceDeduction ?? 0) -
+    allowances * (config.allowanceDeduction ?? 0) -
+    (standardDeduction ?? 0);
+  return Math.max(0, reduced);
+}
+
+/** Annual tax on the wage base: flat rate or bracket walk, then per-allowance credits (floor $0). */
+function stateAnnualTax(base: number, config: StateTaxConfig, allowances: number): number {
+  const grossTax =
+    config.kind === "flat"
+      ? base * (config.flatRate ?? 0)
+      : bracketTax(base, config.brackets ?? []);
+  return Math.max(0, grossTax - allowances * (config.allowanceCredit ?? 0));
+}
+
 /**
  * Engine version recorded in every run_snapshot (spec payroll-engine snapshot
- * contract). Keep in sync with package.json — bump minor on additive changes.
+ * contract). Bump minor on additive changes.
+ * 0.3.0: PAY-13 — optional per-state withholding input (state config + election).
  */
-export const ENGINE_VERSION = "0.2.0";
+export const ENGINE_VERSION = "0.3.0";
 
 // biome-ignore lint/complexity/noExcessiveCognitiveComplexity: vendored engine — must stay structurally identical to mcp-accounting's payroll.ts
 export function calculatePayroll(input: PayrollInput): PayrollResult {
@@ -273,7 +401,17 @@ export function calculatePayroll(input: PayrollInput): PayrollResult {
     }
   }
 
-  const stateWithholding = monthlySalary * taxConfig.stateWithholdingRate;
+  // PAY-13: per-state withholding from the resolved state config when the
+  // employee has a work state; the legacy flat-rate path otherwise
+  // (bit-identical for runs predating PAY-13 / without a work state).
+  const stateWithholding = input.state
+    ? computeStateWithholding(
+        annualGross,
+        periodsPerYear,
+        input.state.config,
+        input.state.election ?? {},
+      )
+    : monthlySalary * taxConfig.stateWithholdingRate;
 
   // Round each withholding to cents FIRST, then reconcile net via money.ts —
   // reconcileNet rounds the summed total so per-line rounding can't push net a

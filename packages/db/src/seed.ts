@@ -121,5 +121,8 @@ export async function seedDatabase(db: SeedDb): Promise<{ done: true }> {
   await seedTaxConfig(db, TAX_CONFIG);
   await seedPaySchedule(db);
   await seedContractorReportingConfig(db);
+  // PAY-13 phase 1: TX/IL/CA state withholding tables.
+  const { seedStateTaxes } = await import("./state-seeds.js");
+  await seedStateTaxes(db);
   return { done: true };
 }

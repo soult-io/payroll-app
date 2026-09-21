@@ -1,0 +1,13 @@
+{
+  "state": "IL",
+  "taxYear": 2026,
+  "source": "Illinois DOR Booklet IL-700-T (2026), effective 2026-01-01: flat 4.95%; IL-W-4 line 1 allowance $2,925/yr each, line 2 allowance $1,000/yr each; formula method: tax = 0.0495 × (wages − allowances ÷ periods).",
+  "jurisdictions": {
+    "IL": {
+      "kind": "flat",
+      "flatRate": 0.0495,
+      "allowanceDeduction": 2925,
+      "additionalAllowanceDeduction": 1000
+    }
+  }
+}

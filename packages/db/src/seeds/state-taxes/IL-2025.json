@@ -1,0 +1,13 @@
+{
+  "state": "IL",
+  "taxYear": 2025,
+  "source": "Illinois DOR Booklet IL-700-T (2025): flat 4.95%; IL-W-4 line 1 allowance $2,850/yr each, line 2 allowance $1,000/yr each.",
+  "jurisdictions": {
+    "IL": {
+      "kind": "flat",
+      "flatRate": 0.0495,
+      "allowanceDeduction": 2850,
+      "additionalAllowanceDeduction": 1000
+    }
+  }
+}

@@ -1,0 +1,67 @@
+{
+  "state": "CA",
+  "taxYear": 2026,
+  "source": "California EDD 2026 Withholding Schedules — Method B exact calculation (26methb.pdf): low income exemption $18,896 (single / married 0-1) and $37,791 (married 2+ / HoH); standard deduction $5,706 / $11,412; personal exemption credit $168.30/yr per regular allowance; estimated-deduction allowance $1,000/yr each (DE 4 item 2). Brackets = annual Tables 5-7.",
+  "jurisdictions": {
+    "CA:single": {
+      "kind": "progressive",
+      "standardDeduction": 5706,
+      "lowIncomeExemption": 18896,
+      "allowanceCredit": 168.3,
+      "additionalAllowanceDeduction": 1000,
+      "brackets": [
+        { "min": 0, "max": 11079, "rate": 0.011 },
+        { "min": 11079, "max": 26264, "rate": 0.022 },
+        { "min": 26264, "max": 41452, "rate": 0.044 },
+        { "min": 41452, "max": 57542, "rate": 0.066 },
+        { "min": 57542, "max": 72724, "rate": 0.088 },
+        { "min": 72724, "max": 371479, "rate": 0.1023 },
+        { "min": 371479, "max": 445771, "rate": 0.1133 },
+        { "min": 445771, "max": 742953, "rate": 0.1243 },
+        { "min": 742953, "max": 1000000, "rate": 0.1353 },
+        { "min": 1000000, "max": null, "rate": 0.1463 }
+      ]
+    },
+    "CA:married_joint": {
+      "kind": "progressive",
+      "standardDeduction": 5706,
+      "standardDeductionAlt": 11412,
+      "altMinAllowances": 2,
+      "lowIncomeExemption": 18896,
+      "lowIncomeExemptionAlt": 37791,
+      "allowanceCredit": 168.3,
+      "additionalAllowanceDeduction": 1000,
+      "brackets": [
+        { "min": 0, "max": 22158, "rate": 0.011 },
+        { "min": 22158, "max": 52528, "rate": 0.022 },
+        { "min": 52528, "max": 82904, "rate": 0.044 },
+        { "min": 82904, "max": 115084, "rate": 0.066 },
+        { "min": 115084, "max": 145448, "rate": 0.088 },
+        { "min": 145448, "max": 742958, "rate": 0.1023 },
+        { "min": 742958, "max": 891542, "rate": 0.1133 },
+        { "min": 891542, "max": 1000000, "rate": 0.1243 },
+        { "min": 1000000, "max": 1485906, "rate": 0.1353 },
+        { "min": 1485906, "max": null, "rate": 0.1463 }
+      ]
+    },
+    "CA:head_of_household": {
+      "kind": "progressive",
+      "standardDeduction": 11412,
+      "lowIncomeExemption": 37791,
+      "allowanceCredit": 168.3,
+      "additionalAllowanceDeduction": 1000,
+      "brackets": [
+        { "min": 0, "max": 22173, "rate": 0.011 },
+        { "min": 22173, "max": 52530, "rate": 0.022 },
+        { "min": 52530, "max": 67716, "rate": 0.044 },
+        { "min": 67716, "max": 83805, "rate": 0.066 },
+        { "min": 83805, "max": 98990, "rate": 0.088 },
+        { "min": 98990, "max": 505208, "rate": 0.1023 },
+        { "min": 505208, "max": 606251, "rate": 0.1133 },
+        { "min": 606251, "max": 1000000, "rate": 0.1243 },
+        { "min": 1000000, "max": 1010417, "rate": 0.1353 },
+        { "min": 1010417, "max": null, "rate": 0.1463 }
+      ]
+    }
+  }
+}

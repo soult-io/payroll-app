@@ -287,6 +287,47 @@ export interface TaxBracketRow {
   rate: string;
 }
 
+/** PAY-13: state tax config row (state_tax_configs). Nullable fields are unused by the state's form. */
+export interface StateTaxConfigRow {
+  id: number;
+  jurisdiction: string;
+  taxYear: number;
+  kind: "none" | "flat" | "progressive";
+  flatRate: string | null;
+  standardDeduction: string | null;
+  standardDeductionAlt: string | null;
+  altMinAllowances: number | null;
+  lowIncomeExemption: string | null;
+  lowIncomeExemptionAlt: string | null;
+  allowanceDeduction: string | null;
+  allowanceCredit: string | null;
+  additionalAllowanceDeduction: string | null;
+  note: string;
+}
+
+export interface WorkStateRow {
+  id: number;
+  employeeId: number;
+  stateCode: string;
+  effectiveFrom: string;
+  effectiveTo: string | null;
+}
+
+/** PAY-13: state withholding election (the IL-W-4 / DE 4 mirror of W4ElectionRow). */
+export interface StateElectionRow {
+  id: number;
+  employeeId: number;
+  stateCode: string;
+  filingStatus: string;
+  allowances: number;
+  additionalAllowances: number;
+  extraWithholding: string;
+  exempt: boolean;
+  effectiveFrom: string;
+  filedDate: string;
+  note: string | null;
+}
+
 export interface AdminEmployeeListRow {
   id: number;
   userId: string | null;
@@ -563,6 +604,55 @@ export const adminPayrollApi = {
     config: Record<string, number>;
     brackets: { ordinal: number; minAmount: number; maxAmount: number | null; rate: number }[];
   }) => put<{ ok: true }>("/api/admin/tax-config", input),
+  // PAY-13: state tax tables, work-state assignment, and state elections.
+  stateTaxConfig: (filter: { year?: number; jurisdiction?: string } = {}) =>
+    get<{ stateTaxConfig: StateTaxConfigRow[]; stateTaxBrackets: TaxBracketRow[] }>(
+      `/api/admin/state-tax-config${qs(filter)}`,
+    ),
+  putStateTaxConfig: (input: {
+    jurisdiction: string;
+    taxYear: number;
+    config: {
+      kind: "none" | "flat" | "progressive";
+      flatRate?: number | null;
+      standardDeduction?: number | null;
+      standardDeductionAlt?: number | null;
+      altMinAllowances?: number | null;
+      lowIncomeExemption?: number | null;
+      lowIncomeExemptionAlt?: number | null;
+      allowanceDeduction?: number | null;
+      allowanceCredit?: number | null;
+      additionalAllowanceDeduction?: number | null;
+      note?: string;
+    };
+    brackets?: { ordinal: number; minAmount: number; maxAmount: number | null; rate: number }[];
+  }) => put<{ config: StateTaxConfigRow }>("/api/admin/state-tax-config", input),
+  workStates: (employeeId: number) =>
+    get<{ workStates: WorkStateRow[] }>(`/api/admin/employees/${employeeId}/work-state`),
+  assignWorkState: (employeeId: number, input: { stateCode: string; effectiveFrom: string }) =>
+    put<{ workState: WorkStateRow }>(`/api/admin/employees/${employeeId}/work-state`, input),
+  stateElections: (employeeId: number, state?: string) =>
+    get<{ elections: StateElectionRow[] }>(
+      `/api/admin/employees/${employeeId}/state-elections${state ? qs({ state }) : ""}`,
+    ),
+  addStateElection: (
+    employeeId: number,
+    input: {
+      stateCode: string;
+      filingStatus?: string;
+      allowances?: number;
+      additionalAllowances?: number;
+      extraWithholding?: number;
+      exempt?: boolean;
+      effectiveFrom: string;
+      filedDate: string;
+      note?: string;
+    },
+  ) =>
+    post<{ election: StateElectionRow }>(
+      `/api/admin/employees/${employeeId}/state-elections`,
+      input,
+    ),
 };
 
 export const adminEmployeesApi = {

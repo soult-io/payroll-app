@@ -32,7 +32,9 @@ import {
   ApiError,
   type AdminEmployeeDetail,
   type CompensationRow,
+  type StateElectionRow,
   type W4ElectionRow,
+  type WorkStateRow,
 } from "../../lib/api";
 import { filingStatusLabel } from "../../composables/useRequestTypes";
 import { useMoney } from "../../composables/useMoney";
@@ -51,6 +53,9 @@ const notFound = ref(false);
 const employee = ref<AdminEmployeeDetail | null>(null);
 const compensation = ref<CompensationRow[]>([]);
 const w4History = ref<W4ElectionRow[]>([]);
+// PAY-13: work-state history + state withholding elections (IL-W-4 / DE 4).
+const workStates = ref<WorkStateRow[]>([]);
+const stateElections = ref<StateElectionRow[]>([]);
 
 const inviteDialog = ref(false);
 const inviteEmail = ref("");
@@ -144,6 +149,28 @@ const w4Form = ref({
   note: "",
 });
 
+// PAY-13 dialogs
+const wsDialog = ref(false);
+const wsBusy = ref(false);
+const wsForm = ref({
+  stateCode: "",
+  effectiveFrom: new Date(),
+});
+
+const seDialog = ref(false);
+const seBusy = ref(false);
+const seForm = ref({
+  stateCode: "",
+  filingStatus: "single",
+  allowances: 0,
+  additionalAllowances: 0,
+  extraWithholding: 0,
+  exempt: false,
+  effectiveFrom: new Date(),
+  filedDate: new Date(),
+  note: "",
+});
+
 const isTerminated = computed(() => employee.value?.status === "terminated");
 const accountState = computed(() => {
   const u = employee.value?.user;
@@ -158,14 +185,18 @@ const accountState = computed(() => {
 async function load() {
   loading.value = true;
   try {
-    const [detail, comp, w4] = await Promise.all([
+    const [detail, comp, w4, ws, se] = await Promise.all([
       adminEmployeesApi.detail(employeeId),
       adminPayrollApi.compensation(employeeId),
       adminPayrollApi.w4(employeeId),
+      adminPayrollApi.workStates(employeeId),
+      adminPayrollApi.stateElections(employeeId),
     ]);
     employee.value = detail.employee;
     compensation.value = comp.compensation;
     w4History.value = w4.w4Elections;
+    workStates.value = ws.workStates;
+    stateElections.value = se.elections;
   } catch (err) {
     notFound.value = true;
     notify.error(err, "Could not load employee");
@@ -293,6 +324,56 @@ async function addW4() {
   }
 }
 
+async function addWorkState() {
+  const stateCode = wsForm.value.stateCode.trim().toUpperCase();
+  if (!/^[A-Z]{2}$/.test(stateCode)) {
+    notify.info("Invalid state", "Use the 2-letter USPS code, e.g. IL.");
+    return;
+  }
+  wsBusy.value = true;
+  try {
+    const effectiveFrom = toIso(wsForm.value.effectiveFrom);
+    if (!effectiveFrom) return;
+    await adminPayrollApi.assignWorkState(employeeId, { stateCode, effectiveFrom });
+    notify.success("Work state assigned", `${stateCode} effective ${effectiveFrom}.`);
+    wsDialog.value = false;
+    const { workStates: rows } = await adminPayrollApi.workStates(employeeId);
+    workStates.value = rows;
+  } catch (err) {
+    notify.error(err, "Could not assign work state");
+  } finally {
+    wsBusy.value = false;
+  }
+}
+
+async function addStateElection() {
+  const stateCode = seForm.value.stateCode.trim().toUpperCase();
+  if (!/^[A-Z]{2}$/.test(stateCode)) {
+    notify.info("Invalid state", "Use the 2-letter USPS code, e.g. IL.");
+    return;
+  }
+  seBusy.value = true;
+  try {
+    const effectiveFrom = toIso(seForm.value.effectiveFrom);
+    const filedDate = toIso(seForm.value.filedDate);
+    if (!effectiveFrom || !filedDate) return;
+    await adminPayrollApi.addStateElection(employeeId, {
+      ...seForm.value,
+      stateCode,
+      effectiveFrom,
+      filedDate,
+    });
+    notify.success("State election recorded");
+    seDialog.value = false;
+    const { elections } = await adminPayrollApi.stateElections(employeeId);
+    stateElections.value = elections;
+  } catch (err) {
+    notify.error(err, "Could not add state election");
+  } finally {
+    seBusy.value = false;
+  }
+}
+
 onMounted(load);
 </script>
 
@@ -326,6 +407,7 @@ onMounted(load);
         <Tab value="profile">Profile</Tab>
         <Tab value="compensation">Compensation</Tab>
         <Tab value="w4">W-4 history</Tab>
+        <Tab value="state">State tax</Tab>
       </TabList>
       <TabPanels>
         <TabPanel value="profile">
@@ -431,6 +513,65 @@ onMounted(load);
                 </Column>
                 <Column header="Extra withholding">
                   <template #body="{ data }">{{ money(data.extraWithholding) }}</template>
+                </Column>
+                <Column header="Effective from">
+                  <template #body="{ data }">{{ date(data.effectiveFrom) }}</template>
+                </Column>
+                <Column header="Filed">
+                  <template #body="{ data }">{{ date(data.filedDate) }}</template>
+                </Column>
+              </DataTable>
+            </div>
+          </section>
+        </TabPanel>
+
+        <TabPanel value="state">
+          <section class="card" style="margin-top: 1rem">
+            <div class="row" style="justify-content: space-between">
+              <h3 style="margin: 0">Work state (PAY-13)</h3>
+              <Button label="Assign" size="small" icon="pi pi-plus" @click="wsDialog = true" />
+            </div>
+            <p class="muted small">
+              State income tax follows the work location. Assigning a new state closes the current
+              window; with no row, the legacy flat “state withholding rate” applies.
+            </p>
+            <div class="table-scroll">
+              <DataTable :value="workStates" striped-rows>
+                <template #empty><EmptyState title="No work state" body="Assign the state the employee works in to enable per-state withholding." /></template>
+                <Column field="stateCode" header="State" />
+                <Column header="Effective from">
+                  <template #body="{ data }">{{ date(data.effectiveFrom) }}</template>
+                </Column>
+                <Column header="Effective to">
+                  <template #body="{ data }">{{ data.effectiveTo ? date(data.effectiveTo) : "current" }}</template>
+                </Column>
+              </DataTable>
+            </div>
+          </section>
+
+          <section class="card" style="margin-top: 1rem">
+            <div class="row" style="justify-content: space-between">
+              <h3 style="margin: 0">State withholding elections (append-only)</h3>
+              <Button label="Add" size="small" icon="pi pi-plus" @click="seDialog = true" />
+            </div>
+            <p class="muted small">
+              The IL-W-4 / DE 4 mirror of the W-4: regular + estimated-deduction allowances, per-period
+              extra withholding, and state-only exempt. The latest row effective on the period start applies.
+            </p>
+            <div class="table-scroll">
+              <DataTable :value="stateElections" striped-rows>
+                <template #empty><EmptyState title="No state elections" body="Zero allowances apply until one is filed." /></template>
+                <Column field="stateCode" header="State" />
+                <Column header="Filing status">
+                  <template #body="{ data }">{{ filingStatusLabel(data.filingStatus) }}</template>
+                </Column>
+                <Column field="allowances" header="Allow." />
+                <Column field="additionalAllowances" header="Add'l" />
+                <Column header="Extra">
+                  <template #body="{ data }">{{ money(data.extraWithholding) }}</template>
+                </Column>
+                <Column header="Exempt">
+                  <template #body="{ data }">{{ data.exempt ? "Yes" : "No" }}</template>
                 </Column>
                 <Column header="Effective from">
                   <template #body="{ data }">{{ date(data.effectiveFrom) }}</template>
@@ -601,6 +742,80 @@ onMounted(load);
         <div class="row" style="justify-content: flex-end">
           <Button label="Cancel" text severity="secondary" type="button" @click="w4Dialog = false" />
           <Button type="submit" label="Add" :loading="w4Busy" />
+        </div>
+      </form>
+    </Dialog>
+
+    <Dialog v-model:visible="wsDialog" modal header="Assign work state" :style="{ width: '26rem' }">
+      <form class="stack" @submit.prevent="addWorkState">
+        <p class="muted small">
+          The previous open window closes at the new effective date. Run generation fails loudly for
+          a work state with no tax table for the year — configure it under Configuration → State taxes.
+        </p>
+        <div class="form-grid">
+          <div class="field">
+            <label for="wsState">State (USPS code)</label>
+            <InputText id="wsState" v-model="wsForm.stateCode" maxlength="2" placeholder="IL" required />
+          </div>
+          <div class="field">
+            <label for="wsFrom">Effective from</label>
+            <DatePicker id="wsFrom" v-model="wsForm.effectiveFrom" date-format="yy-mm-dd" required />
+          </div>
+        </div>
+        <div class="row" style="justify-content: flex-end">
+          <Button label="Cancel" text severity="secondary" type="button" @click="wsDialog = false" />
+          <Button type="submit" label="Assign" :loading="wsBusy" :disabled="wsForm.stateCode.trim().length !== 2" />
+        </div>
+      </form>
+    </Dialog>
+
+    <Dialog v-model:visible="seDialog" modal header="Add state withholding election" :style="{ width: '34rem' }">
+      <form class="stack" @submit.prevent="addStateElection">
+        <div class="form-grid">
+          <div class="field">
+            <label for="seState">State (USPS code)</label>
+            <InputText id="seState" v-model="seForm.stateCode" maxlength="2" placeholder="IL" required />
+          </div>
+          <div class="field">
+            <label for="seStatus">Filing status</label>
+            <Select id="seStatus" v-model="seForm.filingStatus" :options="[
+              { label: 'Single', value: 'single' },
+              { label: 'Married filing jointly', value: 'married_joint' },
+              { label: 'Married filing separately', value: 'married_separate' },
+              { label: 'Head of household', value: 'head_of_household' },
+            ]" option-label="label" option-value="value" />
+          </div>
+          <div class="field">
+            <label for="seAllow">Regular allowances</label>
+            <InputNumber id="seAllow" v-model="seForm.allowances" :min="0" :max="99" :use-grouping="false" />
+          </div>
+          <div class="field">
+            <label for="seAddAllow">Additional (estimated-deduction) allowances</label>
+            <InputNumber id="seAddAllow" v-model="seForm.additionalAllowances" :min="0" :max="99" :use-grouping="false" />
+          </div>
+          <div class="field">
+            <label for="seExtra">Extra withholding (per period)</label>
+            <InputNumber id="seExtra" v-model="seForm.extraWithholding" mode="currency" currency="USD" />
+          </div>
+          <div class="field">
+            <label for="seFrom">Effective from</label>
+            <DatePicker id="seFrom" v-model="seForm.effectiveFrom" date-format="yy-mm-dd" />
+          </div>
+          <div class="field">
+            <label for="seFiled">Date filed</label>
+            <DatePicker id="seFiled" v-model="seForm.filedDate" date-format="yy-mm-dd" />
+          </div>
+          <div class="field">
+            <label for="seNote">Note (optional)</label>
+            <InputText id="seNote" v-model="seForm.note" />
+          </div>
+        </div>
+        <div class="row">
+          <span class="row"><Checkbox v-model="seForm.exempt" binary input-id="seExempt" /><label for="seExempt">Exempt from state withholding</label></span>
+        </div>
+        <div class="row" style="justify-content: flex-end">
+          <Button label="Cancel" text severity="secondary" type="button" @click="seDialog = false" />
+          <Button type="submit" label="Add" :loading="seBusy" :disabled="seForm.stateCode.trim().length !== 2" />
         </div>
       </form>
     </Dialog>

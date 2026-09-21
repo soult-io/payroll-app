@@ -21,6 +21,8 @@ import {
   ENGINE_VERSION,
   PERIODS_PER_YEAR,
   type PayFrequency,
+  type StateElectionInput,
+  type StateTaxConfig,
   type TaxConfig,
 } from "@payroll/engine";
 import { round2 } from "@payroll/engine/money";
@@ -34,11 +36,16 @@ import type { Db } from "../db.js";
 import { isUniqueViolation } from "../db.js";
 import type { AppConfig } from "../config.js";
 import {
+  mapStateFilingStatus,
   resolveCompensation,
   resolvePriorYtdByCategory,
   resolvePriorYtdGross,
+  resolveStateElection,
+  resolveStateTaxConfig,
   resolveTaxConfig,
   resolveW4,
+  resolveWorkState,
+  toSnapshotState,
   toSnapshotW4,
   type DbLike,
 } from "./resolve.js";
@@ -55,6 +62,7 @@ export class PayrollServiceError extends Error {
       | "unsupported_frequency"
       | "not_w2_employee"
       | "no_company"
+      | "no_state_tax_config"
       | "futa_cap_exceeded",
     message: string,
   ) {
@@ -208,6 +216,102 @@ export async function generateDraft(
       const priorYtdGross = await resolvePriorYtdGross(tx, input.employeeId, period.periodStart);
       const priorYtd = await resolvePriorYtdByCategory(tx, input.employeeId, period.periodStart);
 
+      // PAY-13: state withholding from the employee's effective-dated WORK
+      // state. No work-state row → legacy flat stateWithholdingRate path
+      // (bit-identical for every run predating PAY-13). A work state with no
+      // config for the year fails loudly — kind='none' (TX) is the explicit
+      // zero-tax row; absence never silently means $0.
+      const workState = await resolveWorkState(tx, input.employeeId, period.periodStart);
+      let stateInput: { config: StateTaxConfig; election?: StateElectionInput } | undefined;
+      let stateSnapshot: RunSnapshot["inputs"]["state"];
+      if (workState) {
+        const stateElection = await resolveStateElection(
+          tx,
+          input.employeeId,
+          workState.stateCode,
+          period.periodStart,
+        );
+        // Filing status: the state election's own status when filed, else the
+        // federal W-4's; married_separate falls back to the single table.
+        const mappedStatus = mapStateFilingStatus(
+          (stateElection?.filingStatus ?? filingStatus) as Parameters<
+            typeof mapStateFilingStatus
+          >[0],
+        );
+        const stateTax = await resolveStateTaxConfig(
+          tx,
+          workState.stateCode,
+          taxYear,
+          mappedStatus,
+        );
+        if (!stateTax) {
+          throw new PayrollServiceError(
+            "no_state_tax_config",
+            `no state tax config/brackets for ${workState.stateCode} in ${taxYear} (employee ${input.employeeId} works there) — seed or configure state_tax_configs; use kind='none' for explicit zero-tax states`,
+          );
+        }
+        const cfg = stateTax.config;
+        // exactOptionalPropertyTypes: nullable columns become absent keys via
+        // conditional spread — a state only models the fields its form uses.
+        stateInput = {
+          config: {
+            state: workState.stateCode,
+            year: cfg.taxYear,
+            kind: cfg.kind as StateTaxConfig["kind"],
+            ...(cfg.flatRate === null ? {} : { flatRate: Number(cfg.flatRate) }),
+            ...(cfg.standardDeduction === null
+              ? {}
+              : { standardDeduction: Number(cfg.standardDeduction) }),
+            ...(cfg.standardDeductionAlt === null
+              ? {}
+              : { standardDeductionAlt: Number(cfg.standardDeductionAlt) }),
+            ...(cfg.altMinAllowances === null ? {} : { altMinAllowances: cfg.altMinAllowances }),
+            ...(cfg.lowIncomeExemption === null
+              ? {}
+              : { lowIncomeExemption: Number(cfg.lowIncomeExemption) }),
+            ...(cfg.lowIncomeExemptionAlt === null
+              ? {}
+              : { lowIncomeExemptionAlt: Number(cfg.lowIncomeExemptionAlt) }),
+            ...(cfg.allowanceDeduction === null
+              ? {}
+              : { allowanceDeduction: Number(cfg.allowanceDeduction) }),
+            ...(cfg.allowanceCredit === null
+              ? {}
+              : { allowanceCredit: Number(cfg.allowanceCredit) }),
+            ...(cfg.additionalAllowanceDeduction === null
+              ? {}
+              : { additionalAllowanceDeduction: Number(cfg.additionalAllowanceDeduction) }),
+            ...(stateTax.brackets.length > 0
+              ? {
+                  brackets: stateTax.brackets.map((b) => ({
+                    min: Number(b.minAmount),
+                    max: b.maxAmount === null ? Infinity : Number(b.maxAmount),
+                    rate: Number(b.rate),
+                  })),
+                }
+              : {}),
+          },
+          ...(stateElection
+            ? {
+                election: {
+                  allowances: stateElection.allowances,
+                  additionalAllowances: stateElection.additionalAllowances,
+                  extraWithholding: Number(stateElection.extraWithholding),
+                  exempt: stateElection.exempt,
+                },
+              }
+            : {}),
+        };
+        stateSnapshot = toSnapshotState({
+          stateCode: workState.stateCode,
+          jurisdiction: cfg.jurisdiction,
+          taxYear: cfg.taxYear,
+          config: cfg,
+          brackets: stateTax.brackets,
+          election: stateElection,
+        });
+      }
+
       const engineConfig: TaxConfig = {
         year: tax.config.taxYear,
         standardDeduction: tax.config.standardDeduction,
@@ -242,6 +346,8 @@ export async function generateDraft(
           deductionsAmount: w4Row ? Number(w4Row.deductionsAmount) : 0,
           extraWithholding: w4Row ? Number(w4Row.extraWithholding) : 0,
         },
+        // Absent when no work state → legacy flat-rate path, bit-identical.
+        ...(stateInput ? { state: stateInput } : {}),
       });
 
       // PAY-26: per-employee annual employer_futa must never exceed
@@ -274,6 +380,7 @@ export async function generateDraft(
           w4: w4Row ? toSnapshotW4(w4Row) : null,
           taxConfig: tax.config,
           brackets: tax.brackets,
+          ...(stateSnapshot ? { state: stateSnapshot } : {}),
           priorYtdGross,
           periodStart: period.periodStart,
           periodEnd: period.periodEnd,

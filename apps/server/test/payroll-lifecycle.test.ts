@@ -390,7 +390,7 @@ describe("employee payslip endpoints + PDF", () => {
       headers: emp,
     });
     expect(detail.statusCode).toBe(200);
-    expect(detail.json().payslip.snapshot.engineVersion).toBe("0.2.0");
+    expect(detail.json().payslip.snapshot.engineVersion).toBe("0.3.0");
 
     // Foreign payslip → 404 (no enumeration).
     const foreign = await t.app.inject({
