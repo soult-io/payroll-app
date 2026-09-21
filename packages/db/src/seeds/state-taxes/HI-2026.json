@@ -1,0 +1,37 @@
+{
+  "state": "HI",
+  "taxYear": 2026,
+  "source": "Hawaii DOTAX 2026 withholding formula (HW-4 basis, reproduced in NFC bulletin NFC-26-1768321238, eff. pay period 15-2026): extra lump-sum withholding allowance $4,350 (encoded as standardDeduction) + $1,144 per exemption; graduated tables 1.40%–7.90% (H.B. 1042 lower-bracket relief already reflected in these thresholds).",
+  "jurisdictions": {
+    "HI": {
+      "kind": "progressive",
+      "standardDeduction": 4350,
+      "allowanceDeduction": 1144,
+      "brackets": [
+        { "min": 0, "max": 9600, "rate": 0.014 },
+        { "min": 9600, "max": 14400, "rate": 0.032 },
+        { "min": 14400, "max": 19200, "rate": 0.055 },
+        { "min": 19200, "max": 24000, "rate": 0.064 },
+        { "min": 24000, "max": 36000, "rate": 0.068 },
+        { "min": 36000, "max": 48000, "rate": 0.072 },
+        { "min": 48000, "max": 125000, "rate": 0.076 },
+        { "min": 125000, "max": null, "rate": 0.079 }
+      ]
+    },
+    "HI:married_joint": {
+      "kind": "progressive",
+      "standardDeduction": 4350,
+      "allowanceDeduction": 1144,
+      "brackets": [
+        { "min": 0, "max": 19200, "rate": 0.014 },
+        { "min": 19200, "max": 28800, "rate": 0.032 },
+        { "min": 28800, "max": 38400, "rate": 0.055 },
+        { "min": 38400, "max": 48000, "rate": 0.064 },
+        { "min": 48000, "max": 72000, "rate": 0.068 },
+        { "min": 72000, "max": 96000, "rate": 0.072 },
+        { "min": 96000, "max": 250000, "rate": 0.076 },
+        { "min": 250000, "max": null, "rate": 0.079 }
+      ]
+    }
+  }
+}

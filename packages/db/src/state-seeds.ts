@@ -6,20 +6,71 @@
  * state_tax_brackets idempotently. resolveJsonModule inlines the JSON at
  * build time, so dist carries the seed data with no runtime file access.
  *
- * Phase 1 encodes the representative states only — TX (explicit zero),
- * IL (flat), CA (progressive with DE 4 allowance semantics). Do NOT
- * bulk-add the remaining states here; that is phase 2.
+ * Phase 1 encoded the representative states only — TX (explicit zero),
+ * IL (flat), CA (progressive with DE 4 allowance semantics). Phase 2
+ * (PAY-13) completes the map: every 2026 income-tax state + DC, plus
+ * explicit 'none' rows for all nine no-income-tax states, each with an
+ * official-source citation and documented closest-fit exceptions in the
+ * file's `source` field (surfaced as the config row's note).
  */
 
 import { and, eq } from "drizzle-orm";
 import { stateTaxBrackets, stateTaxConfigs } from "./schema.js";
 import type { SeedDb } from "./seed.js";
 
+import ak2026 from "./seeds/state-taxes/AK-2026.json" with { type: "json" };
+import al2026 from "./seeds/state-taxes/AL-2026.json" with { type: "json" };
+import ar2026 from "./seeds/state-taxes/AR-2026.json" with { type: "json" };
+import az2026 from "./seeds/state-taxes/AZ-2026.json" with { type: "json" };
 import ca2026 from "./seeds/state-taxes/CA-2026.json" with { type: "json" };
+import co2026 from "./seeds/state-taxes/CO-2026.json" with { type: "json" };
+import ct2026 from "./seeds/state-taxes/CT-2026.json" with { type: "json" };
+import dc2026 from "./seeds/state-taxes/DC-2026.json" with { type: "json" };
+import de2026 from "./seeds/state-taxes/DE-2026.json" with { type: "json" };
+import fl2026 from "./seeds/state-taxes/FL-2026.json" with { type: "json" };
+import ga2026 from "./seeds/state-taxes/GA-2026.json" with { type: "json" };
+import hi2026 from "./seeds/state-taxes/HI-2026.json" with { type: "json" };
+import ia2026 from "./seeds/state-taxes/IA-2026.json" with { type: "json" };
+import id2026 from "./seeds/state-taxes/ID-2026.json" with { type: "json" };
 import il2025 from "./seeds/state-taxes/IL-2025.json" with { type: "json" };
 import il2026 from "./seeds/state-taxes/IL-2026.json" with { type: "json" };
+import in2026 from "./seeds/state-taxes/IN-2026.json" with { type: "json" };
+import ks2026 from "./seeds/state-taxes/KS-2026.json" with { type: "json" };
+import ky2026 from "./seeds/state-taxes/KY-2026.json" with { type: "json" };
+import la2026 from "./seeds/state-taxes/LA-2026.json" with { type: "json" };
+import ma2026 from "./seeds/state-taxes/MA-2026.json" with { type: "json" };
+import md2026 from "./seeds/state-taxes/MD-2026.json" with { type: "json" };
+import me2026 from "./seeds/state-taxes/ME-2026.json" with { type: "json" };
+import mi2026 from "./seeds/state-taxes/MI-2026.json" with { type: "json" };
+import mn2026 from "./seeds/state-taxes/MN-2026.json" with { type: "json" };
+import mo2026 from "./seeds/state-taxes/MO-2026.json" with { type: "json" };
+import ms2026 from "./seeds/state-taxes/MS-2026.json" with { type: "json" };
+import mt2026 from "./seeds/state-taxes/MT-2026.json" with { type: "json" };
+import nc2026 from "./seeds/state-taxes/NC-2026.json" with { type: "json" };
+import nd2026 from "./seeds/state-taxes/ND-2026.json" with { type: "json" };
+import ne2026 from "./seeds/state-taxes/NE-2026.json" with { type: "json" };
+import nh2026 from "./seeds/state-taxes/NH-2026.json" with { type: "json" };
+import nj2026 from "./seeds/state-taxes/NJ-2026.json" with { type: "json" };
+import nm2026 from "./seeds/state-taxes/NM-2026.json" with { type: "json" };
+import nv2026 from "./seeds/state-taxes/NV-2026.json" with { type: "json" };
+import ny2026 from "./seeds/state-taxes/NY-2026.json" with { type: "json" };
+import oh2026 from "./seeds/state-taxes/OH-2026.json" with { type: "json" };
+import ok2026 from "./seeds/state-taxes/OK-2026.json" with { type: "json" };
+import or2026 from "./seeds/state-taxes/OR-2026.json" with { type: "json" };
+import pa2026 from "./seeds/state-taxes/PA-2026.json" with { type: "json" };
+import ri2026 from "./seeds/state-taxes/RI-2026.json" with { type: "json" };
+import sc2026 from "./seeds/state-taxes/SC-2026.json" with { type: "json" };
+import sd2026 from "./seeds/state-taxes/SD-2026.json" with { type: "json" };
+import tn2026 from "./seeds/state-taxes/TN-2026.json" with { type: "json" };
 import tx2025 from "./seeds/state-taxes/TX-2025.json" with { type: "json" };
 import tx2026 from "./seeds/state-taxes/TX-2026.json" with { type: "json" };
+import ut2026 from "./seeds/state-taxes/UT-2026.json" with { type: "json" };
+import va2026 from "./seeds/state-taxes/VA-2026.json" with { type: "json" };
+import vt2026 from "./seeds/state-taxes/VT-2026.json" with { type: "json" };
+import wa2026 from "./seeds/state-taxes/WA-2026.json" with { type: "json" };
+import wi2026 from "./seeds/state-taxes/WI-2026.json" with { type: "json" };
+import wv2026 from "./seeds/state-taxes/WV-2026.json" with { type: "json" };
+import wy2026 from "./seeds/state-taxes/WY-2026.json" with { type: "json" };
 
 /** One jurisdiction block inside a seed file (see README for semantics). */
 export interface StateSeedJurisdiction {
@@ -46,10 +97,58 @@ export interface StateSeedFile {
 /** Every seed file, in load order. New state-years: add the import + entry. */
 export const STATE_SEED_FILES: StateSeedFile[] = [
   tx2025 as StateSeedFile,
-  tx2026 as StateSeedFile,
   il2025 as StateSeedFile,
-  il2026 as StateSeedFile,
+  ak2026 as StateSeedFile,
+  al2026 as StateSeedFile,
+  ar2026 as StateSeedFile,
+  az2026 as StateSeedFile,
   ca2026 as StateSeedFile,
+  co2026 as StateSeedFile,
+  ct2026 as StateSeedFile,
+  dc2026 as StateSeedFile,
+  de2026 as StateSeedFile,
+  fl2026 as StateSeedFile,
+  ga2026 as StateSeedFile,
+  hi2026 as StateSeedFile,
+  ia2026 as StateSeedFile,
+  id2026 as StateSeedFile,
+  il2026 as StateSeedFile,
+  in2026 as StateSeedFile,
+  ks2026 as StateSeedFile,
+  ky2026 as StateSeedFile,
+  la2026 as StateSeedFile,
+  ma2026 as StateSeedFile,
+  md2026 as StateSeedFile,
+  me2026 as StateSeedFile,
+  mi2026 as StateSeedFile,
+  mn2026 as StateSeedFile,
+  mo2026 as StateSeedFile,
+  ms2026 as StateSeedFile,
+  mt2026 as StateSeedFile,
+  nc2026 as StateSeedFile,
+  nd2026 as StateSeedFile,
+  ne2026 as StateSeedFile,
+  nh2026 as StateSeedFile,
+  nj2026 as StateSeedFile,
+  nm2026 as StateSeedFile,
+  nv2026 as StateSeedFile,
+  ny2026 as StateSeedFile,
+  oh2026 as StateSeedFile,
+  ok2026 as StateSeedFile,
+  or2026 as StateSeedFile,
+  pa2026 as StateSeedFile,
+  ri2026 as StateSeedFile,
+  sc2026 as StateSeedFile,
+  sd2026 as StateSeedFile,
+  tn2026 as StateSeedFile,
+  tx2026 as StateSeedFile,
+  ut2026 as StateSeedFile,
+  va2026 as StateSeedFile,
+  vt2026 as StateSeedFile,
+  wa2026 as StateSeedFile,
+  wi2026 as StateSeedFile,
+  wv2026 as StateSeedFile,
+  wy2026 as StateSeedFile,
 ];
 
 /** Fail fast on a malformed seed file — seed data is statutory input. */

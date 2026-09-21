@@ -1,0 +1,15 @@
+{
+  "state": "UT",
+  "taxYear": 2026,
+  "source": "Utah State Tax Commission Publication 14 (2026, reproduced in NFC bulletin NFC-26-1782763921, eff. pay period 12-2026): flat 4.45% on annualized wages. CLOSEST-FIT EXCEPTION: Utah's taxpayer-credit withholding allowance (base credit phased out at 1.3% of wages above $9,348 single / $18,696 married) is a wage-based credit our per-allowance model cannot express — withholding runs slightly HIGH for low/mid wages; employees can compensate via the exempt flag or a negative-ish adjustment through extraWithholding-free election.",
+  "jurisdictions": {
+    "UT": {
+      "kind": "flat",
+      "flatRate": 0.0445
+    },
+    "UT:married_joint": {
+      "kind": "flat",
+      "flatRate": 0.0445
+    }
+  }
+}

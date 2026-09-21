@@ -1,0 +1,8 @@
+{
+  "state": "AK",
+  "taxYear": 2026,
+  "source": "Alaska has no individual income tax (AS 43.20 repealed 1980) — explicit zero-tax row so AK work-state assignment resolves to $0 by configuration, never by absence.",
+  "jurisdictions": {
+    "AK": { "kind": "none" }
+  }
+}

@@ -1,0 +1,17 @@
+{
+  "state": "ID",
+  "taxYear": 2026,
+  "source": "Idaho State Tax Commission 2026 withholding tables (tax.idaho.gov): flat 5.3% (H.B. 40, eff. 2025); Idaho conforms to the FEDERAL standard deduction (H.B. 559, Feb 2026 — OBBBA amounts $16,100 single / $32,200 MFJ); ID W-4 allowances are worth $0 (the allowance credit sunsetted) so no allowance fields are encoded.",
+  "jurisdictions": {
+    "ID": {
+      "kind": "flat",
+      "flatRate": 0.053,
+      "standardDeduction": 16100
+    },
+    "ID:married_joint": {
+      "kind": "flat",
+      "flatRate": 0.053,
+      "standardDeduction": 32200
+    }
+  }
+}

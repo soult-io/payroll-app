@@ -1,0 +1,33 @@
+{
+  "state": "NE",
+  "taxYear": 2026,
+  "source": "Nebraska DOR 2026 withholding formula (W-4N basis, reproduced in NFC bulletin NFC-26-1774374744, eff. pay period 04-2026): withholding allowance $2,440/yr each; tables 2.26%–4.60% (LB 754 rate step-down). CLOSEST-FIT EXCEPTION: the LB223 minimum tax (annual tax must be at least 50% of the tax computed with 1 exemption single / 2 married) is not modeled — employees claiming many allowances may be under-withheld relative to the official formula.",
+  "jurisdictions": {
+    "NE": {
+      "kind": "progressive",
+      "allowanceDeduction": 2440,
+      "brackets": [
+        { "min": 0, "max": 3430, "rate": 0 },
+        { "min": 3430, "max": 6710, "rate": 0.0226 },
+        { "min": 6710, "max": 21810, "rate": 0.0322 },
+        { "min": 21810, "max": 31610, "rate": 0.0421 },
+        { "min": 31610, "max": 40130, "rate": 0.0435 },
+        { "min": 40130, "max": 75370, "rate": 0.0448 },
+        { "min": 75370, "max": null, "rate": 0.046 }
+      ]
+    },
+    "NE:married_joint": {
+      "kind": "progressive",
+      "allowanceDeduction": 2440,
+      "brackets": [
+        { "min": 0, "max": 8190, "rate": 0 },
+        { "min": 8190, "max": 13010, "rate": 0.0226 },
+        { "min": 13010, "max": 32400, "rate": 0.0322 },
+        { "min": 32400, "max": 50400, "rate": 0.0421 },
+        { "min": 50400, "max": 62530, "rate": 0.0435 },
+        { "min": 62530, "max": 82920, "rate": 0.0448 },
+        { "min": 82920, "max": null, "rate": 0.046 }
+      ]
+    }
+  }
+}

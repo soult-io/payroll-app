@@ -1,0 +1,17 @@
+{
+  "state": "MA",
+  "taxYear": 2026,
+  "source": "Massachusetts DOR 2026 withholding guide (Form M-4, reproduced in NFC bulletin NFC-26-1769797447, eff. pay period 10-2026): 5% flat plus 4% surtax over $1,107,750 (modeled as a 9% top bracket); exemptions modeled as $3,400 + $1,000/allowance (exact for >=1 exemption; a 0-allowance election over-deducts $3,400 — CLOSEST-FIT EXCEPTION); no withholding under $8,000/yr when >=1 exemption (encoded as lowIncomeExemption). The <=$2,000 FICA/retirement deduction and $120 HoH / $110 blind credits are not modeled.",
+  "jurisdictions": {
+    "MA": {
+      "kind": "progressive",
+      "standardDeduction": 3400,
+      "lowIncomeExemption": 8000,
+      "allowanceDeduction": 1000,
+      "brackets": [
+        { "min": 0, "max": 1107750, "rate": 0.05 },
+        { "min": 1107750, "max": null, "rate": 0.09 }
+      ]
+    }
+  }
+}

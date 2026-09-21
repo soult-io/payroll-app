@@ -1,0 +1,31 @@
+{
+  "state": "VA",
+  "taxYear": 2026,
+  "source": "Virginia Tax 2026 withholding formula (VA-4 basis; NFC bulletin NFC-25-1750694986, standard deduction $8,750 single / $17,500 married joint for TY2025-2026 per 2025 Appropriation Act ch. 725, sunset removal pending SB 676): personal/dependent exemption $930 each, age/blindness additional exemption $800 each (encoded as additionalAllowanceDeduction); single table for all statuses 2% to $3,000, 3% to $5,000, 5% to $17,000, 5.75% above.",
+  "jurisdictions": {
+    "VA": {
+      "kind": "progressive",
+      "standardDeduction": 8750,
+      "allowanceDeduction": 930,
+      "additionalAllowanceDeduction": 800,
+      "brackets": [
+        { "min": 0, "max": 3000, "rate": 0.02 },
+        { "min": 3000, "max": 5000, "rate": 0.03 },
+        { "min": 5000, "max": 17000, "rate": 0.05 },
+        { "min": 17000, "max": null, "rate": 0.0575 }
+      ]
+    },
+    "VA:married_joint": {
+      "kind": "progressive",
+      "standardDeduction": 17500,
+      "allowanceDeduction": 930,
+      "additionalAllowanceDeduction": 800,
+      "brackets": [
+        { "min": 0, "max": 3000, "rate": 0.02 },
+        { "min": 3000, "max": 5000, "rate": 0.03 },
+        { "min": 5000, "max": 17000, "rate": 0.05 },
+        { "min": 17000, "max": null, "rate": 0.0575 }
+      ]
+    }
+  }
+}

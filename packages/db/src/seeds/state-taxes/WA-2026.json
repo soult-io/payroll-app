@@ -1,0 +1,8 @@
+{
+  "state": "WA",
+  "taxYear": 2026,
+  "source": "Washington has no individual income tax on wages (the 7% capital-gains excise tax under RCW 82.87 is not wage withholding) — explicit zero-tax row so WA work-state assignment resolves to $0 by configuration, never by absence.",
+  "jurisdictions": {
+    "WA": { "kind": "none" }
+  }
+}

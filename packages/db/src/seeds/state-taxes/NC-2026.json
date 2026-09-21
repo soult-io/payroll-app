@@ -1,0 +1,25 @@
+{
+  "state": "NC",
+  "taxYear": 2026,
+  "source": "North Carolina DOR NC-30 2026 withholding formula / USDA NFC PP09-2026: flat rate 4.09% (reduced from 4.25% by S.L. 2023-134 trigger), standard deduction $12,750 single / $12,750 married (per spouse basis) / $19,125 head of household, $2,500 deduction per qualifying-child allowance.",
+  "jurisdictions": {
+    "NC": {
+      "kind": "flat",
+      "flatRate": 0.0409,
+      "standardDeduction": 12750,
+      "allowanceDeduction": 2500
+    },
+    "NC:married_joint": {
+      "kind": "flat",
+      "flatRate": 0.0409,
+      "standardDeduction": 12750,
+      "allowanceDeduction": 2500
+    },
+    "NC:head_of_household": {
+      "kind": "flat",
+      "flatRate": 0.0409,
+      "standardDeduction": 19125,
+      "allowanceDeduction": 2500
+    }
+  }
+}

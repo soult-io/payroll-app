@@ -1,0 +1,18 @@
+{
+  "state": "WV",
+  "taxYear": 2026,
+  "source": "West Virginia Tax Division 2026 withholding tables (S.B. 392, signed Mar 31, 2026, 5% rate cut retroactive to Jan 1, 2026; withholding effective Jun 12, 2026): rates 2.11%/2.81%/3.16%/4.22%/4.58% at $10,000/$25,000/$40,000/$60,000; $2,000 personal exemption per exemption. CLOSEST-FIT EXCEPTIONS: (1) two-earner/two-jobs withholding table (thresholds 75% of standard) not modeled — default one-earner/one-job table encoded for all statuses; (2) zero-exemption filers may claim only a reduced $500 exemption on the return — engine exempts $0 for allowances=0 (conservative).",
+  "jurisdictions": {
+    "WV": {
+      "kind": "progressive",
+      "allowanceDeduction": 2000,
+      "brackets": [
+        { "min": 0, "max": 10000, "rate": 0.0211 },
+        { "min": 10000, "max": 25000, "rate": 0.0281 },
+        { "min": 25000, "max": 40000, "rate": 0.0316 },
+        { "min": 40000, "max": 60000, "rate": 0.0422 },
+        { "min": 60000, "max": null, "rate": 0.0458 }
+      ]
+    }
+  }
+}

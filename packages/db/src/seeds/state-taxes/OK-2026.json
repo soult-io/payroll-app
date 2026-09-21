@@ -1,0 +1,29 @@
+{
+  "state": "OK",
+  "taxYear": 2026,
+  "source": "Oklahoma Tax Commission Packet OW-2 2026 withholding tables (H.B. 2764, eff. Jan 1, 2026: six brackets consolidated to three positive rates, top rate 4.75%→4.50%): standard deduction $6,350 single / $12,700 married; $1,000 personal-exemption withholding allowance each; single taxable-income brackets 0% to $3,750, 2.5% to $4,900, 3.5% to $7,200, 4.5% above (married doubled). NOTE: HB 2764 contains a revenue-trigger for a further 0.25pp cut — not reflected.",
+  "jurisdictions": {
+    "OK": {
+      "kind": "progressive",
+      "standardDeduction": 6350,
+      "allowanceDeduction": 1000,
+      "brackets": [
+        { "min": 0, "max": 3750, "rate": 0 },
+        { "min": 3750, "max": 4900, "rate": 0.025 },
+        { "min": 4900, "max": 7200, "rate": 0.035 },
+        { "min": 7200, "max": null, "rate": 0.045 }
+      ]
+    },
+    "OK:married_joint": {
+      "kind": "progressive",
+      "standardDeduction": 12700,
+      "allowanceDeduction": 1000,
+      "brackets": [
+        { "min": 0, "max": 7500, "rate": 0 },
+        { "min": 7500, "max": 9800, "rate": 0.025 },
+        { "min": 9800, "max": 14400, "rate": 0.035 },
+        { "min": 14400, "max": null, "rate": 0.045 }
+      ]
+    }
+  }
+}

@@ -1,0 +1,8 @@
+{
+  "state": "NV",
+  "taxYear": 2026,
+  "source": "Nevada has no individual income tax — explicit zero-tax row so NV work-state assignment resolves to $0 by configuration, never by absence.",
+  "jurisdictions": {
+    "NV": { "kind": "none" }
+  }
+}

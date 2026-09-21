@@ -1,0 +1,22 @@
+{
+  "state": "LA",
+  "taxYear": 2026,
+  "source": "Louisiana DOR 2026 withholding formula (L-4 basis, NFC bulletin NFC-26-1767639939, eff. pay period 15-2026, LDR emergency rule Dec 2025 CPI adjustment): flat 3.09% withholding rate on wages minus standard deduction $12,875 single / $25,750 married (2+ deductions); per LDR guidance Head of Household and Qualifying Surviving Spouse use the MARRIED formula (encoded as an explicit HoH jurisdiction); dependent exemptions removed from the L-4. 'No standard deduction claimed' (0 personal exemptions) maps to allowances=0 — our engine still subtracts standardDeduction, a CLOSEST-FIT EXCEPTION (over-deducts $12,875 for 0-exemption elections).",
+  "jurisdictions": {
+    "LA": {
+      "kind": "flat",
+      "flatRate": 0.0309,
+      "standardDeduction": 12875
+    },
+    "LA:married_joint": {
+      "kind": "flat",
+      "flatRate": 0.0309,
+      "standardDeduction": 25750
+    },
+    "LA:head_of_household": {
+      "kind": "flat",
+      "flatRate": 0.0309,
+      "standardDeduction": 25750
+    }
+  }
+}

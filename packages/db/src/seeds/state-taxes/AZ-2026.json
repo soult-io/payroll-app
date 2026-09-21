@@ -1,0 +1,8 @@
+{
+  "state": "AZ",
+  "taxYear": 2026,
+  "source": "Arizona HB 2900 flat tax; ADOR A-4 instructions (2026)",
+  "jurisdictions": {
+    "AZ": { "kind": "flat", "flatRate": 0.025 }
+  }
+}

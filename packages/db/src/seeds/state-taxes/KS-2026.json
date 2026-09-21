@@ -1,0 +1,25 @@
+{
+  "state": "KS",
+  "taxYear": 2026,
+  "source": "Kansas DOR KW-100 Withholding Tax Guide & 2024 SB 1 rate structure (unchanged for 2026): two brackets 5.2% / 5.58% at $23,000 (single/HoH/MS) and $46,000 (MFJ). Standard deduction $3,605 S / $8,240 MFJ plus personal exemption $9,160 S / $18,320 MFJ encoded as a combined deduction ($12,765 / $26,560); dependent exemption $2,320 each as allowanceDeduction.",
+  "jurisdictions": {
+    "KS": {
+      "kind": "progressive",
+      "standardDeduction": 12765,
+      "allowanceDeduction": 2320,
+      "brackets": [
+        { "min": 0, "max": 23000, "rate": 0.052 },
+        { "min": 23000, "max": null, "rate": 0.0558 }
+      ]
+    },
+    "KS:married_joint": {
+      "kind": "progressive",
+      "standardDeduction": 26560,
+      "allowanceDeduction": 2320,
+      "brackets": [
+        { "min": 0, "max": 46000, "rate": 0.052 },
+        { "min": 46000, "max": null, "rate": 0.0558 }
+      ]
+    }
+  }
+}

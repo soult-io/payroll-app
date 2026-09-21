@@ -1,0 +1,27 @@
+{
+  "state": "AL",
+  "taxYear": 2026,
+  "source": "Alabama Withholding Tax Tables and Instructions (2026) / USDA NFC 2026 AL formula",
+  "jurisdictions": {
+    "AL": {
+      "kind": "progressive",
+      "standardDeduction": 4000,
+      "allowanceDeduction": 1500,
+      "brackets": [
+        { "min": 0, "max": 500, "rate": 0.02 },
+        { "min": 500, "max": 3000, "rate": 0.04 },
+        { "min": 3000, "max": null, "rate": 0.05 }
+      ]
+    },
+    "AL:married_joint": {
+      "kind": "progressive",
+      "standardDeduction": 7000,
+      "allowanceDeduction": 3000,
+      "brackets": [
+        { "min": 0, "max": 1000, "rate": 0.02 },
+        { "min": 1000, "max": 6000, "rate": 0.04 },
+        { "min": 6000, "max": null, "rate": 0.05 }
+      ]
+    }
+  }
+}

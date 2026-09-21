@@ -1,0 +1,31 @@
+{
+  "state": "MT",
+  "taxYear": 2026,
+  "source": "Montana DOR 2026 wage withholding tables (revenue.mt.gov 2026 withholding updates, H.B. 337; reproduced in NFC bulletin NFC-26-1767632355, eff. pay period 05-2026): top rate cut to 5.65%; two-rate structure 4.7%/5.65% with a 0% band equal to the federal standard deduction baked into the table (thresholds are on gross wages).",
+  "jurisdictions": {
+    "MT": {
+      "kind": "progressive",
+      "brackets": [
+        { "min": 0, "max": 16100, "rate": 0 },
+        { "min": 16100, "max": 63600, "rate": 0.047 },
+        { "min": 63600, "max": null, "rate": 0.0565 }
+      ]
+    },
+    "MT:married_joint": {
+      "kind": "progressive",
+      "brackets": [
+        { "min": 0, "max": 32200, "rate": 0 },
+        { "min": 32200, "max": 127200, "rate": 0.047 },
+        { "min": 127200, "max": null, "rate": 0.0565 }
+      ]
+    },
+    "MT:head_of_household": {
+      "kind": "progressive",
+      "brackets": [
+        { "min": 0, "max": 24150, "rate": 0 },
+        { "min": 24150, "max": 95400, "rate": 0.047 },
+        { "min": 95400, "max": null, "rate": 0.0565 }
+      ]
+    }
+  }
+}

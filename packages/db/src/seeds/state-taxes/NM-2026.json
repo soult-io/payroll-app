@@ -1,0 +1,43 @@
+{
+  "state": "NM",
+  "taxYear": 2026,
+  "source": "New Mexico TRD 2026 withholding tables (reproduced in NFC bulletin NFC-26-1776874663, eff. pay period 11-2026): 0% band equal to the federal standard deduction then 1.5%/3.2%/4.3%/4.7%/4.9%/5.9% on gross wages (same-rate adjacent rows merged); no allowance component — basis is federal filing status only.",
+  "jurisdictions": {
+    "NM": {
+      "kind": "progressive",
+      "brackets": [
+        { "min": 0, "max": 8050, "rate": 0 },
+        { "min": 8050, "max": 13550, "rate": 0.015 },
+        { "min": 13550, "max": 24550, "rate": 0.032 },
+        { "min": 24550, "max": 41550, "rate": 0.043 },
+        { "min": 41550, "max": 74550, "rate": 0.047 },
+        { "min": 74550, "max": 218050, "rate": 0.049 },
+        { "min": 218050, "max": null, "rate": 0.059 }
+      ]
+    },
+    "NM:married_joint": {
+      "kind": "progressive",
+      "brackets": [
+        { "min": 0, "max": 16100, "rate": 0 },
+        { "min": 16100, "max": 24100, "rate": 0.015 },
+        { "min": 24100, "max": 41100, "rate": 0.032 },
+        { "min": 41100, "max": 66100, "rate": 0.043 },
+        { "min": 66100, "max": 116100, "rate": 0.047 },
+        { "min": 116100, "max": 331100, "rate": 0.049 },
+        { "min": 331100, "max": null, "rate": 0.059 }
+      ]
+    },
+    "NM:head_of_household": {
+      "kind": "progressive",
+      "brackets": [
+        { "min": 0, "max": 12075, "rate": 0 },
+        { "min": 12075, "max": 20075, "rate": 0.015 },
+        { "min": 20075, "max": 37075, "rate": 0.032 },
+        { "min": 37075, "max": 62075, "rate": 0.043 },
+        { "min": 62075, "max": 112075, "rate": 0.047 },
+        { "min": 112075, "max": 327075, "rate": 0.049 },
+        { "min": 327075, "max": null, "rate": 0.059 }
+      ]
+    }
+  }
+}

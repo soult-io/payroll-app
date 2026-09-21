@@ -1,0 +1,31 @@
+{
+  "state": "OR",
+  "taxYear": 2026,
+  "source": "Oregon DOR Publication 150-206-436 (2026, rev. 12-31-25): standard deduction $2,910 single with <3 allowances / $5,820 married or 3+ allowances; exemption credit $263/yr per allowance; brackets below. CLOSEST-FIT EXCEPTIONS: the official formula subtracts federal income tax withheld (capped at $8,750, phased out $125k–145k single / $250k–290k married) before brackets — our engine has no federal-tax input, so withholding runs slightly HIGH; the 0.2% statewide transit tax and Portland Metro/Multnomah local taxes are not modeled (local tax out of scope).",
+  "jurisdictions": {
+    "OR": {
+      "kind": "progressive",
+      "standardDeduction": 2910,
+      "standardDeductionAlt": 5820,
+      "altMinAllowances": 3,
+      "allowanceCredit": 263,
+      "brackets": [
+        { "min": 0, "max": 4550, "rate": 0.0475 },
+        { "min": 4550, "max": 11400, "rate": 0.0675 },
+        { "min": 11400, "max": 125000, "rate": 0.0875 },
+        { "min": 125000, "max": null, "rate": 0.099 }
+      ]
+    },
+    "OR:married_joint": {
+      "kind": "progressive",
+      "standardDeduction": 5820,
+      "allowanceCredit": 263,
+      "brackets": [
+        { "min": 0, "max": 9100, "rate": 0.0475 },
+        { "min": 9100, "max": 22800, "rate": 0.0675 },
+        { "min": 22800, "max": 250000, "rate": 0.0875 },
+        { "min": 250000, "max": null, "rate": 0.099 }
+      ]
+    }
+  }
+}

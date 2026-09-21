@@ -1,4 +1,4 @@
-# State withholding seed data (PAY-13 phase 1)
+# State withholding seed data (PAY-13)
 
 One JSON file per state-year: `<STATE>-<TAX_YEAR>.json` (e.g. `CA-2026.json`).
 The seeder (`packages/db/src/state-seeds.ts`) imports every file in this
@@ -55,14 +55,25 @@ Annualized wage method, mirroring the federal path:
 6. Per period: `tax / periodsPerYear + extraWithholding` (from the
    employee's state election), rounded to cents.
 
-## Encoded states (phase 1 — do NOT bulk-add the rest; that's phase 2)
+## Encoded states
 
-| File          | State | Year(s) | Source |
-| ------------- | ----- | ------- | ------ |
-| `TX-2025.json`, `TX-2026.json` | Texas | 2025–26 | explicit `none` — no individual income tax |
-| `IL-2025.json` | Illinois | 2025 | IDOR Booklet IL-700-T (2025): 4.95%, $2,850 / $1,000 allowances |
-| `IL-2026.json` | Illinois | 2026 | IDOR Booklet IL-700-T (2026): 4.95%, $2,925 / $1,000 allowances |
-| `CA-2026.json` | California | 2026 | EDD 2026 Withholding Schedules, Method B (exact calculation) |
+Phase 1 encoded TX/IL/CA; phase 2 completes the map. Every state + DC now
+has a 2026 file (IL/TX also carry 2025):
+
+- **All 41 income-tax jurisdictions** (39 states + DC), with each file's
+  `source` field citing the official 2026 document — usually the state's own
+  withholding guide as reproduced in the USDA National Finance Center's
+  official per-state 2026 withholding formula bulletins
+  (`help.nfc.usda.gov`, several states updated mid-2026: AR, GA, HI, IN, KY,
+  LA, MD, NC, OR, VT, WV) — and documenting every closest-fit modeling
+  exception inline (e.g. MD/IN county taxes, NY City/Yonkers, OH municipal
+  and school-district taxes, OR federal-tax subtraction, MO KC/STL earnings
+  tax, AL federal-tax deduction, WI sliding standard deduction, KS/SC/LA
+  zero-exemption cases, CT exemption/recapture/personal-credit, AR
+  high-income bracket adjustment).
+- **Explicit `kind: "none"` rows** for the nine no-income-tax states
+  (AK, FL, NV, NH, SD, TN, TX, WA, WY) so a work-state assignment resolves
+  to $0 by configuration, never by absence.
 
 Adding a state-year: drop a new JSON file here, add the import + entry to
 `STATE_SEED_FILES` in `packages/db/src/state-seeds.ts`, and cover it with

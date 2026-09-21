@@ -1,0 +1,12 @@
+{
+  "state": "MI",
+  "taxYear": 2026,
+  "source": "Michigan Treasury 2026 Income Tax Withholding Guide (Form 446, michigan.gov/withholding): flat 4.25% on compensation after the personal/dependency exemption allowance of $5,900/yr per MI-W4 exemption. City income taxes (Detroit and 23 others) not modeled (local, out of scope).",
+  "jurisdictions": {
+    "MI": {
+      "kind": "flat",
+      "flatRate": 0.0425,
+      "allowanceDeduction": 5900
+    }
+  }
+}
