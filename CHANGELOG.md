@@ -4,6 +4,35 @@ All notable changes to this project will be documented here. Format follows
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/); versioning follows
 [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [1.21.0] - 2026-09-21
+
+### Added
+
+- **Per-state income-tax withholding, phase 1 (PAY-13)**: effective-dated
+  state withholding computed from the employee's work state, beside the
+  legacy flat-rate path (bit-identical for runs without a work-state row).
+  New tables `state_tax_configs` / `state_tax_brackets` (jurisdiction
+  `<state>` or `<state>:<filing_status>` with fallback, mirroring
+  `federal:<status>`; `kind='none'` is the explicit zero-tax row so an
+  unconfigured work state fails run generation loudly with
+  `no_state_tax_config`), `employee_work_states` (effective-dated work
+  location), and `state_withholding_elections` (generic IL-W-4 / DE 4 union:
+  regular + estimated-deduction allowances, per-period extra withholding,
+  state-only exempt). The engine's new `computeStateWithholding` implements
+  the annualized EDD Method B / IL-700-T formula method (wage-base allowance
+  deductions, bracket walk, per-allowance credits, low-income exemption, CA
+  alt values at 2+ allowances); ENGINE_VERSION 0.3.0, snapshot template 1.2.0
+  freezes `inputs.state`. Seeded: IL 2025/2026 (IDOR IL-700-T, 4.95%,
+  $2,850/$2,925 allowances), CA 2026 (EDD 26methb.pdf Method B with per-status
+  Tables 5/6/7 brackets, SD $5,706/$11,412, LLX $18,896/$37,791, credit
+  $168.30, AWAID $1,000), TX 2025/2026 (explicit none) — validated against
+  EDD worked Examples E/F and IDOR's IL-700-T example. Admin routes manage
+  state config (+ atomic bracket replace), work-state assignment (closing the
+  previous window), and elections, all with audit_events; the config page
+  gains a "State taxes" tab and the employee detail page a "State tax" tab
+  (work-state history + elections). Employee-initiated state change requests
+  and further states are phase 2.
+
 ## [1.20.0] - 2026-09-20
 
 ### Added
