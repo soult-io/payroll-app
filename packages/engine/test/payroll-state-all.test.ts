@@ -1078,8 +1078,6 @@ const WY_2026: StateTaxConfig = {
 // Golden scenarios
 // --------------------------------------------------------------------------
 
-
-
 describe("2026 per-state golden fixtures", () => {
   test("AK: explicit none — $6,000/mo 1 allowance → $0", () => {
     expect(calculatePayroll(stateInput(6000, AK_2026, { allowances: 1 })).stateWithholding).toBe(0);
@@ -1087,62 +1085,88 @@ describe("2026 per-state golden fixtures", () => {
 
   test("AL: $6,000/mo single 1 allowance → $273.75/mo", () => {
     // 72,000/yr through the documented formula in the fixture comment above.
-    expect(calculatePayroll(stateInput(6000, AL_2026, { allowances: 1 })).stateWithholding).toBe(273.75);
+    expect(calculatePayroll(stateInput(6000, AL_2026, { allowances: 1 })).stateWithholding).toBe(
+      273.75,
+    );
   });
 
   test("AL married: $10,000/mo married-joint 2 allowances → $439.17/mo", () => {
-    expect(calculatePayroll(stateInput(10000, AL_MARRIED_2026, { allowances: 2 })).stateWithholding).toBe(439.17);
+    expect(
+      calculatePayroll(stateInput(10000, AL_MARRIED_2026, { allowances: 2 })).stateWithholding,
+    ).toBe(439.17);
   });
 
   test("AR: $6,000/mo single 1 allowance → $181.37/mo", () => {
     // 72,000/yr through the documented formula in the fixture comment above.
-    expect(calculatePayroll(stateInput(6000, AR_2026, { allowances: 1 })).stateWithholding).toBe(181.37);
+    expect(calculatePayroll(stateInput(6000, AR_2026, { allowances: 1 })).stateWithholding).toBe(
+      181.37,
+    );
   });
 
   test("AZ: $6,000/mo single 1 allowance → $150.00/mo", () => {
     // 72,000/yr through the documented formula in the fixture comment above.
-    expect(calculatePayroll(stateInput(6000, AZ_2026, { allowances: 1 })).stateWithholding).toBe(150.00);
+    expect(calculatePayroll(stateInput(6000, AZ_2026, { allowances: 1 })).stateWithholding).toBe(
+      150.0,
+    );
   });
 
   test("CA: $6,000/mo single 1 allowance → $232.34/mo", () => {
     // 72,000/yr through the documented formula in the fixture comment above.
-    expect(calculatePayroll(stateInput(6000, CA_2026, { allowances: 1 })).stateWithholding).toBe(232.34);
+    expect(calculatePayroll(stateInput(6000, CA_2026, { allowances: 1 })).stateWithholding).toBe(
+      232.34,
+    );
   });
 
   test("CA married: $10,000/mo married-joint 2 allowances → $300.58/mo", () => {
-    expect(calculatePayroll(stateInput(10000, CA_MARRIED_2026, { allowances: 2 })).stateWithholding).toBe(300.58);
+    expect(
+      calculatePayroll(stateInput(10000, CA_MARRIED_2026, { allowances: 2 })).stateWithholding,
+    ).toBe(300.58);
   });
 
   test("CO: $6,000/mo single 1 allowance → $245.67/mo", () => {
     // 72,000/yr through the documented formula in the fixture comment above.
-    expect(calculatePayroll(stateInput(6000, CO_2026, { allowances: 1 })).stateWithholding).toBe(245.67);
+    expect(calculatePayroll(stateInput(6000, CO_2026, { allowances: 1 })).stateWithholding).toBe(
+      245.67,
+    );
   });
 
   test("CO married: $10,000/mo married-joint 2 allowances → $403.33/mo", () => {
-    expect(calculatePayroll(stateInput(10000, CO_MARRIED_2026, { allowances: 2 })).stateWithholding).toBe(403.33);
+    expect(
+      calculatePayroll(stateInput(10000, CO_MARRIED_2026, { allowances: 2 })).stateWithholding,
+    ).toBe(403.33);
   });
 
   test("CT: $6,000/mo single 1 allowance → $267.50/mo", () => {
     // 72,000/yr through the documented formula in the fixture comment above.
-    expect(calculatePayroll(stateInput(6000, CT_2026, { allowances: 1 })).stateWithholding).toBe(267.50);
+    expect(calculatePayroll(stateInput(6000, CT_2026, { allowances: 1 })).stateWithholding).toBe(
+      267.5,
+    );
   });
 
   test("CT married: $10,000/mo married-joint 2 allowances → $425.00/mo", () => {
-    expect(calculatePayroll(stateInput(10000, CT_MARRIED_2026, { allowances: 2 })).stateWithholding).toBe(425.00);
+    expect(
+      calculatePayroll(stateInput(10000, CT_MARRIED_2026, { allowances: 2 })).stateWithholding,
+    ).toBe(425.0);
   });
 
   test("DC: $6,000/mo single 1 allowance → $347.27/mo", () => {
     // 72,000/yr through the documented formula in the fixture comment above.
-    expect(calculatePayroll(stateInput(6000, DC_2026, { allowances: 1 })).stateWithholding).toBe(347.27);
+    expect(calculatePayroll(stateInput(6000, DC_2026, { allowances: 1 })).stateWithholding).toBe(
+      347.27,
+    );
   });
 
   test("DE: $6,000/mo single 1 allowance → $284.25/mo", () => {
     // 72,000/yr through the documented formula in the fixture comment above.
-    expect(calculatePayroll(stateInput(6000, DE_2026, { allowances: 1 })).stateWithholding).toBe(284.25);
+    expect(calculatePayroll(stateInput(6000, DE_2026, { allowances: 1 })).stateWithholding).toBe(
+      284.25,
+    );
   });
 
   test("DE married: $10,000/mo married-joint 2 allowances → $521.21/mo", () => {
-    expect(calculatePayroll(stateInput(10000, DE_MARRIED_2026, { allowances: 2 })).stateWithholding).toBe(521.21);
+    expect(
+      calculatePayroll(stateInput(10000, DE_MARRIED_2026, { allowances: 2 })).stateWithholding,
+    ).toBe(521.21);
   });
 
   test("FL: explicit none — $6,000/mo 1 allowance → $0", () => {
@@ -1151,162 +1175,232 @@ describe("2026 per-state golden fixtures", () => {
 
   test("GA: $6,000/mo single 1 allowance → $216.23/mo", () => {
     // 72,000/yr through the documented formula in the fixture comment above.
-    expect(calculatePayroll(stateInput(6000, GA_2026, { allowances: 1 })).stateWithholding).toBe(216.23);
+    expect(calculatePayroll(stateInput(6000, GA_2026, { allowances: 1 })).stateWithholding).toBe(
+      216.23,
+    );
   });
 
   test("GA married: $10,000/mo married-joint 2 allowances → $332.67/mo", () => {
-    expect(calculatePayroll(stateInput(10000, GA_MARRIED_2026, { allowances: 2 })).stateWithholding).toBe(332.67);
+    expect(
+      calculatePayroll(stateInput(10000, GA_MARRIED_2026, { allowances: 2 })).stateWithholding,
+    ).toBe(332.67);
   });
 
   test("HI: $6,000/mo single 1 allowance → $328.80/mo", () => {
     // 72,000/yr through the documented formula in the fixture comment above.
-    expect(calculatePayroll(stateInput(6000, HI_2026, { allowances: 1 })).stateWithholding).toBe(328.80);
+    expect(calculatePayroll(stateInput(6000, HI_2026, { allowances: 1 })).stateWithholding).toBe(
+      328.8,
+    );
   });
 
   test("HI married: $10,000/mo married-joint 2 allowances → $533.16/mo", () => {
-    expect(calculatePayroll(stateInput(10000, HI_MARRIED_2026, { allowances: 2 })).stateWithholding).toBe(533.16);
+    expect(
+      calculatePayroll(stateInput(10000, HI_MARRIED_2026, { allowances: 2 })).stateWithholding,
+    ).toBe(533.16);
   });
 
   test("IA: $6,000/mo single 1 allowance → $183.50/mo", () => {
     // 72,000/yr through the documented formula in the fixture comment above.
-    expect(calculatePayroll(stateInput(6000, IA_2026, { allowances: 1 })).stateWithholding).toBe(183.50);
+    expect(calculatePayroll(stateInput(6000, IA_2026, { allowances: 1 })).stateWithholding).toBe(
+      183.5,
+    );
   });
 
   test("IA married: $10,000/mo married-joint 2 allowances → $291.00/mo", () => {
-    expect(calculatePayroll(stateInput(10000, IA_MARRIED_2026, { allowances: 2 })).stateWithholding).toBe(291.00);
+    expect(
+      calculatePayroll(stateInput(10000, IA_MARRIED_2026, { allowances: 2 })).stateWithholding,
+    ).toBe(291.0);
   });
 
   test("ID: $6,000/mo single 1 allowance → $246.89/mo", () => {
     // 72,000/yr through the documented formula in the fixture comment above.
-    expect(calculatePayroll(stateInput(6000, ID_2026, { allowances: 1 })).stateWithholding).toBe(246.89);
+    expect(calculatePayroll(stateInput(6000, ID_2026, { allowances: 1 })).stateWithholding).toBe(
+      246.89,
+    );
   });
 
   test("ID married: $10,000/mo married-joint 2 allowances → $387.78/mo", () => {
-    expect(calculatePayroll(stateInput(10000, ID_MARRIED_2026, { allowances: 2 })).stateWithholding).toBe(387.78);
+    expect(
+      calculatePayroll(stateInput(10000, ID_MARRIED_2026, { allowances: 2 })).stateWithholding,
+    ).toBe(387.78);
   });
 
   test("IL: $6,000/mo single 1 allowance → $284.93/mo", () => {
     // 72,000/yr through the documented formula in the fixture comment above.
-    expect(calculatePayroll(stateInput(6000, IL_2026, { allowances: 1 })).stateWithholding).toBe(284.93);
+    expect(calculatePayroll(stateInput(6000, IL_2026, { allowances: 1 })).stateWithholding).toBe(
+      284.93,
+    );
   });
 
   test("IN: $6,000/mo single 1 allowance → $174.54/mo", () => {
     // 72,000/yr through the documented formula in the fixture comment above.
-    expect(calculatePayroll(stateInput(6000, IN_2026, { allowances: 1 })).stateWithholding).toBe(174.54);
+    expect(calculatePayroll(stateInput(6000, IN_2026, { allowances: 1 })).stateWithholding).toBe(
+      174.54,
+    );
   });
 
   test("KS: $6,000/mo single 1 allowance → $257.37/mo", () => {
     // 72,000/yr through the documented formula in the fixture comment above.
-    expect(calculatePayroll(stateInput(6000, KS_2026, { allowances: 1 })).stateWithholding).toBe(257.37);
+    expect(calculatePayroll(stateInput(6000, KS_2026, { allowances: 1 })).stateWithholding).toBe(
+      257.37,
+    );
   });
 
   test("KS married: $10,000/mo married-joint 2 allowances → $398.35/mo", () => {
-    expect(calculatePayroll(stateInput(10000, KS_MARRIED_2026, { allowances: 2 })).stateWithholding).toBe(398.35);
+    expect(
+      calculatePayroll(stateInput(10000, KS_MARRIED_2026, { allowances: 2 })).stateWithholding,
+    ).toBe(398.35);
   });
 
   test("KY: $6,000/mo single 1 allowance → $200.20/mo", () => {
     // 72,000/yr through the documented formula in the fixture comment above.
-    expect(calculatePayroll(stateInput(6000, KY_2026, { allowances: 1 })).stateWithholding).toBe(200.20);
+    expect(calculatePayroll(stateInput(6000, KY_2026, { allowances: 1 })).stateWithholding).toBe(
+      200.2,
+    );
   });
 
   test("LA: $6,000/mo single 1 allowance → $152.25/mo", () => {
     // 72,000/yr through the documented formula in the fixture comment above.
-    expect(calculatePayroll(stateInput(6000, LA_2026, { allowances: 1 })).stateWithholding).toBe(152.25);
+    expect(calculatePayroll(stateInput(6000, LA_2026, { allowances: 1 })).stateWithholding).toBe(
+      152.25,
+    );
   });
 
   test("LA married: $10,000/mo married-joint 2 allowances → $242.69/mo", () => {
-    expect(calculatePayroll(stateInput(10000, LA_MARRIED_2026, { allowances: 2 })).stateWithholding).toBe(242.69);
+    expect(
+      calculatePayroll(stateInput(10000, LA_MARRIED_2026, { allowances: 2 })).stateWithholding,
+    ).toBe(242.69);
   });
 
   test("MA: $6,000/mo single 1 allowance → $281.67/mo", () => {
     // 72,000/yr through the documented formula in the fixture comment above.
-    expect(calculatePayroll(stateInput(6000, MA_2026, { allowances: 1 })).stateWithholding).toBe(281.67);
+    expect(calculatePayroll(stateInput(6000, MA_2026, { allowances: 1 })).stateWithholding).toBe(
+      281.67,
+    );
   });
 
   test("MD: $6,000/mo single 1 allowance → $258.88/mo", () => {
     // 72,000/yr through the documented formula in the fixture comment above.
-    expect(calculatePayroll(stateInput(6000, MD_2026, { allowances: 1 })).stateWithholding).toBe(258.88);
+    expect(calculatePayroll(stateInput(6000, MD_2026, { allowances: 1 })).stateWithholding).toBe(
+      258.88,
+    );
   });
 
   test("MD married: $10,000/mo married-joint 2 allowances → $436.21/mo", () => {
-    expect(calculatePayroll(stateInput(10000, MD_MARRIED_2026, { allowances: 2 })).stateWithholding).toBe(436.21);
+    expect(
+      calculatePayroll(stateInput(10000, MD_MARRIED_2026, { allowances: 2 })).stateWithholding,
+    ).toBe(436.21);
   });
 
   test("ME: $6,000/mo single 1 allowance → $283.46/mo", () => {
     // 72,000/yr through the documented formula in the fixture comment above.
-    expect(calculatePayroll(stateInput(6000, ME_2026, { allowances: 1 })).stateWithholding).toBe(283.46);
+    expect(calculatePayroll(stateInput(6000, ME_2026, { allowances: 1 })).stateWithholding).toBe(
+      283.46,
+    );
   });
 
   test("ME married: $10,000/mo married-joint 2 allowances → $415.86/mo", () => {
-    expect(calculatePayroll(stateInput(10000, ME_MARRIED_2026, { allowances: 2 })).stateWithholding).toBe(415.86);
+    expect(
+      calculatePayroll(stateInput(10000, ME_MARRIED_2026, { allowances: 2 })).stateWithholding,
+    ).toBe(415.86);
   });
 
   test("MI: $6,000/mo single 1 allowance → $234.10/mo", () => {
     // 72,000/yr through the documented formula in the fixture comment above.
-    expect(calculatePayroll(stateInput(6000, MI_2026, { allowances: 1 })).stateWithholding).toBe(234.10);
+    expect(calculatePayroll(stateInput(6000, MI_2026, { allowances: 1 })).stateWithholding).toBe(
+      234.1,
+    );
   });
 
   test("MN: $6,000/mo single 1 allowance → $311.08/mo", () => {
     // 72,000/yr through the documented formula in the fixture comment above.
-    expect(calculatePayroll(stateInput(6000, MN_2026, { allowances: 1 })).stateWithholding).toBe(311.08);
+    expect(calculatePayroll(stateInput(6000, MN_2026, { allowances: 1 })).stateWithholding).toBe(
+      311.08,
+    );
   });
 
   test("MN married: $10,000/mo married-joint 2 allowances → $477.79/mo", () => {
-    expect(calculatePayroll(stateInput(10000, MN_MARRIED_2026, { allowances: 2 })).stateWithholding).toBe(477.79);
+    expect(
+      calculatePayroll(stateInput(10000, MN_MARRIED_2026, { allowances: 2 })).stateWithholding,
+    ).toBe(477.79);
   });
 
   test("MO: $6,000/mo single 1 allowance → $204.28/mo", () => {
     // 72,000/yr through the documented formula in the fixture comment above.
-    expect(calculatePayroll(stateInput(6000, MO_2026, { allowances: 1 })).stateWithholding).toBe(204.28);
+    expect(calculatePayroll(stateInput(6000, MO_2026, { allowances: 1 })).stateWithholding).toBe(
+      204.28,
+    );
   });
 
   test("MO married: $10,000/mo married-joint 2 allowances → $329.22/mo", () => {
-    expect(calculatePayroll(stateInput(10000, MO_MARRIED_2026, { allowances: 2 })).stateWithholding).toBe(329.22);
+    expect(
+      calculatePayroll(stateInput(10000, MO_MARRIED_2026, { allowances: 2 })).stateWithholding,
+    ).toBe(329.22);
   });
 
   test("MS: $6,000/mo single 1 allowance → $174.00/mo", () => {
     // 72,000/yr through the documented formula in the fixture comment above.
-    expect(calculatePayroll(stateInput(6000, MS_2026, { allowances: 1 })).stateWithholding).toBe(174.00);
+    expect(calculatePayroll(stateInput(6000, MS_2026, { allowances: 1 })).stateWithholding).toBe(
+      174.0,
+    );
   });
 
   test("MS married: $10,000/mo married-joint 2 allowances → $301.33/mo", () => {
-    expect(calculatePayroll(stateInput(10000, MS_MARRIED_2026, { allowances: 2 })).stateWithholding).toBe(301.33);
+    expect(
+      calculatePayroll(stateInput(10000, MS_MARRIED_2026, { allowances: 2 })).stateWithholding,
+    ).toBe(301.33);
   });
 
   test("MT: $6,000/mo single 1 allowance → $225.59/mo", () => {
     // 72,000/yr through the documented formula in the fixture comment above.
-    expect(calculatePayroll(stateInput(6000, MT_2026, { allowances: 1 })).stateWithholding).toBe(225.59);
+    expect(calculatePayroll(stateInput(6000, MT_2026, { allowances: 1 })).stateWithholding).toBe(
+      225.59,
+    );
   });
 
   test("MT married: $10,000/mo married-joint 2 allowances → $343.88/mo", () => {
-    expect(calculatePayroll(stateInput(10000, MT_MARRIED_2026, { allowances: 2 })).stateWithholding).toBe(343.88);
+    expect(
+      calculatePayroll(stateInput(10000, MT_MARRIED_2026, { allowances: 2 })).stateWithholding,
+    ).toBe(343.88);
   });
 
   test("NC: $6,000/mo single 1 allowance → $193.42/mo", () => {
     // 72,000/yr through the documented formula in the fixture comment above.
-    expect(calculatePayroll(stateInput(6000, NC_2026, { allowances: 1 })).stateWithholding).toBe(193.42);
+    expect(calculatePayroll(stateInput(6000, NC_2026, { allowances: 1 })).stateWithholding).toBe(
+      193.42,
+    );
   });
 
   test("NC married: $10,000/mo married-joint 2 allowances → $348.50/mo", () => {
-    expect(calculatePayroll(stateInput(10000, NC_MARRIED_2026, { allowances: 2 })).stateWithholding).toBe(348.50);
+    expect(
+      calculatePayroll(stateInput(10000, NC_MARRIED_2026, { allowances: 2 })).stateWithholding,
+    ).toBe(348.5);
   });
 
   test("ND: $6,000/mo single 1 allowance → $23.36/mo", () => {
     // 72,000/yr through the documented formula in the fixture comment above.
-    expect(calculatePayroll(stateInput(6000, ND_2026, { allowances: 1 })).stateWithholding).toBe(23.36);
+    expect(calculatePayroll(stateInput(6000, ND_2026, { allowances: 1 })).stateWithholding).toBe(
+      23.36,
+    );
   });
 
   test("ND married: $10,000/mo married-joint 2 allowances → $101.56/mo", () => {
-    expect(calculatePayroll(stateInput(10000, ND_MARRIED_2026, { allowances: 2 })).stateWithholding).toBe(101.56);
+    expect(
+      calculatePayroll(stateInput(10000, ND_MARRIED_2026, { allowances: 2 })).stateWithholding,
+    ).toBe(101.56);
   });
 
   test("NE: $6,000/mo single 1 allowance → $221.83/mo", () => {
     // 72,000/yr through the documented formula in the fixture comment above.
-    expect(calculatePayroll(stateInput(6000, NE_2026, { allowances: 1 })).stateWithholding).toBe(221.83);
+    expect(calculatePayroll(stateInput(6000, NE_2026, { allowances: 1 })).stateWithholding).toBe(
+      221.83,
+    );
   });
 
   test("NE married: $10,000/mo married-joint 2 allowances → $367.78/mo", () => {
-    expect(calculatePayroll(stateInput(10000, NE_MARRIED_2026, { allowances: 2 })).stateWithholding).toBe(367.78);
+    expect(
+      calculatePayroll(stateInput(10000, NE_MARRIED_2026, { allowances: 2 })).stateWithholding,
+    ).toBe(367.78);
   });
 
   test("NH: explicit none — $6,000/mo 1 allowance → $0", () => {
@@ -1315,20 +1409,28 @@ describe("2026 per-state golden fixtures", () => {
 
   test("NJ: $6,000/mo single 1 allowance → $223.83/mo", () => {
     // 72,000/yr through the documented formula in the fixture comment above.
-    expect(calculatePayroll(stateInput(6000, NJ_2026, { allowances: 1 })).stateWithholding).toBe(223.83);
+    expect(calculatePayroll(stateInput(6000, NJ_2026, { allowances: 1 })).stateWithholding).toBe(
+      223.83,
+    );
   });
 
   test("NJ married: $10,000/mo married-joint 2 allowances → $345.67/mo", () => {
-    expect(calculatePayroll(stateInput(10000, NJ_MARRIED_2026, { allowances: 2 })).stateWithholding).toBe(345.67);
+    expect(
+      calculatePayroll(stateInput(10000, NJ_MARRIED_2026, { allowances: 2 })).stateWithholding,
+    ).toBe(345.67);
   });
 
   test("NM: $6,000/mo single 1 allowance → $216.39/mo", () => {
     // 72,000/yr through the documented formula in the fixture comment above.
-    expect(calculatePayroll(stateInput(6000, NM_2026, { allowances: 1 })).stateWithholding).toBe(216.39);
+    expect(calculatePayroll(stateInput(6000, NM_2026, { allowances: 1 })).stateWithholding).toBe(
+      216.39,
+    );
   });
 
   test("NM married: $10,000/mo married-joint 2 allowances → $356.68/mo", () => {
-    expect(calculatePayroll(stateInput(10000, NM_MARRIED_2026, { allowances: 2 })).stateWithholding).toBe(356.68);
+    expect(
+      calculatePayroll(stateInput(10000, NM_MARRIED_2026, { allowances: 2 })).stateWithholding,
+    ).toBe(356.68);
   });
 
   test("NV: explicit none — $6,000/mo 1 allowance → $0", () => {
@@ -1337,49 +1439,69 @@ describe("2026 per-state golden fixtures", () => {
 
   test("NY: $6,000/mo single 1 allowance → $272.45/mo", () => {
     // 72,000/yr through the documented formula in the fixture comment above.
-    expect(calculatePayroll(stateInput(6000, NY_2026, { allowances: 1 })).stateWithholding).toBe(272.45);
+    expect(calculatePayroll(stateInput(6000, NY_2026, { allowances: 1 })).stateWithholding).toBe(
+      272.45,
+    );
   });
 
   test("NY married: $10,000/mo married-joint 2 allowances → $502.12/mo", () => {
-    expect(calculatePayroll(stateInput(10000, NY_MARRIED_2026, { allowances: 2 })).stateWithholding).toBe(502.12);
+    expect(
+      calculatePayroll(stateInput(10000, NY_MARRIED_2026, { allowances: 2 })).stateWithholding,
+    ).toBe(502.12);
   });
 
   test("OH: $6,000/mo single 1 allowance → $103.81/mo", () => {
     // 72,000/yr through the documented formula in the fixture comment above.
-    expect(calculatePayroll(stateInput(6000, OH_2026, { allowances: 1 })).stateWithholding).toBe(103.81);
+    expect(calculatePayroll(stateInput(6000, OH_2026, { allowances: 1 })).stateWithholding).toBe(
+      103.81,
+    );
   });
 
   test("OK: $6,000/mo single 1 allowance → $224.54/mo", () => {
     // 72,000/yr through the documented formula in the fixture comment above.
-    expect(calculatePayroll(stateInput(6000, OK_2026, { allowances: 1 })).stateWithholding).toBe(224.54);
+    expect(calculatePayroll(stateInput(6000, OK_2026, { allowances: 1 })).stateWithholding).toBe(
+      224.54,
+    );
   });
 
   test("OK married: $10,000/mo married-joint 2 allowances → $359.08/mo", () => {
-    expect(calculatePayroll(stateInput(10000, OK_MARRIED_2026, { allowances: 2 })).stateWithholding).toBe(359.08);
+    expect(
+      calculatePayroll(stateInput(10000, OK_MARRIED_2026, { allowances: 2 })).stateWithholding,
+    ).toBe(359.08);
   });
 
   test("OR: $6,000/mo single 1 allowance → $455.28/mo", () => {
     // 72,000/yr through the documented formula in the fixture comment above.
-    expect(calculatePayroll(stateInput(6000, OR_2026, { allowances: 1 })).stateWithholding).toBe(455.28);
+    expect(calculatePayroll(stateInput(6000, OR_2026, { allowances: 1 })).stateWithholding).toBe(
+      455.28,
+    );
   });
 
   test("OR married: $10,000/mo married-joint 2 allowances → $735.56/mo", () => {
-    expect(calculatePayroll(stateInput(10000, OR_MARRIED_2026, { allowances: 2 })).stateWithholding).toBe(735.56);
+    expect(
+      calculatePayroll(stateInput(10000, OR_MARRIED_2026, { allowances: 2 })).stateWithholding,
+    ).toBe(735.56);
   });
 
   test("PA: $6,000/mo single 1 allowance → $184.20/mo", () => {
     // 72,000/yr through the documented formula in the fixture comment above.
-    expect(calculatePayroll(stateInput(6000, PA_2026, { allowances: 1 })).stateWithholding).toBe(184.20);
+    expect(calculatePayroll(stateInput(6000, PA_2026, { allowances: 1 })).stateWithholding).toBe(
+      184.2,
+    );
   });
 
   test("RI: $6,000/mo single 1 allowance → $221.88/mo", () => {
     // 72,000/yr through the documented formula in the fixture comment above.
-    expect(calculatePayroll(stateInput(6000, RI_2026, { allowances: 1 })).stateWithholding).toBe(221.88);
+    expect(calculatePayroll(stateInput(6000, RI_2026, { allowances: 1 })).stateWithholding).toBe(
+      221.88,
+    );
   });
 
   test("SC: $6,000/mo single 1 allowance → $242.82/mo", () => {
     // 72,000/yr through the documented formula in the fixture comment above.
-    expect(calculatePayroll(stateInput(6000, SC_2026, { allowances: 1 })).stateWithholding).toBe(242.82);
+    expect(calculatePayroll(stateInput(6000, SC_2026, { allowances: 1 })).stateWithholding).toBe(
+      242.82,
+    );
   });
 
   test("SD: explicit none — $6,000/mo 1 allowance → $0", () => {
@@ -1396,29 +1518,41 @@ describe("2026 per-state golden fixtures", () => {
 
   test("UT: $6,000/mo single 1 allowance → $267.00/mo", () => {
     // 72,000/yr through the documented formula in the fixture comment above.
-    expect(calculatePayroll(stateInput(6000, UT_2026, { allowances: 1 })).stateWithholding).toBe(267.00);
+    expect(calculatePayroll(stateInput(6000, UT_2026, { allowances: 1 })).stateWithholding).toBe(
+      267.0,
+    );
   });
 
   test("UT married: $10,000/mo married-joint 2 allowances → $445.00/mo", () => {
-    expect(calculatePayroll(stateInput(10000, UT_MARRIED_2026, { allowances: 2 })).stateWithholding).toBe(445.00);
+    expect(
+      calculatePayroll(stateInput(10000, UT_MARRIED_2026, { allowances: 2 })).stateWithholding,
+    ).toBe(445.0);
   });
 
   test("VA: $6,000/mo single 1 allowance → $277.16/mo", () => {
     // 72,000/yr through the documented formula in the fixture comment above.
-    expect(calculatePayroll(stateInput(6000, VA_2026, { allowances: 1 })).stateWithholding).toBe(277.16);
+    expect(calculatePayroll(stateInput(6000, VA_2026, { allowances: 1 })).stateWithholding).toBe(
+      277.16,
+    );
   });
 
   test("VA married: $10,000/mo married-joint 2 allowances → $460.78/mo", () => {
-    expect(calculatePayroll(stateInput(10000, VA_MARRIED_2026, { allowances: 2 })).stateWithholding).toBe(460.78);
+    expect(
+      calculatePayroll(stateInput(10000, VA_MARRIED_2026, { allowances: 2 })).stateWithholding,
+    ).toBe(460.78);
   });
 
   test("VT: $6,000/mo single 1 allowance → $207.26/mo", () => {
     // 72,000/yr through the documented formula in the fixture comment above.
-    expect(calculatePayroll(stateInput(6000, VT_2026, { allowances: 1 })).stateWithholding).toBe(207.26);
+    expect(calculatePayroll(stateInput(6000, VT_2026, { allowances: 1 })).stateWithholding).toBe(
+      207.26,
+    );
   });
 
   test("VT married: $10,000/mo married-joint 2 allowances → $306.44/mo", () => {
-    expect(calculatePayroll(stateInput(10000, VT_MARRIED_2026, { allowances: 2 })).stateWithholding).toBe(306.44);
+    expect(
+      calculatePayroll(stateInput(10000, VT_MARRIED_2026, { allowances: 2 })).stateWithholding,
+    ).toBe(306.44);
   });
 
   test("WA: explicit none — $6,000/mo 1 allowance → $0", () => {
@@ -1427,16 +1561,22 @@ describe("2026 per-state golden fixtures", () => {
 
   test("WI: $6,000/mo single 1 allowance → $261.01/mo", () => {
     // 72,000/yr through the documented formula in the fixture comment above.
-    expect(calculatePayroll(stateInput(6000, WI_2026, { allowances: 1 })).stateWithholding).toBe(261.01);
+    expect(calculatePayroll(stateInput(6000, WI_2026, { allowances: 1 })).stateWithholding).toBe(
+      261.01,
+    );
   });
 
   test("WI married: $10,000/mo married-joint 2 allowances → $459.05/mo", () => {
-    expect(calculatePayroll(stateInput(10000, WI_MARRIED_2026, { allowances: 2 })).stateWithholding).toBe(459.05);
+    expect(
+      calculatePayroll(stateInput(10000, WI_MARRIED_2026, { allowances: 2 })).stateWithholding,
+    ).toBe(459.05);
   });
 
   test("WV: $6,000/mo single 1 allowance → $200.71/mo", () => {
     // 72,000/yr through the documented formula in the fixture comment above.
-    expect(calculatePayroll(stateInput(6000, WV_2026, { allowances: 1 })).stateWithholding).toBe(200.71);
+    expect(calculatePayroll(stateInput(6000, WV_2026, { allowances: 1 })).stateWithholding).toBe(
+      200.71,
+    );
   });
 
   test("WY: explicit none — $6,000/mo 1 allowance → $0", () => {

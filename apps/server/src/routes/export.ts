@@ -199,7 +199,8 @@ function stateWithholdingByJurisdiction(
   for (const run of runs) {
     if (!run.stateJurisdiction) continue;
     const amount = run.entries.state_withholding;
-    const amountCents = amount === null || amount === undefined ? 0 : Math.round(Number(amount) * 100);
+    const amountCents =
+      amount === null || amount === undefined ? 0 : Math.round(Number(amount) * 100);
     const acc = cents.get(run.stateJurisdiction) ?? { total: 0, runCount: 0 };
     acc.total += amountCents;
     acc.runCount += 1;

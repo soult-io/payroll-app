@@ -287,8 +287,7 @@ describe("per-jurisdiction state withholding (PAY-13)", () => {
       allowanceCredit: null,
       additionalAllowanceDeduction: null,
       election: null,
-      brackets:
-        workState === "CA" ? [{ min: 0, max: null, rate: 0.02 }] : [],
+      brackets: workState === "CA" ? [{ min: 0, max: null, rate: 0.02 }] : [],
     };
     return base;
   }
@@ -329,12 +328,39 @@ describe("per-jurisdiction state withholding (PAY-13)", () => {
 
   it("attributes each run to its work state and totals per jurisdiction", async () => {
     await t.db.insert(employees).values([
-      { companyId: 1, employmentType: "w2", legalName: "Il Employee", hireDate: "2025-01-01", status: "active" },
-      { companyId: 1, employmentType: "w2", legalName: "Ca Employee", hireDate: "2025-01-01", status: "active" },
+      {
+        companyId: 1,
+        employmentType: "w2",
+        legalName: "Il Employee",
+        hireDate: "2025-01-01",
+        status: "active",
+      },
+      {
+        companyId: 1,
+        employmentType: "w2",
+        legalName: "Ca Employee",
+        hireDate: "2025-01-01",
+        status: "active",
+      },
     ]);
-    await insertStateRun({ employeeId: IL_EMPLOYEE, workState: "IL", month: "2026-05", stateWithholding: "163.35" });
-    await insertStateRun({ employeeId: IL_EMPLOYEE, workState: "IL", month: "2026-06", stateWithholding: "163.35" });
-    await insertStateRun({ employeeId: CA_EMPLOYEE, workState: "CA", month: "2026-05", stateWithholding: "92.41" });
+    await insertStateRun({
+      employeeId: IL_EMPLOYEE,
+      workState: "IL",
+      month: "2026-05",
+      stateWithholding: "163.35",
+    });
+    await insertStateRun({
+      employeeId: IL_EMPLOYEE,
+      workState: "IL",
+      month: "2026-06",
+      stateWithholding: "163.35",
+    });
+    await insertStateRun({
+      employeeId: CA_EMPLOYEE,
+      workState: "CA",
+      month: "2026-05",
+      stateWithholding: "92.41",
+    });
 
     const res = await t.app.inject({
       method: "GET",
@@ -380,7 +406,9 @@ describe("per-jurisdiction state withholding (PAY-13)", () => {
       headers: AUTH,
     });
     const body = json.json();
-    expect(body.runs.every((r: { stateJurisdiction: string | null }) => r.stateJurisdiction === null)).toBe(true);
+    expect(
+      body.runs.every((r: { stateJurisdiction: string | null }) => r.stateJurisdiction === null),
+    ).toBe(true);
     expect(body.stateWithholding).toEqual({ byJurisdiction: [] });
   });
 });

@@ -34,10 +34,9 @@ import { z } from "zod";
 const castSafeSchema = stateElectionFields.omit({ effectiveFrom: true }).extend({
   stateCode: z.string().regex(/^([A-Z]{2})?$/, "expected a 2-letter state code"),
 });
-const strictSchema = stateElectionFields.omit({ effectiveFrom: true }).refine(
-  stateElectionExemptCheck,
-  { message: STATE_ELECTION_EXEMPT_MESSAGE, path: ["exempt"] },
-);
+const strictSchema = stateElectionFields
+  .omit({ effectiveFrom: true })
+  .refine(stateElectionExemptCheck, { message: STATE_ELECTION_EXEMPT_MESSAGE, path: ["exempt"] });
 type StateElectionFormValues = z.input<typeof castSafeSchema>;
 
 // Explicit generic + useField<number> for the numeric fields: primevue 5
