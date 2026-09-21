@@ -4,6 +4,31 @@ All notable changes to this project will be documented here. Format follows
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/); versioning follows
 [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [1.23.0] - 2026-09-21
+
+### Added
+
+- **Per-state tax deposit rows (PAY-47)** — completes the deferred PAY-9 D2
+  half. The daily deposit sync now derives per-state monthly `tax_deposits`
+  rows from issued runs' frozen snapshots (`inputs.state.workState`),
+  summing `state_withholding` per state per month alongside the existing
+  federal 941 rows. Same idempotency rules: pending rows recompute on
+  late-issued runs, deposited/overdue rows are never rewritten, and months
+  with zero/no state withholding produce no row.
+- **Jurisdiction filtering on the deposits admin API** —
+  `GET /api/admin/tax-deposits?jurisdiction=` accepts `federal` or a
+  2-letter uppercase state code. The deposit detail endpoint returns a
+  single `state_withholding` breakdown entry for state rows with runs
+  scoped to that state; federal detail is unchanged.
+- **Jurisdiction filter in the Tax Deposits UI** — dropdown backed by the
+  route query (like the other PAY-17 filters, options derived from loaded
+  data), plus friendly jurisdiction labels (`Federal` vs state code) in the
+  list and the deposit detail header.
+
+State deposit due dates currently follow the same 15th-of-following-month
+convention as federal deposits; per-state due-date schedules are a
+documented follow-up.
+
 ## [1.22.0] - 2026-09-21
 
 ### Added
