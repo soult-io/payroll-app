@@ -1,0 +1,147 @@
+name: pay-verify-site
+
+# Spec 17 chunk B (PAY-44): build + publish the static pay-verify QA dashboard
+# image ghcr.io/soult-io/payroll-app-verify from the verify-summary history.
+#
+# It never runs tests. It ingests the summary.json that ci.yml / e2e-nightly.yml
+# already publish (chunk A), keeps a rolling window of them on the orphan
+# `pay-verify-data` branch, generates the static site from that history, and
+# builds a digest-pinned nginx image. Deploy + the LAN/VPN gate are chunk D.
+#
+# Triggers: after ci (on main) or the nightly finishes (workflow_run), plus a
+# manual re-generate (workflow_dispatch, no new ingest). Fork-gated on the repo.
+
+on:
+  workflow_run:
+    workflows: [ci, e2e-nightly]
+    types: [completed]
+  workflow_dispatch:
+
+# Serialize: concurrent runs would race on the pay-verify-data branch push.
+concurrency:
+  group: pay-verify-site
+  cancel-in-progress: false
+
+env:
+  REGISTRY: ghcr.io
+  IMAGE: ghcr.io/soult-io/payroll-app-verify
+  DATA_BRANCH: pay-verify-data
+  HISTORY_KEEP: "60"
+
+jobs:
+  build:
+    # Only the real repo, and (for workflow_run) only main-branch runs feed the
+    # site — PR runs never do. workflow_dispatch always allowed.
+    if: >-
+      github.repository == 'soult-io/payroll-app' &&
+      (github.event_name == 'workflow_dispatch' || github.event.workflow_run.head_branch == 'main')
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write # push to the pay-verify-data branch
+      packages: write # push the image to GHCR
+      actions: read # download the triggering run's artifact
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: pnpm/action-setup@v6
+        with:
+          version: 11.17.0
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: pnpm
+
+      - name: Install
+        run: pnpm install --frozen-lockfile
+
+      - name: Build verify-site (+ its schema dep)
+        run: pnpm --filter @payroll/verify-summary --filter @payroll/verify-site run build
+
+      # Pull the summary + html report the triggering run published (chunk A).
+      # ci → pay-verify-summary; nightly → pay-verify-summary-nightly.
+      - name: Download summary artifact
+        if: github.event_name == 'workflow_run'
+        uses: actions/download-artifact@v7
+        with:
+          name: ${{ github.event.workflow_run.name == 'e2e-nightly' && 'pay-verify-summary-nightly' || 'pay-verify-summary' }}
+          run-id: ${{ github.event.workflow_run.id }}
+          github-token: ${{ secrets.GITHUB_TOKEN }}
+          path: _incoming
+
+      # Check out (or create) the rolling-history data branch as a worktree.
+      - name: Prepare data branch
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+          if git ls-remote --exit-code --heads origin "$DATA_BRANCH" >/dev/null 2>&1; then
+            git fetch origin "$DATA_BRANCH"
+            git worktree add _data "origin/$DATA_BRANCH"
+            git -C _data switch -c "$DATA_BRANCH" --track "origin/$DATA_BRANCH" 2>/dev/null || git -C _data switch "$DATA_BRANCH"
+          else
+            git worktree add --orphan -b "$DATA_BRANCH" _data
+          fi
+          mkdir -p _data/history
+
+      # Append the new summary (named by its instant + run id) and prune the
+      # window. Skipped on workflow_dispatch (no new run to ingest).
+      - name: Ingest summary
+        if: github.event_name == 'workflow_run'
+        run: |
+          if [ ! -f _incoming/summary.json ]; then
+            echo "::error::no summary.json in the triggering run's artifact — chunk-A emission is broken"
+            exit 1
+          fi
+          TS=$(date -u +%Y%m%dT%H%M%SZ)
+          RID="${{ github.event.workflow_run.id }}"
+          cp _incoming/summary.json "_data/history/${TS}-${RID}.json"
+          # keep the newest HISTORY_KEEP files (names sort chronologically)
+          mapfile -t old < <(find _data/history -maxdepth 1 -name '*.json' | sort | head -n "-${HISTORY_KEEP}")
+          if [ "${#old[@]}" -gt 0 ]; then rm -f "${old[@]}"; fi
+          git -C _data add history
+          git -C _data commit -m "chore(pay-verify): ingest summary from run ${RID} [skip ci]" || echo "nothing to commit"
+          git -C _data push origin "$DATA_BRANCH"
+
+      # Generate the static site (to its own dir, kept apart from the compiled
+      # JS in dist/). Fold in the latest run's Playwright report ONLY when it is
+      # present, and only then link to it — no dead /report link otherwise.
+      - name: Generate site
+        run: |
+          mkdir -p packages/verify-site/dist/site
+          args=(--history _data/history --out packages/verify-site/dist/site)
+          if [ -d _incoming/playwright-report ]; then
+            cp -r _incoming/playwright-report packages/verify-site/dist/site/report
+            args+=(--report-href report/)
+          fi
+          node packages/verify-site/dist/generate.js "${args[@]}"
+
+      - uses: docker/setup-buildx-action@v3
+
+      - uses: docker/login-action@v4
+        with:
+          registry: ${{ env.REGISTRY }}
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Build + push image
+        uses: docker/build-push-action@v7
+        with:
+          context: .
+          file: packages/verify-site/Dockerfile
+          push: true
+          tags: |
+            ${{ env.IMAGE }}:sha-${{ github.sha }}
+            ${{ env.IMAGE }}:latest
+          cache-from: type=gha
+          cache-to: type=gha,mode=max
+
+      # Image vulnerability gate: fail on fixed CRITICAL findings (same posture
+      # as the app image). nginx-unprivileged:alpine base, static content only.
+      - name: Trivy image scan
+        uses: aquasecurity/trivy-action@v0.36.0
+        with:
+          image-ref: ${{ env.IMAGE }}:sha-${{ github.sha }}
+          severity: CRITICAL
+          ignore-unfixed: true
+          exit-code: "1"
+          format: table

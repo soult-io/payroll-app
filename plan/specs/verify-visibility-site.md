@@ -92,3 +92,38 @@ exposed, since the site is access-gated rather than public.
 
 The site, its image, the rich cards, and the deploy/gate — chunks B/C/D. Chunk A adds no runtime
 surface to the app and no new container.
+
+---
+
+## 4. Chunk B (PAY-44) — the static site core
+
+**Fork vs fresh (the delegated engineering call): built fresh.** ta-verify's dashboard is
+teacher-assistant-shaped (its journeys, its data). Reusing that code would drag TA concepts into a
+payroll image for no gain. B instead mirrors ta-verify's *pattern* — a zero-dependency generator +
+an unprivileged-nginx static image — against payroll's own `verify-summary` schema.
+
+`@payroll/verify-site` (`packages/verify-site`):
+
+- **Generator** (`src/generate.ts` + pure `src/lib.ts`): reads a directory of `summary.json`,
+  validates each against the chunk-A `verifySummarySchema` (skipping invalid), re-asserts
+  `assertPiiFree` (defense-in-depth), and renders one self-contained, PII-free HTML document — no
+  external requests, inline CSS, light/dark. The pure render (`renderPage`) is unit-tested with
+  independently-derived fixtures; all string interpolation is HTML-escaped.
+- **Surface (core):** latest overall status (pass/fail, timestamp, commit, source); per-suite
+  breakdown (engine / server / e2e) with counts + durations; recent-runs history with per-run pass
+  rate; a link to the folded-in Playwright html report. Rich per-journey / tax-worksheet cards are
+  chunk C.
+- **Image:** `packages/verify-site/Dockerfile` → `ghcr.io/soult-io/payroll-app-verify`, an
+  `nginxinc/nginx-unprivileged:1.27-alpine` (uid 101, port 8080, healthcheck) that serves the
+  pre-generated `dist/`. No build stage — the workflow hands it `dist/`. TLS + the LAN/VPN gate are
+  chunk D.
+
+### 4.1 History / ingest
+
+Run history lives on the orphan **`pay-verify-data`** branch, invisible on `main`. The
+`pay-verify-site` workflow (`workflow_run` after `ci`/`e2e-nightly`, plus `workflow_dispatch`)
+downloads the triggering run's `pay-verify-summary[-nightly]` artifact, appends its `summary.json`
+to `history/<instant>-<runId>.json`, prunes to the newest `HISTORY_KEEP` (60), pushes the branch,
+then generates the site over that history and builds + pushes the digest-pinned image. Only
+main-branch runs feed the site; PR runs never do. History is bounded by the window, not by artifact
+retention.

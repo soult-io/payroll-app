@@ -45,3 +45,7 @@ _reporters/
 # Local data (dev postgres etc.)
 pgdata/
 .claude/
+
+# pay-verify-site workflow scratch (spec 17 chunk B)
+_data/
+_incoming/

@@ -256,6 +256,28 @@ importers:
         specifier: ~5.9.3
         version: 5.9.3
 
+  packages/verify-site:
+    dependencies:
+      '@payroll/verify-summary':
+        specifier: workspace:*
+        version: link:../verify-summary
+      zod:
+        specifier: ~4.4.3
+        version: 4.4.3
+    devDependencies:
+      '@types/node':
+        specifier: ~26.2.0
+        version: 26.2.0
+      tsx:
+        specifier: ~4.20.3
+        version: 4.20.6
+      typescript:
+        specifier: ~5.9.3
+        version: 5.9.3
+      vitest:
+        specifier: ~4.1.10
+        version: 4.1.10(@types/node@26.2.0)(@vitest/coverage-v8@4.1.10)(vite@8.2.1(@types/node@26.2.0)(esbuild@0.28.2)(jiti@2.7.0)(tsx@4.20.6)(yaml@2.9.0))
+
   packages/verify-summary:
     dependencies:
       zod:

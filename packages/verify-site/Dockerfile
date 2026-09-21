@@ -1,0 +1,22 @@
+# syntax=docker/dockerfile:1
+# payroll-app-verify — serves the pre-generated static pay-verify dashboard
+# (index.html + report/) via an unprivileged nginx. The dashboard is produced by
+# the pay-verify-site workflow's generator (packages/verify-site) from the
+# verify-summary history; this image only serves that static output — no app
+# code, no data, PII-free/synthetic, same posture as ta-verify.
+#
+# There is NO build stage here: the workflow generates packages/verify-site/dist
+# (validated + PII-guarded) and hands it to this image via the build context;
+# the image just copies it. Build context is the repo root.
+#
+# SECURITY: nginx-unprivileged runs as non-root (uid 101) on port 8080. Public
+# exposure, TLS and the LAN/VPN access gate are the BCN NPM's job (chunk D); this
+# server is reached by the proxy over the shared docker network.
+FROM nginxinc/nginx-unprivileged:1.27-alpine AS runtime
+COPY packages/verify-site/nginx.conf /etc/nginx/conf.d/default.conf
+# dist/site is the generated document set only (index.html + report/); the
+# compiled generator JS lives at dist/ root and is deliberately not served.
+COPY packages/verify-site/dist/site /usr/share/nginx/html
+EXPOSE 8080
+HEALTHCHECK --interval=30s --timeout=5s --start-period=10s --retries=3 \
+  CMD wget -qO- http://127.0.0.1:8080/ >/dev/null 2>&1 || exit 1
