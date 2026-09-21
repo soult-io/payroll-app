@@ -181,3 +181,140 @@ describe("renderPage", () => {
     expect(html).toContain("not-a-date");
   });
 });
+
+describe("rich cards (chunk C)", () => {
+  const e2eSuite: SuiteResult = {
+    key: "e2e",
+    name: "Playwright journeys",
+    status: "passed",
+    durationMs: 100,
+    counts: { passed: 2, failed: 0, skipped: 0, total: 2 },
+    tests: [
+      {
+        name: "journey 1: onboarding",
+        fullName: "j1",
+        status: "passed",
+        durationMs: 50,
+        file: "tests/journeys.spec.ts",
+      },
+      {
+        name: "journey 2: payroll run",
+        fullName: "j2",
+        status: "passed",
+        durationMs: 50,
+        file: "tests/journeys.spec.ts",
+      },
+    ],
+  };
+  const serverSuite: SuiteResult = {
+    key: "server",
+    name: "Server integration tests",
+    status: "failed",
+    durationMs: 30,
+    counts: { passed: 2, failed: 1, skipped: 0, total: 3 },
+    tests: [
+      {
+        name: "zero credit -> 6.0% net, $420 per employee",
+        fullName: "a",
+        status: "passed",
+        durationMs: 5,
+        file: "/repo/apps/server/test/futa-credit.test.ts",
+      },
+      {
+        name: "fills every computed line",
+        fullName: "b",
+        status: "failed",
+        durationMs: 5,
+        file: "/repo/apps/server/test/f941-pdf.test.ts",
+      },
+      {
+        name: "some non-tax test",
+        fullName: "c",
+        status: "passed",
+        durationMs: 5,
+        file: "/repo/apps/server/test/auth-flows.test.ts",
+      },
+    ],
+  };
+
+  it("renders per-journey cards from the e2e suite", () => {
+    const html = renderPage([summary({ generatedAt: "2026-09-21T00:00:00Z", suites: [e2eSuite] })]);
+    expect(html).toContain("End-to-end journeys");
+    expect(html).toContain("journey 1: onboarding");
+    expect(html).toContain("journey 2: payroll run");
+  });
+
+  it("omits the journeys section when there is no e2e suite", () => {
+    const html = renderPage([
+      summary({ generatedAt: "2026-09-21T00:00:00Z", suites: [serverSuite] }),
+    ]);
+    expect(html).not.toContain("End-to-end journeys");
+  });
+
+  it("groups tax checks into worksheet cards and marks a failing check FAIL", () => {
+    const html = renderPage([
+      summary({ generatedAt: "2026-09-21T00:00:00Z", suites: [serverSuite] }),
+    ]);
+    expect(html).toContain("Tax-worksheet correctness");
+    expect(html).toContain("Form 940 / FUTA");
+    expect(html).toContain("Form 941");
+    expect(html).toContain("zero credit -&gt; 6.0% net, $420 per employee");
+    expect(html).not.toContain("some non-tax test"); // non-tax test excluded from cards
+    expect(html).toContain(">FAIL<"); // the f941 check badge, distinct from the suite's ">FAILED<"
+  });
+
+  it("omits the tax section when no tax-classified tests are present", () => {
+    const nonTax: SuiteResult = {
+      ...serverSuite,
+      tests: [
+        {
+          name: "auth works",
+          fullName: "a",
+          status: "passed",
+          durationMs: 1,
+          file: "/repo/apps/server/test/auth-flows.test.ts",
+        },
+      ],
+    };
+    const html = renderPage([summary({ generatedAt: "2026-09-21T00:00:00Z", suites: [nonTax] })]);
+    expect(html).not.toContain("Tax-worksheet correctness");
+  });
+
+  it("renders a skipped journey with a SKIP badge and skip-edge", () => {
+    const withSkip: SuiteResult = {
+      ...e2eSuite,
+      tests: [
+        {
+          name: "journey 4: live-QA only",
+          fullName: "j4",
+          status: "skipped",
+          durationMs: 0,
+          file: "tests/journeys.spec.ts",
+        },
+      ],
+    };
+    const html = renderPage([summary({ generatedAt: "2026-09-21T00:00:00Z", suites: [withSkip] })]);
+    expect(html).toContain(">SKIP<");
+    expect(html).toContain("skip-edge");
+  });
+
+  it("does not classify an e2e spec as a tax check (e2e excluded from tax cards)", () => {
+    const trickyE2e: SuiteResult = {
+      ...e2eSuite,
+      tests: [
+        {
+          name: "e2e filings view",
+          fullName: "f",
+          status: "passed",
+          durationMs: 1,
+          file: "tests/filings.spec.ts",
+        },
+      ],
+    };
+    const html = renderPage([
+      summary({ generatedAt: "2026-09-21T00:00:00Z", suites: [trickyE2e] }),
+    ]);
+    expect(html).toContain("End-to-end journeys");
+    expect(html).not.toContain("Tax-worksheet correctness"); // e2e spec never becomes a tax card
+  });
+});
