@@ -1,0 +1,33 @@
+{
+  "name": "@payroll/verify-summary",
+  "version": "1.22.0",
+  "private": true,
+  "description": "Versioned, PII-free QA result summary emitted from the test suites and consumed by the pay-verify site (spec 17, chunk A).",
+  "type": "module",
+  "main": "./dist/index.js",
+  "types": "./dist/index.d.ts",
+  "exports": {
+    ".": {
+      "types": "./dist/index.d.ts",
+      "import": "./dist/index.js"
+    }
+  },
+  "bin": {
+    "verify-summary": "./dist/cli.js"
+  },
+  "scripts": {
+    "build": "tsc -p tsconfig.json",
+    "typecheck": "tsc --noEmit -p tsconfig.json",
+    "test": "vitest run",
+    "emit": "tsx src/cli.ts"
+  },
+  "dependencies": {
+    "zod": "~4.4.3"
+  },
+  "devDependencies": {
+    "@types/node": "~26.2.0",
+    "tsx": "~4.20.3",
+    "typescript": "~5.9.3",
+    "vitest": "~4.1.10"
+  }
+}

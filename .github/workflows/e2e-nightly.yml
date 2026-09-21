@@ -69,12 +69,29 @@ jobs:
           E2E_BASE_URL: ${{ secrets.QA_E2E_BASE_URL }}
         run: pnpm --filter @payroll/e2e e2e
 
-      - name: Upload Playwright report on failure
-        if: failure()
+      # Spec 17 §2 (PAY-43): assemble the versioned, PII-free summary from the
+      # nightly Playwright json and publish it (with the html report) on EVERY
+      # run — the ingest source of truth for the pay-verify site. Runs via tsx
+      # (no build) with absolute paths, so cwd does not matter.
+      - name: Assemble verify summary
+        if: always()
+        run: |
+          pnpm --filter @payroll/verify-summary exec tsx "$GITHUB_WORKSPACE/packages/verify-summary/src/cli.ts" \
+            --source nightly \
+            --out "$GITHUB_WORKSPACE/verify-artifacts/summary.json" \
+            --playwright e2e="$GITHUB_WORKSPACE/e2e/playwright-results.json" \
+            --require e2e
+          if [ -d "$GITHUB_WORKSPACE/e2e/playwright-report" ]; then
+            cp -r "$GITHUB_WORKSPACE/e2e/playwright-report" "$GITHUB_WORKSPACE/verify-artifacts/playwright-report"
+          fi
+
+      - name: Upload verify summary + report
+        if: always()
         uses: actions/upload-artifact@v7
         with:
-          name: playwright-qa-report
-          path: e2e/playwright-report/
+          name: pay-verify-summary-nightly
+          path: verify-artifacts/
+          if-no-files-found: ignore
           retention-days: 14
 
       # Failure → GitHub issue, deduped on the 'e2e-nightly' label: comment on
@@ -98,7 +115,7 @@ jobs:
               `- Commit: ${context.sha}`,
               `- Date: ${date}`,
               ``,
-              `See the Playwright report artifact on the run for the failure summary.`,
+              `See the pay-verify-summary-nightly artifact (summary.json + Playwright report) on the run.`,
             ].join("\n");
 
             const { data: issues } = await github.rest.issues.listForRepo({
