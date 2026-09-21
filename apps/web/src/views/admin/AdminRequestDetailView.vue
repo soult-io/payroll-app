@@ -28,6 +28,7 @@ import {
   type AdminEmployeeDetail,
   type ChangeRequest,
   type ChangeRequestComment,
+  type StateElectionRow,
   type W4ElectionRow,
 } from "../../lib/api";
 import { requestTypeLabel, filingStatusLabel } from "../../composables/useRequestTypes";
@@ -48,6 +49,7 @@ const request = ref<ChangeRequest | null>(null);
 const comments = ref<ChangeRequestComment[]>([]);
 const employee = ref<AdminEmployeeDetail | null>(null);
 const currentW4 = ref<W4ElectionRow | null>(null);
+const currentStateElection = ref<StateElectionRow | null>(null);
 
 // Decision controls
 const effectiveFrom = ref<Date | null>(null);
@@ -112,6 +114,19 @@ const currentRows = computed<{ label: string; value: string }[]>(() => {
         { label: "Effective from", value: date(w.effectiveFrom) },
       ];
     }
+    case "state_election": {
+      const s = currentStateElection.value;
+      if (!s) return [{ label: "State election", value: "None on file for this state" }];
+      return [
+        { label: "State", value: s.stateCode },
+        { label: "Filing status", value: filingStatusLabel(s.filingStatus) },
+        { label: "Allowances", value: String(s.allowances) },
+        { label: "Additional allowances", value: String(s.additionalAllowances) },
+        { label: "Extra withholding", value: money(Number(s.extraWithholding)) },
+        { label: "Exempt", value: s.exempt ? "Yes" : "No" },
+        { label: "Effective from", value: date(s.effectiveFrom) },
+      ];
+    }
     default:
       return [];
   }
@@ -136,6 +151,18 @@ async function load() {
         currentW4.value = w4Elections[0] ?? null;
       } catch {
         currentW4.value = null;
+      }
+    }
+    if (detail.request.requestType === "state_election") {
+      try {
+        const stateCode = (detail.request.payload as { stateCode?: string }).stateCode;
+        const { elections } = await adminPayrollApi.stateElections(
+          detail.request.employeeId,
+          stateCode,
+        );
+        currentStateElection.value = elections[0] ?? null;
+      } catch {
+        currentStateElection.value = null;
       }
     }
   } catch (err) {

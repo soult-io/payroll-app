@@ -7,25 +7,45 @@
 import { computed } from "vue";
 import { useField, useForm } from "vee-validate";
 import { toTypedSchema } from "@vee-validate/zod";
-import { stateElectionPayload } from "@payroll/shared";
+import {
+  STATE_ELECTION_EXEMPT_MESSAGE,
+  stateElectionExemptCheck,
+  stateElectionFields,
+} from "@payroll/shared";
 import InputNumber from "primevue/inputnumber";
 import InputText from "primevue/inputtext";
 import Select from "primevue/select";
 import Checkbox from "primevue/checkbox";
 import DatePicker from "primevue/datepicker";
 import Textarea from "primevue/textarea";
-import type { z } from "zod";
+import { z } from "zod";
 
 // Wizard injects effectiveFrom at submit time; validate the rest here.
-const schema = stateElectionPayload.omit({ effectiveFrom: true });
-type StateElectionFormValues = z.input<typeof schema>;
+//
+// Two schemas, one source of truth:
+// - castSafeSchema feeds vee-validate: its initial values MUST parse, because
+//   @vee-validate/zod's cast() walks schema defaults on a failed parse and
+//   crashes on zod v4 ("_def.defaultValue is not a function"). stateCode's
+//   initial value is "" (user must pick a state), so the cast schema also
+//   accepts empty; the strict rule runs in validate().
+// - strictSchema runs manually in validate(): the real regex + the exempt
+//   rule (a .refine()d schema can't go through toTypedSchema either — same
+//   defaults walker chokes on the ZodEffects wrapper).
+const castSafeSchema = stateElectionFields.omit({ effectiveFrom: true }).extend({
+  stateCode: z.string().regex(/^([A-Z]{2})?$/, "expected a 2-letter state code"),
+});
+const strictSchema = stateElectionFields.omit({ effectiveFrom: true }).refine(
+  stateElectionExemptCheck,
+  { message: STATE_ELECTION_EXEMPT_MESSAGE, path: ["exempt"] },
+);
+type StateElectionFormValues = z.input<typeof castSafeSchema>;
 
 // Explicit generic + useField<number> for the numeric fields: primevue 5
 // tightened InputNumber's v-model to Nullable<number>, and defineField
 // returns Ref<unknown> in this vee-validate version — useField<T> is the
 // typed registration path (same workaround as W4RequestForm).
-const { handleSubmit, defineField, errors } = useForm<StateElectionFormValues>({
-  validationSchema: toTypedSchema(schema),
+const { handleSubmit, defineField, setFieldError, errors } = useForm<StateElectionFormValues>({
+  validationSchema: toTypedSchema(castSafeSchema),
   initialValues: {
     stateCode: "",
     filingStatus: "single",
@@ -77,7 +97,17 @@ const filingOptions: { label: string; value: StateElectionFormValues["filingStat
 
 async function validate(): Promise<Record<string, unknown> | null> {
   const result = await handleSubmit(async (values) => values)();
-  return (result as Record<string, unknown> | undefined) ?? null;
+  if (!result) return null;
+  // Strict pass: the real state-code regex + the exempt rule, with issues
+  // mapped back onto their fields (the server re-validates identically).
+  const strict = strictSchema.safeParse(result);
+  if (!strict.success) {
+    for (const issue of strict.error.issues) {
+      setFieldError(issue.path[0] as "stateCode", issue.message);
+    }
+    return null;
+  }
+  return strict.data as Record<string, unknown>;
 }
 
 defineExpose({ validate });

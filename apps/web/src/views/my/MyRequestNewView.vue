@@ -96,9 +96,17 @@ async function submit() {
   }
   busy.value = true;
   try {
+    // The w4/state_election payload schemas carry effectiveFrom too (the
+    // server validates it before the top-level value overrides it) — merge
+    // the wizard's date in for those types. (This also fixes W-4 submits,
+    // which were 400ing on the missing payload key.)
+    const mergesEffectiveFrom =
+      selectedType.value === "w4" || selectedType.value === "state_election";
     const { request } = await changeRequestsApi.submit({
       requestType: selectedType.value,
-      payload: payload.value,
+      payload: mergesEffectiveFrom
+        ? { ...payload.value, effectiveFrom: effectiveIso }
+        : payload.value,
       effectiveFrom: effectiveIso,
     });
     notify.success("Request submitted", "Your administrator will review it.");
