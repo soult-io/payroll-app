@@ -73,3 +73,19 @@ describe("findPii — planted PII", () => {
     expect(() => assertPiiFree({ a: { b: "reach me at jane@evil.example.io" } })).toThrow(/email/);
   });
 });
+
+describe("findPii — ReDoS resistance (bounded regex)", () => {
+  it("returns fast on a pathological non-matching string", () => {
+    // A naive email regex backtracks polynomially here; the bounded one is linear.
+    const evil = `${"%".repeat(50_000)}@${"a".repeat(50_000)}`;
+    const start = Date.now();
+    const found = findPii(evil);
+    expect(Date.now() - start).toBeLessThan(1000);
+    // No TLD (no dotted domain) → not a valid email match → no finding.
+    expect(found).toEqual([]);
+  });
+
+  it("still flags a normal email after the change", () => {
+    expect(findPii("x@sub.gmail.com").map((f) => f.kind)).toContain("email");
+  });
+});

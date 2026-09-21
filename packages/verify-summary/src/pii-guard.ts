@@ -16,7 +16,10 @@
 const RESERVED_TLDS = [".test", ".example", ".invalid", ".localhost"];
 const RESERVED_DOMAINS = ["example.com", "example.net", "example.org"];
 
-const EMAIL_RE = /[a-z0-9._%+-]+@([a-z0-9.-]+\.[a-z]{2,})/gi;
+// Bounded, unambiguous (dot only as a literal separator, never inside a label)
+// so the match is linear — avoids the polynomial-ReDoS a naive email regex has
+// on uncontrolled input. Group 1 is the whole domain. Lengths follow RFC limits.
+const EMAIL_RE = /[a-z0-9._%+-]{1,64}@([a-z0-9-]{1,63}(?:\.[a-z0-9-]{1,63}){0,9}\.[a-z]{2,24})/gi;
 const SSN_RE = /\b\d{3}-\d{2}-\d{4}\b/g;
 const EIN_RE = /\b\d{2}-\d{7}\b/g;
 const PHONE_RE = /(?:\+?1[-.\s]?)?\(?\d{3}\)?[-.\s]\d{3}[-.\s]\d{4}\b/g;
