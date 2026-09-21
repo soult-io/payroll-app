@@ -4,6 +4,47 @@ All notable changes to this project will be documented here. Format follows
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/); versioning follows
 [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [1.22.0] - 2026-09-21
+
+### Added
+
+- **Per-state income-tax withholding, phase 2 (PAY-13)** — full state coverage
+  and the employee self-service flow:
+  - **2026 seed data for all 50 states + DC**: 48 new
+    `state-taxes/<ST>-2026.json` seed files — 39 income-tax states + DC with
+    official-source citations (incl. mid-2026 legislative updates: AR HB 1001,
+    GA HB 463, IN 2.95%, KY 3.5%, NC 4.09%, WV SB 392, HI lump-sum allowance),
+    plus explicit `kind='none'` rows for the 8 no-income-tax states. Rules
+    that don't fit the engine's config shape are encoded as the closest
+    documented fit (exceptions tracked on the Plane issue; MD county tax is
+    the loudest omission).
+  - **80 golden fixture tests** (`payroll-state-all.test.ts`) cross-checked by
+    an independent Python implementation of the documented engine semantics
+    (`scripts/gen-state-golden.py`).
+  - **Employee state-election change requests**, mirroring the PAY-8 W-4
+    flow: shared `stateElectionPayload` schema (exempt ⇒ no allowances/extra,
+    same rule as the admin route), `state_election` request type end to end —
+    DB check constraint migration, append-only INSERT into
+    `state_withholding_elections` on admin approval, effective-date guard,
+    audit + outbox notifications, wizard type card + form, payload rendering,
+    and the admin current-vs-proposed diff.
+  - **Export API per-jurisdiction breakdown**: each exported run carries
+    `stateJurisdiction` (the work state frozen in the run snapshot; `null`
+    for legacy flat-rate runs), the JSON response totals
+    `stateWithholding.byJurisdiction` for state quarterly filings, and the CSV
+    gains a trailing `state_jurisdiction` column (existing column positions
+    unchanged).
+  - **QA E2E employee journey** (ephemeral): wizard submit → admin approve →
+    election on the State tax tab → generate/approve/issue → payslip shows
+    the computed state withholding (golden $195.93 for the IL scenario).
+
+### Fixed
+
+- The change-request wizard now merges `effectiveFrom` into the submit
+  payload for `w4`/`state_election` — the server validates the key inside the
+  payload before the top-level value overrides it, so W-4 web submits were
+  failing with `invalid_payload`.
+
 ## [1.21.0] - 2026-09-21
 
 ### Added
