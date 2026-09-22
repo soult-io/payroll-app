@@ -20,7 +20,12 @@ import {
 import { useMoney } from "../../composables/useMoney";
 import { useDates } from "../../composables/useDates";
 import { useNotify } from "../../composables/useNotify";
-import { useQueryEnum, useQueryNumber, useSelectAll } from "../../composables/useQueryFilters";
+import {
+  useQueryEnum,
+  useQueryNumber,
+  SELECT_ALL,
+  useSelectAll,
+} from "../../composables/useQueryFilters";
 
 const route = useRoute();
 const router = useRouter();
@@ -44,7 +49,7 @@ const statusFilter = useQueryEnum<RunStatus>("status", null, [
 ]);
 const statusSelect = useSelectAll(statusFilter);
 const statusOptions = [
-  { label: "All statuses", value: "" },
+  { label: "All statuses", value: SELECT_ALL },
   { label: "Draft", value: "draft" },
   { label: "Awaiting approval", value: "awaiting_approval" },
   { label: "Approved", value: "approved" },
