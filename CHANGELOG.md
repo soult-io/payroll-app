@@ -4,6 +4,33 @@ All notable changes to this project will be documented here. Format follows
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/); versioning follows
 [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [1.24.0] - 2026-09-22
+
+### Added
+
+- **pay-verify static QA dashboard (PAY-44/PAY-45, spec 17)** — a PII-free
+  static site rebuilt nightly from the emitted QA result summary: latest
+  overall pass/fail with timestamp/commit, run-history trend, per-suite
+  breakdown (e2e, unit/integration, tax fixtures), rich per-journey e2e
+  cards, and tax-worksheet correctness cards (940/941, FUTA, state
+  withholding) shown as expected-vs-actual, plus a deep link to the full
+  HTML report. Published as `ghcr.io/soult-io/payroll-app-verify`; the
+  dashboard defaults to dark mode.
+
+### Fixed
+
+- **Filter dropdowns show their default "All …" label (PAY-42)** — the
+  status/form/jurisdiction filters on the Payroll runs, Tax filings, and
+  Tax deposits admin lists rendered blank on load. PrimeVue wipes null and
+  empty-string Select models at mount (`$formDefaultValue` watcher +
+  `findNonEmpty`), so `value: null`/`""` "All …" options never matched.
+  The query-backed filters now bind through a `useSelectAll` adapter with a
+  non-empty `SELECT_ALL` sentinel; URL/bookmarkable-filter semantics
+  (PAY-17) are unchanged.
+- **pay-verify site build is resilient to a missing summary artifact** —
+  the dashboard build no longer fails when a nightly hasn't emitted a
+  summary yet.
+
 ## [1.23.0] - 2026-09-21
 
 ### Added
