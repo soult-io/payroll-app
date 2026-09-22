@@ -62,6 +62,10 @@ jobs:
       # ci → pay-verify-summary; nightly → pay-verify-summary-nightly.
       - name: Download summary artifact
         if: github.event_name == 'workflow_run'
+        # Tolerate a missing artifact: a skipped/queued nightly (self-hosted
+        # qa-e2e runner asleep) or an expired artifact legitimately has none.
+        # The Ingest step warns and rebuilds the site from existing history.
+        continue-on-error: true
         uses: actions/download-artifact@v7
         with:
           name: ${{ github.event.workflow_run.name == 'e2e-nightly' && 'pay-verify-summary-nightly' || 'pay-verify-summary' }}
@@ -89,8 +93,8 @@ jobs:
         if: github.event_name == 'workflow_run'
         run: |
           if [ ! -f _incoming/summary.json ]; then
-            echo "::error::no summary.json in the triggering run's artifact — chunk-A emission is broken"
-            exit 1
+            echo "::warning::no summary.json from the triggering run (skipped/queued nightly, or an expired artifact) — skipping ingest; the site still rebuilds from existing history"
+            exit 0
           fi
           TS=$(date -u +%Y%m%dT%H%M%SZ)
           RID="${{ github.event.workflow_run.id }}"
