@@ -58,16 +58,24 @@ export function useQueryEnum<T extends string>(
 /**
  * PrimeVue Select renders a blank label for a null model instead of matching
  * a `value: null` option. Adapt a nullable query filter to a Select model
- * where "" is the "All …" sentinel: the Select shows the "All …" option's
- * label while the underlying filter keeps null (param omitted from the URL).
+ * where SELECT_ALL is the "All …" sentinel: the Select shows the "All …"
+ * option's label while the underlying filter keeps null (param omitted from
+ * the URL).
+ *
+ * The sentinel must be a NON-EMPTY string: PrimeVue's `$formDefaultValue`
+ * watcher (BaseEditableHolder) runs `findNonEmpty(d_value, …)` at mount, and
+ * `isNotEmpty("")` is false — a "" model is wiped to undefined on creation,
+ * so `value: ""` options never match either. "all" survives.
  */
+export const SELECT_ALL = "all";
+
 export function useSelectAll<T extends string>(
   filter: WritableComputedRef<T | null>,
-): WritableComputedRef<T | ""> {
+): WritableComputedRef<T | typeof SELECT_ALL> {
   return computed({
-    get: () => filter.value ?? "",
+    get: () => filter.value ?? SELECT_ALL,
     set: (v) => {
-      filter.value = v === "" ? null : v;
+      filter.value = v === SELECT_ALL ? null : v;
     },
   });
 }

@@ -26,7 +26,12 @@ import {
 } from "../../lib/api";
 import { useDates } from "../../composables/useDates";
 import { useNotify } from "../../composables/useNotify";
-import { useQueryEnum, useQueryNumber, useSelectAll } from "../../composables/useQueryFilters";
+import {
+  useQueryEnum,
+  useQueryNumber,
+  SELECT_ALL,
+  useSelectAll,
+} from "../../composables/useQueryFilters";
 
 const route = useRoute();
 const router = useRouter();
@@ -59,7 +64,7 @@ const statusFilter = useQueryEnum<TaxFilingStatus>("status", null, [
 ]);
 const statusSelect = useSelectAll(statusFilter);
 const statusOptions = [
-  { label: "All statuses", value: "" },
+  { label: "All statuses", value: SELECT_ALL },
   { label: "Not started", value: "not_started" },
   { label: "Ready", value: "ready" },
   { label: "Filed", value: "filed" },
@@ -68,7 +73,7 @@ const statusOptions = [
 const formFilter = useQueryEnum<TaxFormType>("form", null, ["941", "940", "w2_w3"]);
 const formSelect = useSelectAll(formFilter);
 const formOptions = [
-  { label: "All forms", value: "" },
+  { label: "All forms", value: SELECT_ALL },
   { label: "Form 941", value: "941" },
   { label: "Form 940", value: "940" },
   { label: "W-2/W-3", value: "w2_w3" },

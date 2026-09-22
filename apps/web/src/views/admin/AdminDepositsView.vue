@@ -26,6 +26,7 @@ import { useDates } from "../../composables/useDates";
 import { useMoney } from "../../composables/useMoney";
 import { useNotify } from "../../composables/useNotify";
 import {
+  SELECT_ALL,
   useQueryEnum,
   useQueryNumber,
   useQueryParam,
@@ -70,7 +71,7 @@ const rows = ref<TaxDepositRow[]>([]);
 const statusFilter = useQueryEnum("status", null, ["pending", "deposited", "overdue"] as const);
 const statusSelect = useSelectAll(statusFilter);
 const statusOptions = [
-  { label: "All statuses", value: "" },
+  { label: "All statuses", value: SELECT_ALL },
   { label: "Pending", value: "pending" },
   { label: "Deposited", value: "deposited" },
   { label: "Overdue", value: "overdue" },
@@ -88,7 +89,7 @@ const yearOptions = ref<{ label: string; value: number | null }[]>([
 ]);
 
 const jurisdictionOptions = ref<{ label: string; value: string }[]>([
-  { label: "All jurisdictions", value: "" },
+  { label: "All jurisdictions", value: SELECT_ALL },
 ]);
 
 async function load() {
@@ -291,7 +292,7 @@ onMounted(async () => {
       return a < b ? -1 : a > b ? 1 : 0;
     });
     jurisdictionOptions.value = [
-      { label: "All jurisdictions", value: "" },
+      { label: "All jurisdictions", value: SELECT_ALL },
       ...jurisdictions.map((j) => ({
         label: j === "federal" ? "Federal" : j,
         value: j,
