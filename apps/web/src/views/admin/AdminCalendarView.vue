@@ -141,6 +141,8 @@ const KIND_META: Record<CalendarEventKind, { cls: string; legend: string }> = {
   deposit_made: { cls: "kind-deposit", legend: "941 deposit made" },
   filing_due: { cls: "kind-filing", legend: "Filing deadline" },
   filing_filed: { cls: "kind-filing", legend: "Filing filed" },
+  filing_generates: { cls: "kind-filing-projected", legend: "Filing generates (projected)" },
+  filing_due_projected: { cls: "kind-filing-projected", legend: "Filing deadline (projected)" },
   w8_expiry: { cls: "kind-w8", legend: "W-8 form expiry" },
 };
 
@@ -149,6 +151,7 @@ const legend = [
   { cls: "kind-contractor", label: "Contractor invoices & payments" },
   { cls: "kind-deposit", label: "Tax deposits" },
   { cls: "kind-filing", label: "Filings" },
+  { cls: "kind-filing-projected", label: "Projected filings" },
   { cls: "kind-w8", label: "W-8 expiries" },
 ];
 
@@ -161,7 +164,7 @@ function open(event: CalendarEvent) {
   <div class="page stack">
     <PageHeader
       title="Calendar"
-      subtitle="One month of company date obligations — paydays, contractor invoices and payments, tax deposits, filing deadlines, and W-8 expiries. Read-only; events open the matching detail view."
+      subtitle="One month of company date obligations — paydays, contractor invoices and payments, tax deposits, filing deadlines, projected filing generation/due dates, and W-8 expiries. Read-only; events open the matching detail view."
     >
       <Button icon="pi pi-chevron-left" text rounded aria-label="Previous month" @click="shiftMonth(-1)" />
       <Button label="Today" text size="small" @click="goToday" />
@@ -295,6 +298,11 @@ function open(event: CalendarEvent) {
 .kind-filing {
   background: var(--p-purple-100, #f3e8ff);
   color: var(--p-purple-800, #6b21a8);
+}
+.kind-filing-projected {
+  background: var(--p-purple-50, #faf5ff);
+  color: var(--p-purple-800, #6b21a8);
+  border: 1px dashed var(--p-purple-300, #d8b4fe);
 }
 .kind-w8 {
   background: var(--p-red-100, #fee2e2);
