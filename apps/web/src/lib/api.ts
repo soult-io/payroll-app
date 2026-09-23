@@ -976,6 +976,7 @@ export interface TaxDepositRow {
   amount: string;
   dueDate: string;
   status: TaxDepositStatus;
+  periodKind: "month" | "quarter";
   depositedOn: string | null;
   eftpsConfirmation: string | null;
   remindersSent: number[];

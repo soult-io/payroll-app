@@ -1106,3 +1106,30 @@ export const stateWithholdingElections = pgTable(
     check("state_withholding_elections_additional_check", sql`${t.additionalAllowances} >= 0`),
   ],
 );
+
+// ---------------------------------------------------------------------------
+// 13. PAY-48 — per-state deposit due-date schedules
+// ---------------------------------------------------------------------------
+
+export const stateDepositSchedules = pgTable(
+  "state_deposit_schedules",
+  {
+    id: serial("id").primaryKey(),
+    stateCode: text("state_code").notNull(),
+    taxYear: integer("tax_year").notNull(),
+    frequency: text("frequency").notNull(),
+    dueDay: integer("due_day"),
+    note: text("note").notNull().default(""),
+    source: text("source").notNull().default(""),
+    createdAt: createdAt(),
+    updatedAt: updatedAt(),
+  },
+  (t) => [
+    unique("state_deposit_schedules_state_year_uniq").on(t.stateCode, t.taxYear),
+    check("state_deposit_schedules_state_code_check", sql`${t.stateCode} ~ '^[A-Z]{2}$'`),
+    check(
+      "state_deposit_schedules_frequency_check",
+      sql`${t.frequency} IN ('monthly','quarterly')`,
+    ),
+  ],
+);

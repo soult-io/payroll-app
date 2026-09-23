@@ -15,7 +15,7 @@
  */
 
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
-import { and, desc, eq, ne } from "drizzle-orm";
+import { and, desc, eq, ne, sql } from "drizzle-orm";
 import {
   auditEvents,
   company,
@@ -25,6 +25,7 @@ import {
   payrollEntries,
   payrollRuns,
   seedDatabase,
+  stateDepositSchedules,
   taxDeposits,
   type SeedDb,
 } from "@payroll/db";
@@ -35,7 +36,14 @@ import {
   DEFAULT_REMINDER_OFFSETS,
   DEPOSIT_CATEGORIES,
   dueDateFor,
+  getDepositDetail,
+  listDeposits,
+  periodKindForDeposit,
+  periodStartFor,
+  quarterOfMonth,
   sendDepositReminders,
+  stateDueDateFor,
+  statePeriodStartFor,
   syncDeposits,
 } from "../src/deposits/service.js";
 import { createTestApp, type TestContext } from "./helpers.js";
@@ -129,6 +137,26 @@ async function depositRow(periodStart: string) {
     .select()
     .from(taxDeposits)
     .where(and(eq(taxDeposits.jurisdiction, "federal"), eq(taxDeposits.periodStart, periodStart)));
+  return rows[0];
+}
+
+/** Assign an effective-dated work state via the admin route (PAY-13). */
+async function assignWorkState(employeeId: number, stateCode: string, effectiveFrom: string) {
+  const res = await api("PUT", `/api/admin/employees/${employeeId}/work-state`, {
+    stateCode,
+    effectiveFrom,
+  });
+  expect(res.statusCode, res.body).toBe(201);
+}
+
+/** Get a deposit row by jurisdiction and periodStart. */
+async function stateDepositRow(jurisdiction: string, periodStart: string) {
+  const rows = await t.db
+    .select()
+    .from(taxDeposits)
+    .where(
+      and(eq(taxDeposits.jurisdiction, jurisdiction), eq(taxDeposits.periodStart, periodStart)),
+    );
   return rows[0];
 }
 
@@ -721,45 +749,13 @@ describe("admin deposit detail endpoint (PAY-36)", () => {
 // ---------------------------------------------------------------------------
 
 describe("PAY-13 state deposits", () => {
-  /** Assign an effective-dated work state via the admin route (PAY-13). */
-  async function assignWorkState(employeeId: number, stateCode: string, effectiveFrom: string) {
-    const res = await api("PUT", `/api/admin/employees/${employeeId}/work-state`, {
-      stateCode,
-      effectiveFrom,
-    });
-    expect(res.statusCode, res.body).toBe(201);
-  }
-
-  /** The run's frozen state_withholding entry (asserts exactly one exists). */
-  async function stateWithholdingFor(runId: number): Promise<string> {
-    const rows = await t.db
-      .select({ amount: payrollEntries.amount })
-      .from(payrollEntries)
-      .where(
-        and(eq(payrollEntries.runId, runId), eq(payrollEntries.category, "state_withholding")),
-      );
-    expect(rows).toHaveLength(1);
-    expect(Number(rows[0]!.amount)).toBeGreaterThan(0);
-    return rows[0]!.amount;
-  }
-
-  async function stateDepositRow(jurisdiction: string, periodStart: string) {
-    const rows = await t.db
-      .select()
-      .from(taxDeposits)
-      .where(
-        and(eq(taxDeposits.jurisdiction, jurisdiction), eq(taxDeposits.periodStart, periodStart)),
-      );
-    return rows[0];
-  }
-
   it("creates a state deposit row for a (state, month) with issued state-withholding runs", async () => {
     const employee = await createEmployee();
     await addCompensation(employee, 3500);
     await assignWorkState(employee, "IL", "2026-01-01");
 
     const run = await issueRun(employee, 2026, 7);
-    const expected = await stateWithholdingFor(run.id);
+    const expected = await stateWithholdingForRunId(run.id);
     // The frozen snapshot is the jurisdiction source.
     const snapshot = run.runSnapshot as { inputs: { state?: { workState?: string } } };
     expect(snapshot.inputs.state?.workState).toBe("IL");
@@ -784,13 +780,13 @@ describe("PAY-13 state deposits", () => {
 
     const ilRun = await issueRun(ilEmployee, 2026, 8);
     const caRun = await issueRun(caEmployee, 2026, 8);
-    const ilExpected = await stateWithholdingFor(ilRun.id);
-    const caExpected = await stateWithholdingFor(caRun.id);
+    const ilExpected = await stateWithholdingForRunId(ilRun.id);
+    const caExpected = await stateWithholdingForRunId(caRun.id);
 
     await syncDeposits({ db: t.db, config: t.config }, { today: "2026-09-10" });
 
     const il = await stateDepositRow("IL", "2026-08-01");
-    const ca = await stateDepositRow("CA", "2026-08-01");
+    const ca = await stateDepositRow("CA", "2026-07-01");
     expect(il!.amount).toBe(ilExpected);
     expect(ca!.amount).toBe(caExpected);
 
@@ -820,7 +816,7 @@ describe("PAY-13 state deposits", () => {
     await addCompensation(first, 3500);
     await assignWorkState(first, "IL", "2026-01-01");
     const run1 = await issueRun(first, 2026, 10);
-    const amount1 = await stateWithholdingFor(run1.id);
+    const amount1 = await stateWithholdingForRunId(run1.id);
 
     await syncDeposits({ db: t.db, config: t.config }, { today: "2026-11-10" });
     const sync2 = await syncDeposits({ db: t.db, config: t.config }, { today: "2026-11-10" });
@@ -834,7 +830,7 @@ describe("PAY-13 state deposits", () => {
     await addCompensation(second, 2000);
     await assignWorkState(second, "IL", "2026-01-01");
     const run2 = await issueRun(second, 2026, 10);
-    const amount2 = await stateWithholdingFor(run2.id);
+    const amount2 = await stateWithholdingForRunId(run2.id);
 
     const sync3 = await syncDeposits({ db: t.db, config: t.config }, { today: "2026-11-11" });
     row = await stateDepositRow("IL", "2026-10-01");
@@ -868,7 +864,7 @@ describe("PAY-13 state deposits", () => {
     await assignWorkState(employee, "IL", "2026-01-01");
 
     const run = await issueRun(employee, 2026, 11);
-    const expected = await stateWithholdingFor(run.id);
+    const expected = await stateWithholdingForRunId(run.id);
 
     await syncDeposits({ db: t.db, config: t.config }, { today: "2026-12-10" });
 
@@ -908,7 +904,7 @@ describe("PAY-13 state deposits", () => {
 
     const ilRun = await issueRun(ilEmployee, 2026, 12);
     await issueRun(caEmployee, 2026, 12);
-    const ilExpected = await stateWithholdingFor(ilRun.id);
+    const ilExpected = await stateWithholdingForRunId(ilRun.id);
 
     await syncDeposits({ db: t.db, config: t.config }, { today: "2027-01-10" });
 
@@ -946,4 +942,239 @@ describe("PAY-13 state deposits", () => {
     expect(detail.runs).toHaveLength(1);
     expect(detail.runs[0]!.publicId).toBe(ilRun.publicId);
   });
+
+  // PAY-48 — quarterly-frequency states (NY seeded quarterly, due last day of
+  // the month following quarter end). Uses NY + Q1 2026, which no other test
+  // in this file touches (the shared PGlite instance makes cross-test state
+  // visible — CA Q3/Q4 and IL months are already taken).
+  it("quarterly state (NY): one row per quarter aggregating all months, created on the first run, recomputed while pending", async () => {
+    const first = await createEmployee();
+    await addCompensation(first, 4000);
+    await assignWorkState(first, "NY", "2026-01-01");
+    const janRun = await issueRun(first, 2026, 1);
+    const janExpected = await stateWithholdingForRunId(janRun.id);
+
+    // The row appears as soon as the quarter's first issued run lands.
+    await syncDeposits({ db: t.db, config: t.config }, { today: "2026-01-20" });
+    let row = await stateDepositRow("NY", "2026-01-01");
+    expect(row).toBeDefined();
+    expect(row!.amount).toBe(janExpected);
+    // Q1 2026 → due last day of the month following quarter end; 2026-04-30
+    // is a Thursday, so no weekend roll.
+    expect(row!.dueDate).toBe("2026-04-30");
+    expect(row!.status).toBe("pending");
+
+    // A second NY run in March of the SAME quarter aggregates into the same
+    // row — no separate March row, amount is the Jan+Mar sum.
+    const second = await createEmployee();
+    await addCompensation(second, 2500);
+    await assignWorkState(second, "NY", "2026-01-01");
+    const marRun = await issueRun(second, 2026, 3);
+    const marExpected = await stateWithholdingForRunId(marRun.id);
+
+    await syncDeposits({ db: t.db, config: t.config }, { today: "2026-04-10" });
+    const quarterTotal = round2(Number(janExpected) + Number(marExpected)).toFixed(2);
+    row = await stateDepositRow("NY", "2026-01-01");
+    expect(row!.amount).toBe(quarterTotal);
+
+    const nyRows = await t.db.select().from(taxDeposits).where(eq(taxDeposits.jurisdiction, "NY"));
+    expect(nyRows).toHaveLength(1);
+
+    // periodKind surfaces through the list payload.
+    const list = await listDeposits(t.db, { jurisdiction: "NY" });
+    expect(list).toHaveLength(1);
+    expect(list[0]!.periodKind).toBe("quarter");
+
+    // The detail view spans the whole quarter: one state_withholding
+    // breakdown row with the quarter sum, both contributing runs listed.
+    const detail = await getDepositDetail(t.db, row!.id);
+    expect(detail).not.toBeNull();
+    expect(detail!.deposit.periodKind).toBe("quarter");
+    expect(detail!.breakdown).toHaveLength(1);
+    expect(detail!.breakdown[0]!.category).toBe("state_withholding");
+    expect(detail!.breakdown[0]!.amount).toBe(quarterTotal);
+    expect(detail!.runs.map((r) => r.publicId).sort()).toEqual(
+      [janRun.publicId, marRun.publicId].sort(),
+    );
+  });
 });
+
+// ---------------------------------------------------------------------------
+// Defect fixes and periodKind tests
+// ---------------------------------------------------------------------------
+
+describe("periodKindForDeposit (Defect 2 fix)", () => {
+  it("returns 'month' for federal, 'quarter' for quarterly schedules based on periodStart year", async () => {
+    const scheduleMap = new Map<string, { frequency: "monthly" | "quarterly" }>();
+    scheduleMap.set("CA:2026", { frequency: "quarterly" });
+    scheduleMap.set("IL:2026", { frequency: "monthly" });
+
+    expect(periodKindForDeposit("federal", scheduleMap, "2026-07-01")).toBe("month");
+    expect(periodKindForDeposit("CA", scheduleMap, "2026-07-01")).toBe("quarter");
+    expect(periodKindForDeposit("CA", scheduleMap, "2026-04-01")).toBe("quarter");
+    expect(periodKindForDeposit("CA", scheduleMap, "2027-01-01")).toBe("month");
+    expect(periodKindForDeposit("IL", scheduleMap, "2026-07-01")).toBe("month");
+    expect(periodKindForDeposit("TX", scheduleMap, "2026-07-01")).toBe("month");
+  });
+
+  it("uses the year from periodStart, not the current year", async () => {
+    const scheduleMap = new Map<string, { frequency: "monthly" | "quarterly" }>();
+    scheduleMap.set("CA:2025", { frequency: "quarterly" });
+
+    // For a 2025 period, should check CA:2025, not CA:2026
+    expect(periodKindForDeposit("CA", scheduleMap, "2025-07-01")).toBe("quarter");
+  });
+});
+
+describe("state Due Date Tests (golden dates)", () => {
+  it("IL monthly dueDay 15: Aug 2026 (15th Saturday) → 17th Monday", () => {
+    const schedule = { frequency: "monthly" as const, dueDay: 15 };
+    const due = stateDueDateFor(schedule, 2026, "2026-07-01");
+    expect(due).toBe("2026-08-17");
+  });
+
+  it("IL monthly dueDay 15: Sep 2026 (15th Tuesday) → 15th (no roll)", () => {
+    const schedule = { frequency: "monthly" as const, dueDay: 15 };
+    const due = stateDueDateFor(schedule, 2026, "2026-08-01");
+    expect(due).toBe("2026-09-15");
+  });
+
+  it("CA quarterly last day: Q3 (Oct 31 Saturday) → Nov 2 Monday", () => {
+    const schedule = { frequency: "quarterly" as const, dueDay: null };
+    const due = stateDueDateFor(schedule, 2026, "2026-07-01");
+    expect(due).toBe("2026-11-02");
+  });
+
+  it("CA quarterly last day: Q1 (Apr 30 Thursday) → Apr 30 (no roll)", () => {
+    const schedule = { frequency: "quarterly" as const, dueDay: null };
+    const due = stateDueDateFor(schedule, 2026, "2026-01-01");
+    expect(due).toBe("2026-04-30");
+  });
+
+  it("NY quarterly last day: Q2 (Jul 31 Friday) → Jul 31 (no roll)", () => {
+    const schedule = { frequency: "quarterly" as const, dueDay: null };
+    const due = stateDueDateFor(schedule, 2026, "2026-04-01");
+    expect(due).toBe("2026-07-31");
+  });
+
+  it("MD quarterly dueDay 15: Q2 (Jul 15 Wednesday) → Jul 15 (no roll)", () => {
+    const schedule = { frequency: "quarterly" as const, dueDay: 15 };
+    const due = stateDueDateFor(schedule, 2026, "2026-04-01");
+    expect(due).toBe("2026-07-15");
+  });
+
+  it("NC quarterly last day: Q4 (Jan 31 Sunday) → Feb 1 Monday", () => {
+    const schedule = { frequency: "quarterly" as const, dueDay: null };
+    const due = stateDueDateFor(schedule, 2026, "2026-10-01");
+    expect(due).toBe("2027-02-01");
+  });
+
+  it("GA (no schedule) uses federal fallback: Aug 2026 (15th Saturday) → 17th Monday", () => {
+    const due = stateDueDateFor(null, 2026, "2026-07-01");
+    expect(due).toBe("2026-08-17");
+  });
+});
+
+describe("quarterOfMonth helper", () => {
+  it("maps months 1-12 to quarters 1-4", () => {
+    expect(quarterOfMonth(1)).toBe(1);
+    expect(quarterOfMonth(3)).toBe(1);
+    expect(quarterOfMonth(4)).toBe(2);
+    expect(quarterOfMonth(6)).toBe(2);
+    expect(quarterOfMonth(7)).toBe(3);
+    expect(quarterOfMonth(9)).toBe(3);
+    expect(quarterOfMonth(10)).toBe(4);
+    expect(quarterOfMonth(12)).toBe(4);
+  });
+});
+
+describe("statePeriodStartFor helper", () => {
+  it("returns monthly period for monthly schedule or no schedule", () => {
+    expect(statePeriodStartFor(null, 2026, 7)).toBe("2026-07-01");
+    expect(statePeriodStartFor({ frequency: "monthly" }, 2026, 7)).toBe("2026-07-01");
+  });
+
+  it("returns quarter start for quarterly schedule", () => {
+    expect(statePeriodStartFor({ frequency: "quarterly" }, 2026, 1)).toBe("2026-01-01");
+    expect(statePeriodStartFor({ frequency: "quarterly" }, 2026, 3)).toBe("2026-01-01");
+    expect(statePeriodStartFor({ frequency: "quarterly" }, 2026, 4)).toBe("2026-04-01");
+    expect(statePeriodStartFor({ frequency: "quarterly" }, 2026, 6)).toBe("2026-04-01");
+    expect(statePeriodStartFor({ frequency: "quarterly" }, 2026, 7)).toBe("2026-07-01");
+    expect(statePeriodStartFor({ frequency: "quarterly" }, 2026, 9)).toBe("2026-07-01");
+    expect(statePeriodStartFor({ frequency: "quarterly" }, 2026, 10)).toBe("2026-10-01");
+    expect(statePeriodStartFor({ frequency: "quarterly" }, 2026, 12)).toBe("2026-10-01");
+  });
+});
+
+async function stateWithholdingFor(
+  arg1: number | { id: number },
+  year?: number,
+  month?: number,
+): Promise<string> {
+  let employeeId: number;
+  let runYear: number;
+  let runMonth: number;
+
+  if (typeof arg1 === "number") {
+    employeeId = arg1;
+    runYear = year!;
+    runMonth = month!;
+  } else {
+    const emp = arg1;
+    const runs = await t.db
+      .select()
+      .from(payrollRuns)
+      .where(
+        and(
+          eq(payrollRuns.employeeId, emp.id),
+          sql`date_trunc('month', ${payrollRuns.payDate})::date = ${periodStartFor(year!, month!)}::date`,
+          eq(payrollRuns.status, "issued"),
+        ),
+      );
+    const run = runs[0];
+    if (!run) {
+      throw new Error(`No issued run found for employee ${emp.id} in ${year}-${month}`);
+    }
+    const rows = await t.db
+      .select({ amount: payrollEntries.amount })
+      .from(payrollEntries)
+      .where(
+        and(eq(payrollEntries.runId, run.id), eq(payrollEntries.category, "state_withholding")),
+      );
+    expect(rows).toHaveLength(1);
+    expect(Number(rows[0]!.amount)).toBeGreaterThan(0);
+    return rows[0]!.amount;
+  }
+
+  const runs = await t.db
+    .select()
+    .from(payrollRuns)
+    .where(
+      and(
+        eq(payrollRuns.employeeId, employeeId),
+        sql`date_trunc('month', ${payrollRuns.payDate})::date = ${periodStartFor(runYear, runMonth)}::date`,
+        eq(payrollRuns.status, "issued"),
+      ),
+    );
+  const run = runs[0];
+  if (!run) {
+    throw new Error(`No issued run found for employee ${employeeId} in ${runYear}-${runMonth}`);
+  }
+  const rows = await t.db
+    .select({ amount: payrollEntries.amount })
+    .from(payrollEntries)
+    .where(and(eq(payrollEntries.runId, run.id), eq(payrollEntries.category, "state_withholding")));
+  expect(rows).toHaveLength(1);
+  expect(Number(rows[0]!.amount)).toBeGreaterThan(0);
+  return rows[0]!.amount;
+}
+
+async function stateWithholdingForRunId(runId: number): Promise<string> {
+  const rows = await t.db
+    .select({ amount: payrollEntries.amount })
+    .from(payrollEntries)
+    .where(and(eq(payrollEntries.runId, runId), eq(payrollEntries.category, "state_withholding")));
+  expect(rows).toHaveLength(1);
+  expect(Number(rows[0]!.amount)).toBeGreaterThan(0);
+  return rows[0]!.amount;
+}

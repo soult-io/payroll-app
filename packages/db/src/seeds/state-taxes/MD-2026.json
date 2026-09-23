@@ -2,6 +2,12 @@
   "state": "MD",
   "taxYear": 2026,
   "source": "Maryland Comptroller 2026 withholding formula (MW 507 basis, reproduced in NFC bulletin NFC-26-1783003892, eff. pay period 12-2026): standard deduction $3,400; exemption allowance $3,200 each; no withholding under $5,000/yr; graduated 4.75%–6.50% tables (6.25%/6.50% high-income brackets added for 2026). CLOSEST-FIT EXCEPTION: Maryland COUNTY income tax (2.25%–3.30% + Anne Arundel/Frederick graduated tables) is NOT modeled — local tax is out of ticket scope, so real Maryland net withholding will be materially higher; employers must add county tax outside this engine.",
+  "depositSchedule": {
+    "frequency": "quarterly",
+    "dueDay": 15,
+    "note": "MW506 quarterly filers <$700/quarter due 15th following quarter; monthly filers >$700 in any quarter due 15th following month; accelerated (>=$15,000 prior year + $700 accumulated) 3 business days; annual <$250/year due Jan 31",
+    "source": "Comptroller of Maryland, Employer Withholding Guide + withholding due dates"
+  },
   "jurisdictions": {
     "MD": {
       "kind": "progressive",

@@ -54,9 +54,18 @@ const MONTH_NAMES = [
   "December",
 ] as const;
 
-function periodLabel(periodStart: string): string {
+function monthName(month: number): string {
+  return MONTH_NAMES[month - 1] ?? `Month ${month}`;
+}
+
+function periodLabel(periodStart: string, periodKind?: "month" | "quarter"): string {
+  if (periodKind === "quarter") {
+    const year = Number(periodStart.slice(0, 4));
+    const quarter = Math.ceil(Number(periodStart.slice(5, 7)) / 3);
+    return `Q${quarter} ${year}`;
+  }
   const month = Number(periodStart.slice(5, 7));
-  return `${MONTH_NAMES[month - 1] ?? periodStart} ${periodStart.slice(0, 4)}`;
+  return `${monthName(month)} ${periodStart.slice(0, 4)}`;
 }
 
 function jurisdictionLabel(jurisdiction: string): string {
@@ -128,7 +137,7 @@ onMounted(async () => {
     <Skeleton v-if="loading" height="16rem" />
     <template v-else-if="deposit">
 <PageHeader
-  :title="`${periodLabel(deposit.periodStart)} ${jurisdictionLabel(deposit.jurisdiction)} deposit`"
+   :title="`${periodLabel(deposit.periodStart, deposit.periodKind)} ${jurisdictionLabel(deposit.jurisdiction)} deposit`"
   :subtitle="`Due ${date(deposit.dueDate)} · Amount ${money(deposit.amount)}`"
 >
         <BackButton to="admin-deposits" label="Back to deposits" />
@@ -144,7 +153,7 @@ onMounted(async () => {
           <div class="row">
             <div class="col">
               <p class="muted small" style="margin: 0">Tax period</p>
-              <p class="bold">{{ periodLabel(deposit.periodStart) }}</p>
+               <p class="bold">{{ periodLabel(deposit.periodStart, deposit.periodKind) }}</p>
             </div>
             <div class="col">
               <p class="muted small" style="margin: 0">Amount</p>
