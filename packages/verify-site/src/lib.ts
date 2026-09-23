@@ -7,12 +7,14 @@
  * generator (`generate.ts`) reads/writes and calls {@link renderPage}.
  */
 
-import type {
-  Outcome,
-  SuiteResult,
-  TestResult,
-  TestStatus,
-  VerifySummary,
+import {
+  type Outcome,
+  type SuiteKey,
+  type SuiteResult,
+  type TestResult,
+  type TestStatus,
+  type VerifySummary,
+  outcomeFromTests,
 } from "@payroll/verify-summary";
 
 export function escapeHtml(value: string): string {
@@ -38,10 +40,86 @@ export function shortSha(sha: string): string {
   return /^[0-9a-f]{7,}$/i.test(sha) ? sha.slice(0, 7) : sha;
 }
 
-/** Pass rate over non-skipped tests, 0–100 (100 when nothing ran). */
-export function passRate(summary: VerifySummary): number {
-  const ran = summary.counts.passed + summary.counts.failed;
-  return ran === 0 ? 100 : (summary.counts.passed / ran) * 100;
+/**
+ * Clean-pass rate over executed tests, 0–100. A flake is executed but is not a
+ * clean pass, so it lowers the bar it sits on.
+ *
+ * `undefined` when nothing executed — NOT 100. The old 100-for-empty
+ * convention predates spec 18 and contradicts it: it labelled a night on which
+ * nothing ran "100% pass".
+ */
+export function passRate(summary: VerifySummary): number | undefined {
+  const ran = summary.counts.executed;
+  return ran === 0 ? undefined : (summary.counts.passed / ran) * 100;
+}
+
+/**
+ * Spec 18 — `fullName` → the `generatedAt` of the most recent summary in which
+ * that test actually EXECUTED (passed, failed or flaked).
+ *
+ * Deliberately computed across the whole ingested history rather than stored
+ * per summary: one run cannot know what other runs did, and the question
+ * "has this test ever run?" is only answerable over the window.
+ */
+export function lastExecutedAtByTest(history: VerifySummary[]): Map<string, string> {
+  const seen = new Map<string, string>();
+  for (const summary of history) {
+    for (const suite of summary.suites) {
+      for (const test of suite.tests) {
+        if (test.status === "skipped") continue;
+        const key = executionKey(suite.key, test);
+        const prev = seen.get(key);
+        if (prev === undefined || prev < summary.generatedAt) {
+          seen.set(key, summary.generatedAt);
+        }
+      }
+    }
+  }
+  return seen;
+}
+
+/**
+ * Map key. Scoped by suite because `fullName` alone collides across suites —
+ * engine and server can both hold `FUTA credit caps at 5.4%`, and a collision
+ * would let one suite's run date vouch for the other's never-run test.
+ * NUL separates: it cannot occur in a test title.
+ */
+function executionKey(suiteKey: SuiteKey, test: TestResult): string {
+  return `${suiteKey}\u0000${test.fullName}`;
+}
+
+/** When this test last executed, per the retained history; undefined = never. */
+export function lastExecutionOf(
+  suiteKey: SuiteKey,
+  test: TestResult,
+  lastExecuted: Map<string, string>,
+): string | undefined {
+  return lastExecuted.get(executionKey(suiteKey, test));
+}
+
+/** A test skipped in this run that no retained run has ever executed. */
+function isNeverRun(test: TestResult, lastExecutedAt: string | undefined): boolean {
+  return test.status === "skipped" && lastExecutedAt === undefined;
+}
+
+function countNeverRun(suite: SuiteResult, lastExecuted: Map<string, string>): number {
+  return suite.tests.filter((t) => isNeverRun(t, lastExecutionOf(suite.key, t, lastExecuted)))
+    .length;
+}
+
+/**
+ * A status demoted by tests no retained run has ever executed — one rule, used
+ * by both the headline and the suite row so the page cannot contradict itself.
+ * A FAILED verdict is never softened.
+ */
+function demoted(status: Outcome, neverRun: number): { badge: string; cls: string } {
+  if (neverRun === 0 || status === "failed") {
+    return { badge: badge(status), cls: OUTCOME_CLASS[status] };
+  }
+  return {
+    badge: `<span class="badge flake">${OUTCOME_LABEL[status]} · ${neverRun} NEVER RUN</span>`,
+    cls: "flake",
+  };
 }
 
 export function sortByGeneratedAtDesc(history: VerifySummary[]): VerifySummary[] {
@@ -53,13 +131,28 @@ export function sortByGeneratedAtDesc(history: VerifySummary[]): VerifySummary[]
   });
 }
 
+const OUTCOME_CLASS: Record<Outcome, string> = {
+  passed: "pass",
+  passed_with_flakes: "flake",
+  failed: "fail",
+  not_run: "skip",
+};
+
+const OUTCOME_LABEL: Record<Outcome, string> = {
+  passed: "PASSED",
+  // Spelled out rather than shortened: the whole point of spec 18 is that this
+  // state must not be mistakable for a clean pass at a glance.
+  passed_with_flakes: "PASSED (FLAKY)",
+  failed: "FAILED",
+  not_run: "NOT RUN",
+};
+
 function outcomeClass(status: Outcome): string {
-  return status === "passed" ? "pass" : "fail";
+  return OUTCOME_CLASS[status];
 }
 
 function badge(status: Outcome): string {
-  const label = status === "passed" ? "PASSED" : "FAILED";
-  return `<span class="badge ${outcomeClass(status)}">${label}</span>`;
+  return `<span class="badge ${outcomeClass(status)}">${OUTCOME_LABEL[status]}</span>`;
 }
 
 function formatInstant(iso: string): string {
@@ -69,12 +162,13 @@ function formatInstant(iso: string): string {
     : `${d.toISOString().replace("T", " ").slice(0, 19)} UTC`;
 }
 
-function suiteRow(suite: SuiteResult): string {
+function suiteRow(suite: SuiteResult, lastExecuted: Map<string, string>): string {
   const c = suite.counts;
   return `<tr>
       <td>${escapeHtml(suite.name)}</td>
-      <td>${badge(suite.status)}</td>
+      <td>${demoted(suite.status, countNeverRun(suite, lastExecuted)).badge}</td>
       <td class="num">${c.passed}</td>
+      <td class="num">${c.flaky ?? "—"}</td>
       <td class="num">${c.failed}</td>
       <td class="num">${c.skipped}</td>
       <td class="num">${c.total}</td>
@@ -83,24 +177,28 @@ function suiteRow(suite: SuiteResult): string {
 }
 
 function historyRow(summary: VerifySummary): string {
-  const rate = passRate(summary).toFixed(0);
+  const rate = passRate(summary);
+  // No bar at all for a run that executed nothing — a full-width "100% pass"
+  // is the claim spec 18 exists to stop.
+  const bar =
+    rate === undefined
+      ? `<span class="muted">—</span>`
+      : `<span class="bar" title="${rate.toFixed(0)}% pass"><span class="bar-fill ${outcomeClass(summary.overallStatus)}" style="width:${rate.toFixed(0)}%"></span></span>`;
   return `<tr>
       <td>${formatInstant(summary.generatedAt)}</td>
       <td>${badge(summary.overallStatus)}</td>
       <td class="mono">${escapeHtml(summary.source)}</td>
       <td class="mono">${escapeHtml(shortSha(summary.gitSha))}</td>
       <td class="num">${summary.counts.passed}/${summary.counts.total}</td>
-      <td>
-        <span class="bar" title="${rate}% pass"><span class="bar-fill ${outcomeClass(summary.overallStatus)}" style="width:${rate}%"></span></span>
-      </td>
+      <td>${bar}</td>
     </tr>`;
 }
 
-function suiteTable(latest: VerifySummary): string {
-  const rows = latest.suites.map(suiteRow).join("\n");
+function suiteTable(latest: VerifySummary, lastExecuted: Map<string, string>): string {
+  const rows = latest.suites.map((s) => suiteRow(s, lastExecuted)).join("\n");
   return `<table class="suites">
-      <thead><tr><th>Suite</th><th>Status</th><th>Pass</th><th>Fail</th><th>Skip</th><th>Total</th><th>Duration</th></tr></thead>
-      <tbody>${rows || `<tr><td colspan="7" class="muted">no suites reported</td></tr>`}</tbody>
+      <thead><tr><th>Suite</th><th>Status</th><th>Pass</th><th>Flaky</th><th>Fail</th><th>Skip</th><th>Total</th><th>Duration</th></tr></thead>
+      <tbody>${rows || `<tr><td colspan="8" class="muted">no suites reported</td></tr>`}</tbody>
     </table>`;
 }
 
@@ -112,15 +210,28 @@ function historyTable(history: VerifySummary[]): string {
     </table>`;
 }
 
-function headerCard(latest: VerifySummary, reportHref: string | undefined): string {
+function headerCard(
+  latest: VerifySummary,
+  reportHref: string | undefined,
+  neverRun: number,
+): string {
   const c = latest.counts;
   const report = reportHref
     ? `<a class="report" href="${escapeHtml(reportHref)}">View full test report →</a>`
     : "";
-  return `<section class="card status ${outcomeClass(latest.overallStatus)}">
+  // A run can be green on everything it executed and still have left whole
+  // journeys unproven. The headline says so rather than making the reader find
+  // it further down the page — that omission is what made the old dashboard
+  // untrustworthy (spec 18).
+  const head = demoted(latest.overallStatus, neverRun);
+  // Absent flaky count means UNKNOWN (an upgraded v1 run), so print nothing —
+  // "0 flaky" would assert something the file cannot support.
+  const flaky = c.flaky === undefined ? "" : ` <strong>${c.flaky}</strong> flaky ·`;
+  const never = neverRun > 0 ? ` <strong>${neverRun}</strong> never run ·` : "";
+  return `<section class="card status ${head.cls}">
       <div class="status-head">
         <h1>payroll-app — QA verification</h1>
-        ${badge(latest.overallStatus)}
+        ${head.badge}
       </div>
       <p class="meta">
         <span>${formatInstant(latest.generatedAt)}</span> ·
@@ -128,8 +239,9 @@ function headerCard(latest: VerifySummary, reportHref: string | undefined): stri
         <span class="mono">${escapeHtml(shortSha(latest.gitSha))}</span>
       </p>
       <p class="counts">
-        <strong>${c.passed}</strong> passed · <strong>${c.failed}</strong> failed ·
-        <strong>${c.skipped}</strong> skipped · ${c.total} total
+        <strong>${c.passed}</strong> passed ·${flaky} <strong>${c.failed}</strong> failed ·
+        <strong>${c.skipped}</strong> skipped ·${never} ${c.total} total
+        <span class="muted">(${c.executed} executed)</span>
       </p>
       ${report}
     </section>`;
@@ -137,15 +249,24 @@ function headerCard(latest: VerifySummary, reportHref: string | undefined): stri
 
 // --- chunk C: rich cards (per-journey e2e + tax-worksheet correctness) ----
 
-function testStatusClass(status: TestStatus): string {
-  if (status === "passed") return "pass";
-  if (status === "failed") return "fail";
-  return "skip";
-}
+// Records, like OUTCOME_* above: a new TestStatus becomes a compile error
+// rather than silently taking a default arm.
+const TEST_CLASS: Record<TestStatus, string> = {
+  passed: "pass",
+  failed: "fail",
+  flaky: "flake",
+  skipped: "skip",
+};
+
+const TEST_LABEL: Record<TestStatus, string> = {
+  passed: "PASS",
+  failed: "FAIL",
+  flaky: "FLAKY",
+  skipped: "SKIP",
+};
 
 function testBadge(status: TestStatus): string {
-  const label = status === "passed" ? "PASS" : status === "failed" ? "FAIL" : "SKIP";
-  return `<span class="badge ${testStatusClass(status)}">${label}</span>`;
+  return `<span class="badge ${TEST_CLASS[status]}">${TEST_LABEL[status]}</span>`;
 }
 
 /** Reporter file basename minus the .test.ts / .spec.ts suffix. */
@@ -187,9 +308,8 @@ function checkItem(test: TestResult): string {
       </li>`;
 }
 
-function groupOutcome(tests: TestResult[]): Outcome {
-  return tests.some((t) => t.status === "failed") ? "failed" : "passed";
-}
+// One implementation of the spec-18 outcome table, shared with the aggregator.
+const groupOutcome = outcomeFromTests;
 
 function taxCard(title: string, tests: TestResult[]): string {
   const failing = tests.filter((t) => t.status === "failed").length;
@@ -220,17 +340,49 @@ function taxCardsSection(latest: VerifySummary): string {
     </section>`;
 }
 
-function journeyCard(test: TestResult): string {
-  return `<article class="tcard ${testStatusClass(test.status)}-edge">
-      <div class="tcard-head"><h3>${escapeHtml(test.name)}</h3>${testBadge(test.status)}</div>
-      <p class="muted small">${formatDurationMs(test.durationMs)}</p>
+/**
+ * The line under a journey's title — what the card actually claims.
+ * A skip is never left to speak for itself: it says why, and either when it
+ * last ran or that it never has. Takes the resolved instant rather than the
+ * map, so "is this never-run" is decided once, by the caller.
+ */
+function journeyDetail(test: TestResult, lastExecutedAt: string | undefined): string {
+  const reason = test.skipReason ? escapeHtml(test.skipReason) : "no reason recorded by the suite";
+  const why = test.firstFailure ? ` · first attempt: ${escapeHtml(test.firstFailure)}` : "";
+  if (test.status === "skipped") {
+    if (lastExecutedAt === undefined) {
+      return `<p class="muted small">Never executed in any retained run — ${reason}</p>`;
+    }
+    return `<p class="muted small">${reason} · last ran ${formatInstant(lastExecutedAt)}</p>`;
+  }
+  if (test.status === "flaky") {
+    const tries = test.attempts ? `${test.attempts} attempts` : "passed on retry";
+    return `<p class="muted small">${formatDurationMs(test.durationMs)} · ${tries}${why}</p>`;
+  }
+  // A failure carries its reason too — the evidence is collected either way,
+  // and suppressing it on the one status that most needs it made no sense.
+  return `<p class="muted small">${formatDurationMs(test.durationMs)}${why}</p>`;
+}
+
+function journeyCard(
+  suiteKey: SuiteKey,
+  test: TestResult,
+  lastExecuted: Map<string, string>,
+): string {
+  const lastExecutedAt = lastExecutionOf(suiteKey, test, lastExecuted);
+  const never = isNeverRun(test, lastExecutedAt);
+  const edge = never ? "never" : TEST_CLASS[test.status];
+  const chip = never ? `<span class="badge never">NEVER RUN</span>` : testBadge(test.status);
+  return `<article class="tcard ${edge}-edge">
+      <div class="tcard-head"><h3>${escapeHtml(test.name)}</h3>${chip}</div>
+      ${journeyDetail(test, lastExecutedAt)}
     </article>`;
 }
 
-function journeyCardsSection(latest: VerifySummary): string {
+function journeyCardsSection(latest: VerifySummary, lastExecuted: Map<string, string>): string {
   const e2e = latest.suites.find((s) => s.key === "e2e");
   if (!e2e || e2e.tests.length === 0) return "";
-  const cards = e2e.tests.map(journeyCard).join("\n");
+  const cards = e2e.tests.map((t) => journeyCard(e2e.key, t, lastExecuted)).join("\n");
   return `<section class="card">
       <h2>End-to-end journeys</h2>
       <p class="prov">Each card is a Playwright user journey. Run ${provenance(latest)}.</p>
@@ -238,7 +390,8 @@ function journeyCardsSection(latest: VerifySummary): string {
     </section>`;
 }
 
-const EMPTY_PAGE_BODY = `<section class="card status pass">
+// Muted, not green: a page with no ingested runs has proven nothing.
+const EMPTY_PAGE_BODY = `<section class="card status skip">
       <div class="status-head"><h1>payroll-app — QA verification</h1></div>
       <p class="muted">No verification runs ingested yet. The dashboard populates after the first CI or nightly run publishes a summary.</p>
     </section>`;
@@ -248,6 +401,8 @@ export interface RenderOptions {
   reportHref?: string | undefined;
   /** Max history rows to render (default 30). */
   historyLimit?: number | undefined;
+  /** History files the generator could not parse — surfaced in the footer. */
+  skippedSummaries?: number | undefined;
 }
 
 /** Render the full dashboard document from newest-first history. */
@@ -255,23 +410,55 @@ export function renderPage(history: VerifySummary[], options: RenderOptions = {}
   const sorted = sortByGeneratedAtDesc(history);
   const latest = sorted[0];
   const limit = options.historyLimit ?? 30;
+  const lastExecuted = lastExecutedAtByTest(sorted);
+  const neverRun = latest
+    ? latest.suites.reduce((n, suite) => n + countNeverRun(suite, lastExecuted), 0)
+    : 0;
   const body = latest
-    ? `${headerCard(latest, options.reportHref)}
+    ? `${headerCard(latest, options.reportHref, neverRun)}
     <section class="card">
       <h2>Suites</h2>
-      ${suiteTable(latest)}
+      ${suiteTable(latest, lastExecuted)}
     </section>
-    ${journeyCardsSection(latest)}
+    ${journeyCardsSection(latest, lastExecuted)}
     ${taxCardsSection(latest)}
     <section class="card">
       <h2>Recent runs</h2>
       ${historyTable(sorted.slice(0, limit))}
     </section>`
     : EMPTY_PAGE_BODY;
-  return renderDocument(body);
+  return renderDocument(body, latest?.generatedAt, options.skippedSummaries ?? 0);
 }
 
-function renderDocument(body: string): string {
+/** Hours between the newest ingested run and this page being generated. */
+const STALE_AFTER_HOURS = 24;
+
+/**
+ * Spec 18 — the page states its own staleness. The site is baked into an image
+ * and served until the deploy pin moves, so "generated at" alone cannot tell a
+ * fresh build from one the fleet stopped updating two days ago.
+ */
+function stalenessNote(newestRunAt: string | undefined, now: Date): string {
+  if (!newestRunAt) return "";
+  const age = now.getTime() - new Date(newestRunAt).getTime();
+  if (Number.isNaN(age) || age < STALE_AFTER_HOURS * 3_600_000) return "";
+  const days = Math.floor(age / 86_400_000);
+  const howLong = days >= 1 ? `${days} day${days === 1 ? "" : "s"}` : "over a day";
+  return ` · <span class="stale">newest run is ${howLong} old (${formatInstant(newestRunAt)}) — this page may be a stale deploy</span>`;
+}
+
+function renderDocument(
+  body: string,
+  newestRunAt: string | undefined,
+  skippedSummaries: number,
+): string {
+  const now = new Date();
+  // A run the generator could not parse otherwise disappears from the page
+  // with no signal at all — the warning only reaches the CI log.
+  const dropped =
+    skippedSummaries > 0
+      ? ` · <span class="stale">${skippedSummaries} summary file(s) skipped as unreadable</span>`
+      : "";
   return `<!doctype html>
 <html lang="en" data-theme="dark">
 <head>
@@ -285,7 +472,7 @@ function renderDocument(body: string): string {
 <main>
 ${body}
     <footer class="muted">
-      Synthetic data only — no employee PII. Generated ${formatInstant(new Date().toISOString())} · summary schema v1.
+      Synthetic data only — no employee PII. Generated ${formatInstant(now.toISOString())} · summary schema v2${stalenessNote(newestRunAt, now)}${dropped}.
     </footer>
 </main>
 </body>
@@ -298,10 +485,12 @@ const STYLE = `
 :root {
   --bg: #0f1216; --panel: #171b21; --ink: #e6e9ec; --muted: #9aa4af;
   --border: #262c34; --pass: #4ccb7d; --pass-bg: #12321f; --fail: #f0716f; --fail-bg: #3a1b1b;
+  --flake: #e8b04b; --flake-bg: #3a2f13; --never: #c98fe0; --never-bg: #32203a;
 }
 :root[data-theme="light"] {
   --bg: #f6f7f9; --panel: #ffffff; --ink: #1b1f24; --muted: #5b6570;
   --border: #e2e6ea; --pass: #1f8a4c; --pass-bg: #e7f6ec; --fail: #c62828; --fail-bg: #fdeaea;
+  --flake: #8a5a00; --flake-bg: #fdf3e0; --never: #6b2f86; --never-bg: #f6ecfa;
 }
 * { box-sizing: border-box; }
 body { margin: 0; background: var(--bg); color: var(--ink);
@@ -314,6 +503,7 @@ h2 { font-size: 1.05rem; margin: 0 0 12px; }
 .status { border-left: 6px solid var(--muted); }
 .status.pass { border-left-color: var(--pass); }
 .status.fail { border-left-color: var(--fail); }
+.status.flake { border-left-color: var(--flake); }
 .status-head { display: flex; align-items: center; justify-content: space-between; gap: 12px; flex-wrap: wrap; }
 .meta, .counts { margin: 8px 0 0; color: var(--muted); }
 .counts strong { color: var(--ink); }
@@ -321,6 +511,8 @@ h2 { font-size: 1.05rem; margin: 0 0 12px; }
   border-radius: 999px; white-space: nowrap; }
 .badge.pass { color: var(--pass); background: var(--pass-bg); }
 .badge.fail { color: var(--fail); background: var(--fail-bg); }
+.badge.flake { color: var(--flake); background: var(--flake-bg); }
+.badge.never { color: var(--never); background: var(--never-bg); }
 .report { display: inline-block; margin-top: 12px; color: var(--pass); font-weight: 600; text-decoration: none; }
 .report:hover { text-decoration: underline; }
 table { width: 100%; border-collapse: collapse; font-size: 0.92rem; }
@@ -334,6 +526,8 @@ td.num { text-align: right; font-variant-numeric: tabular-nums; }
 .bar-fill { display: block; height: 100%; }
 .bar-fill.pass { background: var(--pass); }
 .bar-fill.fail { background: var(--fail); }
+.bar-fill.flake { background: var(--flake); }
+.bar-fill.skip { background: var(--muted); }
 .badge.skip { color: var(--muted); background: var(--border); }
 .prov { color: var(--muted); font-size: 0.83rem; margin: 0 0 12px; }
 .small { font-size: 0.82rem; margin: 6px 0 0; }
@@ -342,6 +536,8 @@ td.num { text-align: right; font-variant-numeric: tabular-nums; }
 .tcard.pass-edge { border-left: 4px solid var(--pass); }
 .tcard.fail-edge { border-left: 4px solid var(--fail); }
 .tcard.skip-edge { border-left: 4px solid var(--border); }
+.tcard.flake-edge { border-left: 4px solid var(--flake); }
+.tcard.never-edge { border-left: 4px solid var(--never); background: var(--never-bg); }
 .tcard-head { display: flex; justify-content: space-between; align-items: center; gap: 8px; }
 .tcard h3 { font-size: 0.92rem; margin: 0; line-height: 1.35; }
 .checks { list-style: none; margin: 10px 0 0; padding: 0; }
@@ -351,4 +547,5 @@ td.num { text-align: right; font-variant-numeric: tabular-nums; }
 .check-name { color: var(--ink); }
 .check-meta { color: var(--muted); white-space: nowrap; }
 footer { margin-top: 24px; font-size: 0.82rem; text-align: center; }
+.stale { color: var(--flake); }
 `;

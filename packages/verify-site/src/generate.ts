@@ -14,7 +14,7 @@
 import { existsSync, mkdirSync, readFileSync, readdirSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { pathToFileURL } from "node:url";
-import { findPii, type VerifySummary, verifySummarySchema } from "@payroll/verify-summary";
+import { findPii, parseSummary, type VerifySummary } from "@payroll/verify-summary";
 import { renderPage } from "./lib.js";
 
 interface GenerateArgs {
@@ -36,9 +36,16 @@ function parseArgs(argv: string[]): GenerateArgs {
 }
 
 /** Read + validate every summary in the history dir (invalid ones are skipped). */
-export function loadHistory(dir: string): VerifySummary[] {
-  if (!existsSync(dir)) return [];
+export interface History {
+  summaries: VerifySummary[];
+  /** Files present but unreadable — reported in the page footer, not just the log. */
+  skipped: number;
+}
+
+export function loadHistory(dir: string): History {
+  if (!existsSync(dir)) return { summaries: [], skipped: 0 };
   const summaries: VerifySummary[] = [];
+  let skipped = 0;
   for (const name of readdirSync(dir)) {
     if (!name.endsWith(".json")) continue;
     const path = join(dir, name);
@@ -47,37 +54,47 @@ export function loadHistory(dir: string): VerifySummary[] {
       raw = JSON.parse(readFileSync(path, "utf8"));
     } catch (err) {
       console.warn(`verify-site: skipping unparseable ${path} (${String(err)})`);
+      skipped += 1;
       continue;
     }
-    const parsed = verifySummarySchema.safeParse(raw);
-    if (!parsed.success) {
+    // parseSummary, not the v2 schema directly: the retained history window is
+    // still entirely v1 and must keep rendering (spec 18 §Back-compat).
+    const parsed = parseSummary(raw);
+    if (!parsed) {
       console.warn(`verify-site: skipping invalid summary ${path}`);
+      skipped += 1;
       continue;
     }
     // Fail closed on the offending FILE, not the whole render: one poisoned
     // history file must never brick every future build (it stays on the data
     // branch). Skip + warn instead of throwing, so PII is never rendered.
-    const pii = findPii(parsed.data);
+    const pii = findPii(parsed);
     if (pii.length > 0) {
       console.warn(
         `verify-site: skipping ${path} — ${pii.length} PII-shaped value(s), e.g. ${pii[0]?.kind}`,
       );
+      skipped += 1;
       continue;
     }
-    summaries.push(parsed.data);
+    summaries.push(parsed);
   }
-  return summaries;
+  return { summaries, skipped };
 }
 
 export function run(argv: string[]): { count: number; out: string } {
   const args = parseArgs(argv);
   const history = loadHistory(args.history);
-  const html = renderPage(history, { reportHref: args.reportHref });
+  const html = renderPage(history.summaries, {
+    reportHref: args.reportHref,
+    skippedSummaries: history.skipped,
+  });
   mkdirSync(args.out, { recursive: true });
   const out = join(args.out, "index.html");
   writeFileSync(out, html, "utf8");
-  console.log(`verify-site: rendered ${history.length} run(s) → ${out}`);
-  return { count: history.length, out };
+  console.log(
+    `verify-site: rendered ${history.summaries.length} run(s), skipped ${history.skipped} → ${out}`,
+  );
+  return { count: history.summaries.length, out };
 }
 
 const entry = process.argv[1];

@@ -4,21 +4,21 @@ import type { VerifySummary } from "../src/schema.js";
 
 /** A realistic clean summary: synthetic titles, reserved-domain emails only. */
 const CLEAN: VerifySummary = {
-  schemaVersion: 1,
+  schemaVersion: 2,
   runId: "12345",
   source: "ci",
   gitSha: "8d80bba1c2d3e4f5a6b7c8d9e0f1a2b3c4d5e6f7",
   gitRef: "refs/heads/main",
   generatedAt: "2026-09-21T12:00:00.000Z",
   overallStatus: "passed",
-  counts: { passed: 2, failed: 0, skipped: 0, total: 2 },
+  counts: { passed: 2, failed: 0, skipped: 0, executed: 2, total: 2 },
   suites: [
     {
       key: "e2e",
       name: "Playwright journeys",
       status: "passed",
       durationMs: 200,
-      counts: { passed: 2, failed: 0, skipped: 0, total: 2 },
+      counts: { passed: 2, failed: 0, skipped: 0, executed: 2, total: 2 },
       tests: [
         {
           name: "login: password + TOTP (fixed seeded credentials in live QA)",
