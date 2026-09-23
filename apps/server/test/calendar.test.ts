@@ -11,6 +11,7 @@
  * the following-month payment-due day, with the starts_on/ends_on window
  * mirrored from the daily sweep), deposit due/deposited dates across month
  * boundaries, filing due/filed dates (941 quarterly + 940 annual labels),
+ * projected filing events (generates + due for quarters without tax_filings),
  * W-8 expiries, and date-sorted output.
  */
 
@@ -394,5 +395,155 @@ describe("GET /api/admin/calendar — aggregation", () => {
         label: "Form 941 Q1 2026 due",
       }),
     );
+  });
+
+  describe("projected filing events", () => {
+    it("FUTURE quarter with issued run and no tax_filings row: filing_generates on quarterEnd+1 and filing_due_projected in due month", async () => {
+      const companyId = (await t.db.select({ id: company.id }).from(company).limit(1))[0]!.id;
+      const futureEmployeeId = (
+        await t.db
+          .insert(employees)
+          .values({ companyId, legalName: "Future Employee", hireDate: "2025-01-01" })
+          .returning()
+      )[0]!.id;
+
+      const year = new Date().getFullYear() + 1;
+      const quarter = 1;
+      const payDate = `${year}-02-15`;
+      const periodStart = `${year}-01-01`;
+      const periodEnd = `${year}-03-31`;
+      const generatesDate = `${year}-04-01`;
+      const dueDate = `${year}-04-30`;
+
+      await t.db.insert(payrollRuns).values({
+        employeeId: futureEmployeeId,
+        periodStart,
+        periodEnd,
+        payDate,
+        status: "issued",
+        runSnapshot: {},
+      });
+
+      const apr = await calendar(year, 4);
+      expect(apr.events).toContainEqual(
+        expect.objectContaining({
+          date: generatesDate,
+          kind: "filing_generates",
+          label: `Form 941 Q${quarter} ${year} generates`,
+          detail: "Created by the daily filing sync",
+        }),
+      );
+      expect(apr.events).toContainEqual(
+        expect.objectContaining({
+          date: dueDate,
+          kind: "filing_due_projected",
+          label: `Form 941 Q${quarter} ${year} due (projected)`,
+          detail: "Projected — filing not generated yet",
+        }),
+      );
+
+      expect(apr.events.filter((e) => e.kind === "filing_due_projected")).toHaveLength(1);
+    });
+
+    it("Same quarter WITH a tax_filings row: no filing_generates / filing_due_projected, only real filing_due", async () => {
+      const companyId = (await t.db.select({ id: company.id }).from(company).limit(1))[0]!.id;
+      const futureEmployeeId = (
+        await t.db
+          .insert(employees)
+          .values({ companyId, legalName: "Future Employee 2", hireDate: "2025-01-01" })
+          .returning()
+      )[0]!.id;
+
+      const year = new Date().getFullYear() + 1;
+      const quarter = 2;
+      const payDate = `${year}-05-15`;
+      const periodStart = `${year}-04-01`;
+      const periodEnd = `${year}-06-30`;
+      const dueDate = `${year}-07-31`;
+
+      await t.db.insert(payrollRuns).values({
+        employeeId: futureEmployeeId,
+        periodStart,
+        periodEnd,
+        payDate,
+        status: "issued",
+        runSnapshot: {},
+      });
+
+      await t.db.insert(taxFilings).values({
+        formType: "941",
+        year,
+        quarter,
+        dueDate,
+        status: "not_started",
+      });
+
+      const jun = await calendar(year, 6);
+      expect(jun.events.filter((e) => e.kind === "filing_generates")).toHaveLength(0);
+      expect(jun.events.filter((e) => e.kind === "filing_due_projected")).toHaveLength(0);
+
+      const jul = await calendar(year, 7);
+      expect(jul.events).toContainEqual(
+        expect.objectContaining({
+          date: dueDate,
+          kind: "filing_due",
+          label: `Form 941 Q${quarter} ${year} due`,
+        }),
+      );
+      expect(jul.events.filter((e) => e.kind === "filing_due_projected")).toHaveLength(0);
+    });
+
+    it("Quarter with no issued runs: no projected events", async () => {
+      const year = new Date().getFullYear() + 1;
+      const quarter = 3;
+
+      const aug = await calendar(year, 8);
+      expect(aug.events.filter((e) => e.kind === "filing_generates")).toHaveLength(0);
+      expect(aug.events.filter((e) => e.kind === "filing_due_projected")).toHaveLength(0);
+
+      const sep = await calendar(year, 9);
+      expect(sep.events.filter((e) => e.kind === "filing_generates")).toHaveLength(0);
+      expect(sep.events.filter((e) => e.kind === "filing_due_projected")).toHaveLength(0);
+
+      const oct = await calendar(year, 10);
+      expect(oct.events.filter((e) => e.kind === "filing_due_projected")).toHaveLength(0);
+    });
+
+    it("PAST quarter with issued run, no tax_filings row: no filing_generates, but filing_due_projected present", async () => {
+      const companyId = (await t.db.select({ id: company.id }).from(company).limit(1))[0]!.id;
+      const pastEmployeeId = (
+        await t.db
+          .insert(employees)
+          .values({ companyId, legalName: "Past Employee", hireDate: "2025-01-01" })
+          .returning()
+      )[0]!.id;
+
+      const year = 2024;
+      const quarter = 1;
+      const quarterEnd = "2024-03-31";
+      const dueDate = "2024-04-30";
+
+      await t.db.insert(payrollRuns).values({
+        employeeId: pastEmployeeId,
+        periodStart: "2024-01-01",
+        periodEnd: "2024-03-31",
+        payDate: "2024-02-15",
+        status: "issued",
+        runSnapshot: {},
+      });
+
+      const mar = await calendar(year, 3);
+      expect(mar.events.filter((e) => e.kind === "filing_generates")).toHaveLength(0);
+
+      const apr = await calendar(year, 4);
+      expect(apr.events).toContainEqual(
+        expect.objectContaining({
+          date: dueDate,
+          kind: "filing_due_projected",
+          label: `Form 941 Q${quarter} ${year} due (projected)`,
+          detail: "Projected — filing not generated yet",
+        }),
+      );
+    });
   });
 });

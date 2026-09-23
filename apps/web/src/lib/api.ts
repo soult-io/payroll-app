@@ -1315,6 +1315,8 @@ export type CalendarEventKind =
   | "deposit_made"
   | "filing_due"
   | "filing_filed"
+  | "filing_generates"
+  | "filing_due_projected"
   | "w8_expiry";
 
 export interface CalendarEvent {

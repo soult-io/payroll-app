@@ -27,7 +27,7 @@
  * matching admin detail view; the web app resolves them with vue-router.
  */
 
-import { and, asc, eq, gte, isNotNull, lte, ne, type SQLWrapper } from "drizzle-orm";
+import { and, asc, eq, gte, isNotNull, lte, ne, sql, type SQLWrapper } from "drizzle-orm";
 import {
   contractorDetails,
   contractorRecurringInvoices,
@@ -38,6 +38,10 @@ import {
   taxFilings,
 } from "@payroll/db";
 import type { Db } from "../db.js";
+import {
+  filingDueDate as filingsFilingDueDate,
+  quarterEnd as filingsQuarterEnd,
+} from "../filings/service.js";
 import { interpolateDescription, invoiceDateFor } from "../contractors/recurring.js";
 
 export type CalendarEventKind =
@@ -49,6 +53,8 @@ export type CalendarEventKind =
   | "deposit_made"
   | "filing_due"
   | "filing_filed"
+  | "filing_generates"
+  | "filing_due_projected"
   | "w8_expiry";
 
 export interface CalendarEvent {
@@ -118,6 +124,12 @@ function monthBounds(year: number, month: number): { monthStart: string; monthEn
 
 function inMonth(col: SQLWrapper, monthStart: string, monthEnd: string) {
   return and(gte(col, monthStart), lte(col, monthEnd));
+}
+
+function addDays(isoDate: string, days: number): string {
+  const date = new Date(isoDate);
+  date.setUTCDate(date.getUTCDate() + days);
+  return date.toISOString().slice(0, 10);
 }
 
 // ---------------------------------------------------------------------------
@@ -347,6 +359,65 @@ async function w8Expiries(db: Db, monthStart: string, monthEnd: string): Promise
   return events;
 }
 
+/** Projected filing events for quarters with issued runs but no tax_filings row. */
+async function projectedFilingEvents(
+  db: Db,
+  monthStart: string,
+  monthEnd: string,
+): Promise<CalendarEvent[]> {
+  const today = new Date().toISOString().slice(0, 10);
+  const events: CalendarEvent[] = [];
+
+  const quartersWithRuns = await db
+    .selectDistinct({
+      year: sql<number>`extract(year from ${payrollRuns.payDate})::int`,
+      quarter: sql<number>`extract(quarter from ${payrollRuns.payDate})::int`,
+    })
+    .from(payrollRuns)
+    .where(eq(payrollRuns.status, "issued"));
+
+  const existingFilings = await db
+    .select({
+      year: taxFilings.year,
+      quarter: taxFilings.quarter,
+    })
+    .from(taxFilings)
+    .where(eq(taxFilings.formType, "941"));
+
+  const existingMap = new Set(existingFilings.map((f) => `${f.year}-${f.quarter}`));
+
+  for (const { year, quarter } of quartersWithRuns) {
+    const key = `${year}-${quarter}`;
+    if (existingMap.has(key)) continue;
+
+    const qEnd = filingsQuarterEnd(year, quarter);
+    const dueDate = filingsFilingDueDate(year, quarter);
+
+    const generatesDate = addDays(qEnd, 1);
+    if (generatesDate > today && generatesDate >= monthStart && generatesDate <= monthEnd) {
+      events.push({
+        date: generatesDate,
+        kind: "filing_generates",
+        label: `Form 941 Q${quarter} ${year} generates`,
+        detail: "Created by the daily filing sync",
+        link: null,
+      });
+    }
+
+    if (dueDate >= monthStart && dueDate <= monthEnd) {
+      events.push({
+        date: dueDate,
+        kind: "filing_due_projected",
+        label: `Form 941 Q${quarter} ${year} due (projected)`,
+        detail: "Projected — filing not generated yet",
+        link: null,
+      });
+    }
+  }
+
+  return events;
+}
+
 /**
  * Every calendar event falling inside (year, month), sorted by date then
  * kind then label for a stable grid rendering.
@@ -360,6 +431,7 @@ export async function monthCalendar(db: Db, year: number, month: number): Promis
     ...(await contractorEvents(db, year, month)),
     ...(await depositEvents(db, monthStart, monthEnd)),
     ...(await filingEvents(db, monthStart, monthEnd)),
+    ...(await projectedFilingEvents(db, monthStart, monthEnd)),
     ...(await w8Expiries(db, monthStart, monthEnd)),
   ];
   events.sort(
