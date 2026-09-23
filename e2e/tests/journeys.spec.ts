@@ -327,7 +327,7 @@ test("journey 6: admin user visiting /my/dashboard is redirected to /admin/dashb
   await ctx.close();
 });
 
-test("journey 7: deposit detail view (PAY-36)", async ({ browser }) => {
+test("journey 7: deposit detail view (PAY-36/PAY-37)", async ({ browser }) => {
   // Admin session from journey 2. The e2e fixture issues a 2025-10 run and
   // syncs deposits at boot; the list defaults to the current year, so open it
   // pinned to 2025 via the query param (PAY-17 filter state).
@@ -349,8 +349,15 @@ test("journey 7: deposit detail view (PAY-36)", async ({ browser }) => {
   await expect(page.getByText("Contributing runs")).toBeVisible();
   await expect(page.getByRole("heading", { name: "Attachments" })).toBeVisible();
 
-  // Check that the breakdown contains a specific category
-  await expect(page.getByText("Medicare — employer")).toBeVisible();
+  // Check that the breakdown contains the combined categories instead of employee/employer halves
+  await expect(page.getByText("Medicare (employee + employer)")).toBeVisible();
+
+  // Check that tax year and quarter are visible
+  await expect(page.getByText("Tax year")).toBeVisible();
+  await expect(page.getByText("Quarter")).toBeVisible();
+
+  // Check that the "Mark as deposited" button is visible
+  await expect(page.getByRole("button", { name: "Mark as deposited" })).toBeVisible();
 
   // Go back to list view.
   await page.getByRole("button", { name: "Back to deposits" }).click();
