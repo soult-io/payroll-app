@@ -92,29 +92,60 @@ function isFailedAttempt(result: z.infer<typeof pwResultSchema>): boolean {
 }
 
 /**
- * Did this test ultimately pass, but only after a failed attempt? Spec 18: a
- * retry-pass is NOT a pass. Derived from the results rather than trusting the
- * reporter's own `flaky` outcome alone, because a report produced with
- * `retries: 0` records the attempts without ever labelling them flaky.
+ * Verdict derived from the attempts alone. Used when the reporter's own
+ * test-level status is missing or unrecognized — the fallback must FAIL
+ * CLOSED, because a green fall-through is the exact defect spec 18 removes.
  */
-function isFlaky(test: z.infer<typeof pwTestSchema>): boolean {
-  if (test.status === "flaky") return true;
+function statusFromResults(test: z.infer<typeof pwTestSchema>): TestStatus {
   const results = test.results;
   const last = results[results.length - 1];
-  if (last?.status !== "passed") return false;
-  return results.slice(0, -1).some(isFailedAttempt);
+  if (!last) return "skipped";
+  if (last.status === "skipped") return "skipped";
+  if (last.status !== "passed") return "failed";
+  return results.slice(0, -1).some(isFailedAttempt) ? "flaky" : "passed";
+}
+
+/**
+ * One project entry's verdict. Playwright's test-level status is one of
+ * `expected | unexpected | flaky | skipped`; anything else routes to
+ * {@link statusFromResults} rather than defaulting to a pass.
+ *
+ * `expected` is still checked against its own attempts: a report produced with
+ * `retries: 0` records the retried attempts without ever labelling them flaky.
+ */
+function playwrightTestStatus(test: z.infer<typeof pwTestSchema>): TestStatus {
+  switch (test.status) {
+    case "unexpected":
+      return "failed";
+    case "flaky":
+      return "flaky";
+    case "skipped":
+      return "skipped";
+    case "expected": {
+      const derived = statusFromResults(test);
+      return derived === "passed" ? "passed" : derived;
+    }
+    default:
+      return statusFromResults(test);
+  }
 }
 
 /**
  * playwright spec status, aggregated over its per-project test entries.
  * Order matters: a real failure outranks a flake, which outranks a pass.
+ *
+ * `spec.ok` is Playwright's own verdict for the spec and is used as a FLOOR:
+ * it can turn a computed pass into a failure, never the other way round, and
+ * it never touches a skip (Playwright reports `ok: false` for those too).
  */
-function playwrightSpecStatus(tests: z.infer<typeof pwTestSchema>[]): TestStatus {
+function playwrightSpecStatus(spec: z.infer<typeof pwSpecSchema>): TestStatus {
+  const tests = spec.tests;
   if (tests.length === 0) return "skipped";
-  if (tests.some((t) => t.status === "unexpected" || t.status === "timedOut")) return "failed";
-  if (tests.every((t) => t.status === "skipped")) return "skipped";
-  if (tests.some(isFlaky)) return "flaky";
-  return "passed";
+  const statuses = tests.map(playwrightTestStatus);
+  if (statuses.includes("failed")) return "failed";
+  if (statuses.every((st) => st === "skipped")) return "skipped";
+  if (statuses.includes("flaky")) return "flaky";
+  return spec.ok === false ? "failed" : "passed";
 }
 
 /** Attempts across the spec's project entries — the worst (most retried) one. */
@@ -122,6 +153,16 @@ function playwrightAttempts(tests: z.infer<typeof pwTestSchema>[]): number | und
   let max = 0;
   for (const t of tests) max = Math.max(max, t.results.length);
   return max > 0 ? max : undefined;
+}
+
+/**
+ * Truncate by code POINT, not code unit, so the cap can never bisect a
+ * surrogate pair and emit a lone surrogate (the repo has a standing rule about
+ * byte/char bound miscounting).
+ */
+function capChars(value: string, max: number): string {
+  const points = Array.from(value);
+  return points.length <= max ? value : points.slice(0, max).join("");
 }
 
 // Built rather than written as a literal: the pattern needs ESC, and a control
@@ -139,7 +180,7 @@ function playwrightFirstFailure(tests: z.infer<typeof pwTestSchema>[]): string |
       const raw = r.errors.find((e) => e.message)?.message;
       if (!raw) continue;
       const line = raw.replace(ANSI_SGR, "").split("\n")[0]?.trim();
-      if (line) return line.slice(0, FIRST_FAILURE_MAX_CHARS);
+      if (line) return capChars(line, FIRST_FAILURE_MAX_CHARS);
     }
   }
   return undefined;
@@ -213,6 +254,11 @@ export function outcomeFromCounts(counts: Counts): Outcome {
   return "passed";
 }
 
+/** The spec-18 outcome table applied straight to a list of tests. */
+export function outcomeFromTests(tests: TestResult[]): Outcome {
+  return outcomeFromCounts(countTests(tests));
+}
+
 function suiteFromTests(key: SuiteKey, name: string, tests: TestResult[]): SuiteResult {
   const counts = countTests(tests);
   const durationMs = tests.reduce((sum, t) => sum + t.durationMs, 0);
@@ -252,7 +298,7 @@ export function fromPlaywrightReport(raw: unknown, meta: SuiteMeta): SuiteResult
         makeTest(
           title,
           fullName,
-          playwrightSpecStatus(spec.tests),
+          playwrightSpecStatus(spec),
           playwrightSpecDurationMs(spec.tests),
           spec.file ?? suite.file,
           {
@@ -270,21 +316,25 @@ export function fromPlaywrightReport(raw: unknown, meta: SuiteMeta): SuiteResult
 }
 
 /**
- * `flaky` stays ABSENT if no contributing suite reported one — an upgraded v1
- * suite genuinely does not know, and inventing a 0 would be a claim.
+ * `flaky` stays ABSENT unless EVERY contributing suite reported one. An
+ * upgraded v1 suite genuinely does not know its flake count, and a total that
+ * silently omits the unknown part would be rendered as fact — so unknown is
+ * contagious, not absorbed.
  */
 function sumCounts(suites: SuiteResult[]): Counts {
   const acc: Counts = { passed: 0, failed: 0, skipped: 0, executed: 0, total: 0 };
-  let flaky: number | undefined;
+  let flaky = 0;
+  let flakyKnown = true;
   for (const s of suites) {
     acc.passed += s.counts.passed;
     acc.failed += s.counts.failed;
     acc.skipped += s.counts.skipped;
     acc.executed += s.counts.executed;
     acc.total += s.counts.total;
-    if (s.counts.flaky !== undefined) flaky = (flaky ?? 0) + s.counts.flaky;
+    if (s.counts.flaky === undefined) flakyKnown = false;
+    else flaky += s.counts.flaky;
   }
-  return flaky === undefined ? acc : { ...acc, flaky };
+  return flakyKnown ? { ...acc, flaky } : acc;
 }
 
 export interface SummaryMeta {

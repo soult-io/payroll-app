@@ -4,6 +4,7 @@ import {
   escapeHtml,
   formatDurationMs,
   lastExecutedAtByTest,
+  lastExecutionOf,
   passRate,
   renderPage,
   shortSha,
@@ -81,7 +82,8 @@ describe("helpers", () => {
           counts: { passed: 0, failed: 0, skipped: 4, executed: 0, total: 4 },
         }),
       ),
-    ).toBe(100);
+      // Spec 18: a run that executed nothing has no pass rate. It is not 100%.
+    ).toBeUndefined();
   });
 
   it("sortByGeneratedAtDesc orders newest first without mutating input", () => {
@@ -111,7 +113,7 @@ describe("renderPage", () => {
         summary({
           generatedAt: "2026-09-21T05:20:00Z",
           gitSha: "aaaaaaa0000000000000000000000000000000ff",
-          counts: { passed: 185, failed: 0, skipped: 6, total: 191 },
+          counts: { passed: 185, failed: 0, skipped: 6, executed: 185, total: 191 },
           suites: [
             suite("engine", "Engine unit tests", 171, 0, 0),
             suite("e2e", "Playwright journeys", 14, 0, 6),
@@ -156,7 +158,7 @@ describe("renderPage", () => {
     const html = renderPage([
       summary({
         generatedAt: "2026-09-21T00:00:00Z",
-        counts: { passed: 5, failed: 2, skipped: 0, total: 7 },
+        counts: { passed: 5, failed: 2, skipped: 0, executed: 7, total: 7 },
         suites: [suite("server", "Server integration tests", 5, 2, 0)],
       }),
     ]);
@@ -195,7 +197,7 @@ describe("rich cards (chunk C)", () => {
     name: "Playwright journeys",
     status: "passed",
     durationMs: 100,
-    counts: { passed: 2, failed: 0, skipped: 0, total: 2 },
+    counts: { passed: 2, failed: 0, skipped: 0, executed: 2, total: 2 },
     tests: [
       {
         name: "journey 1: onboarding",
@@ -218,7 +220,7 @@ describe("rich cards (chunk C)", () => {
     name: "Server integration tests",
     status: "failed",
     durationMs: 30,
-    counts: { passed: 2, failed: 1, skipped: 0, total: 3 },
+    counts: { passed: 2, failed: 1, skipped: 0, executed: 3, total: 3 },
     tests: [
       {
         name: "zero credit -> 6.0% net, $420 per employee",
@@ -331,7 +333,7 @@ describe("rich cards (chunk C)", () => {
 
 // --- spec 18 (PAY-55): honest status ---------------------------------------
 
-function test_(
+function testResult(
   name: string,
   status: TestResult["status"],
   over: Partial<TestResult> = {},
@@ -339,7 +341,7 @@ function test_(
   return { name, fullName: name, status, durationMs: 100, file: "qa.spec.ts", ...over };
 }
 
-function e2eSuite(tests: TestResult[]): SuiteResult {
+function makeE2eSuite(tests: TestResult[]): SuiteResult {
   const passed = tests.filter((t) => t.status === "passed").length;
   const failed = tests.filter((t) => t.status === "failed").length;
   const flaky = tests.filter((t) => t.status === "flaky").length;
@@ -366,7 +368,9 @@ describe("flaky headline (spec 18)", () => {
     generatedAt: "2026-09-22T21:44:42.000Z",
     overallStatus: "passed_with_flakes",
     counts: { passed: 13, failed: 0, flaky: 1, skipped: 0, executed: 14, total: 14 },
-    suites: [e2eSuite([test_("config page: State taxes tab renders", "flaky", { attempts: 2 })])],
+    suites: [
+      makeE2eSuite([testResult("config page: State taxes tab renders", "flaky", { attempts: 2 })]),
+    ],
   });
 
   it("never shows a plain PASSED badge for a run with flakes", () => {
@@ -392,18 +396,22 @@ describe("never-run journeys (spec 18)", () => {
   const older = summary({
     generatedAt: "2026-09-21T10:00:00.000Z",
     suites: [
-      e2eSuite([
-        test_("ran once, skipped now", "passed"),
-        test_("never ran at all", "skipped", { skipReason: "live-QA only — needs seed-qa Dave" }),
+      makeE2eSuite([
+        testResult("ran once, skipped now", "passed"),
+        testResult("never ran at all", "skipped", {
+          skipReason: "live-QA only — needs seed-qa Dave",
+        }),
       ]),
     ],
   });
   const latest = summary({
     generatedAt: "2026-09-22T10:00:00.000Z",
     suites: [
-      e2eSuite([
-        test_("ran once, skipped now", "skipped", { skipReason: "ephemeral state missing" }),
-        test_("never ran at all", "skipped", { skipReason: "live-QA only — needs seed-qa Dave" }),
+      makeE2eSuite([
+        testResult("ran once, skipped now", "skipped", { skipReason: "ephemeral state missing" }),
+        testResult("never ran at all", "skipped", {
+          skipReason: "live-QA only — needs seed-qa Dave",
+        }),
       ]),
     ],
   });
@@ -411,8 +419,17 @@ describe("never-run journeys (spec 18)", () => {
 
   it("maps each test to the newest run that actually executed it", () => {
     const map = lastExecutedAtByTest(history);
-    expect(map.get("ran once, skipped now")).toBe("2026-09-21T10:00:00.000Z");
-    expect(map.has("never ran at all")).toBe(false);
+    const at = (name: string) => lastExecutionOf("e2e", testResult(name, "skipped"), map);
+    expect(at("ran once, skipped now")).toBe("2026-09-21T10:00:00.000Z");
+    expect(at("never ran at all")).toBeUndefined();
+  });
+
+  it("scopes by suite, so a same-named test in another suite cannot vouch for it", () => {
+    const map = lastExecutedAtByTest(history);
+    // "ran once, skipped now" executed in the e2e suite only.
+    expect(
+      lastExecutionOf("engine", testResult("ran once, skipped now", "skipped"), map),
+    ).toBeUndefined();
   });
 
   it("labels a test no retained run ever executed as NEVER RUN", () => {
@@ -467,9 +484,9 @@ describe("never-run demotes the headline (spec 18)", () => {
       generatedAt: "2026-09-22T10:00:00.000Z",
       counts: { passed: 10, failed: 0, flaky: 0, skipped: 1, executed: 10, total: 11 },
       suites: [
-        e2eSuite([
-          test_("ran", "passed"),
-          test_("never ran", "skipped", { skipReason: "live-QA only" }),
+        makeE2eSuite([
+          testResult("ran", "passed"),
+          testResult("never ran", "skipped", { skipReason: "live-QA only" }),
         ]),
       ],
     }),
@@ -488,7 +505,7 @@ describe("never-run demotes the headline (spec 18)", () => {
   it("leaves a clean run's headline alone", () => {
     const clean = summary({
       generatedAt: "2026-09-22T10:00:00.000Z",
-      suites: [e2eSuite([test_("ran", "passed")])],
+      suites: [makeE2eSuite([testResult("ran", "passed")])],
     });
     expect(renderPage([clean])).toMatch(/badge pass">PASSED</);
   });
@@ -499,9 +516,9 @@ describe("never-run demotes the headline (spec 18)", () => {
       overallStatus: "failed",
       counts: { passed: 9, failed: 1, flaky: 0, skipped: 1, executed: 10, total: 11 },
       suites: [
-        e2eSuite([
-          test_("boom", "failed"),
-          test_("never ran", "skipped", { skipReason: "live-QA only" }),
+        makeE2eSuite([
+          testResult("boom", "failed"),
+          testResult("never ran", "skipped", { skipReason: "live-QA only" }),
         ]),
       ],
     });

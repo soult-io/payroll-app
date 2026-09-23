@@ -1,9 +1,9 @@
 import { describe, expect, it } from "vitest";
-import { parseSummary, upgradeV1 } from "../src/migrate.js";
+import { type VerifySummaryV1, parseSummary, upgradeV1 } from "../src/migrate.js";
 
 // A real v1 summary shape, trimmed — every file in the retained history window
 // on the pay-verify-data branch looks like this.
-const V1 = {
+const V1: VerifySummaryV1 = {
   schemaVersion: 1,
   runId: "35787941623",
   source: "ci",
@@ -33,7 +33,7 @@ const V1 = {
 };
 
 describe("upgradeV1", () => {
-  const up = upgradeV1(V1 as never);
+  const up = upgradeV1(V1);
 
   it("stamps schema version 2", () => {
     expect(up.schemaVersion).toBe(2);
@@ -70,7 +70,7 @@ describe("parseSummary", () => {
   });
 
   it("accepts a native v2 file unchanged", () => {
-    const v2 = upgradeV1(V1 as never);
+    const v2 = upgradeV1(V1);
     expect(parseSummary(v2)).toEqual(v2);
   });
 

@@ -1,0 +1,8 @@
+{
+  // The build config emits from `src` only, so `test/` was never typechecked —
+  // schema-invalid fixtures compiled fine and produced NaN at runtime while the
+  // assertions still passed. This config covers them (spec 18 review finding).
+  "extends": "./tsconfig.json",
+  "compilerOptions": { "noEmit": true, "rootDir": "." },
+  "include": ["src", "test"]
+}

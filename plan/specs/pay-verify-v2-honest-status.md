@@ -135,8 +135,13 @@ Counts line splits executed from total:
 Computed by the site across the whole ingested history, not stored per summary —
 a single summary cannot know what other runs did.
 
-`lastExecutedAtByTest(history)` maps `fullName` → the `generatedAt` of the most
-recent summary in which that test's status was `passed`, `failed` or `flaky`.
+`lastExecutedAtByTest(history)` maps *(suite key, `fullName`)* → the
+`generatedAt` of the most recent summary in which that test's status was
+`passed`, `failed` or `flaky`. The key is scoped by suite deliberately:
+`fullName` alone collides across suites (engine and server can both hold
+`FUTA credit caps at 5.4%`), and a collision would let one suite's run date
+vouch for the other suite's never-run test — the exact misreport this section
+exists to prevent.
 For a test that is `skipped` in the latest run:
 
 - present in the map → chip reads `SKIP`, subtitle "last ran 2026-09-21 22:44 UTC"
@@ -168,6 +173,35 @@ export function extendedTimeoutMs(currentMs: number, backoffMs: number): number;
 `extendedTimeoutMs` is a pure function so the invariant is testable without a
 browser: the returned budget must exceed `current + backoff`, for every
 `current` including `0` (Playwright's "no timeout").
+
+## Review amendments
+
+Added after the correctness and code-quality reviews of the first implementation:
+
+- **Status resolution fails closed.** Playwright's test-level status is one of
+  `expected | unexpected | flaky | skipped`; anything absent or unrecognized is
+  resolved from the attempts rather than falling through to `passed`. `spec.ok`
+  is used as a floor — it can turn a computed pass into a failure, never the
+  reverse, and never touches a skip (Playwright reports `ok: false` for those
+  too).
+- **An unknown flake count is contagious.** If any contributing suite's `flaky`
+  is absent, the total is absent. A total that silently omitted the unknown
+  part would be rendered as fact.
+- **A run that executed nothing has no pass rate.** `passRate` returns
+  `undefined`, and the history row renders `—` instead of a full-width
+  "100% pass" bar. The empty-history page is muted, not green.
+- **Never-run demotion is one rule.** `demoted(status, neverRun)` is shared by
+  the headline and the suite row, so the two cannot drift apart. A `failed`
+  verdict is never softened.
+- **Unreadable history files are counted, not just logged.** `loadHistory`
+  returns `{ summaries, skipped }` and the footer states how many files it
+  could not read — otherwise a malformed summary vanishes from the page with
+  the only signal in a CI log.
+- **`firstFailure` renders on failed cards too**, not only flaky ones.
+- **`test/` is now typechecked** (`tsconfig.test.json` per package, wired into
+  the `typecheck` script). The build config covers `src` only, so schema-invalid
+  fixtures compiled fine and produced `NaN` at runtime while their assertions
+  still passed. Adding it immediately caught three stale fixtures.
 
 ## Acceptance
 

@@ -13,15 +13,13 @@ import {
   SCHEMA_VERSION,
   type SuiteResult,
   type VerifySummary,
-  outcomeSchema,
-  sourceSchema,
-  suiteKeySchema,
   verifySummarySchema,
 } from "./schema.js";
 
 // --- the v1 shape, frozen ------------------------------------------------
-// Kept verbatim rather than derived from v2, so a later v2 edit cannot
-// silently change what "a v1 file" means.
+// Every enum is spelled out here rather than imported from v2, so that adding
+// a suite key or a source to v2 cannot silently change what "a v1 file" means.
+// This duplication is the point of a migration boundary; it is not drift.
 
 const v1CountsSchema = z.object({
   passed: z.number().int().nonnegative(),
@@ -33,6 +31,8 @@ const v1CountsSchema = z.object({
 /** v1 had no `flaky` test status and no `not_run`/`passed_with_flakes` outcome. */
 const v1TestStatusSchema = z.enum(["passed", "failed", "skipped"]);
 const v1OutcomeSchema = z.enum(["passed", "failed"]);
+const v1SuiteKeySchema = z.enum(["engine", "server", "e2e"]);
+const v1SourceSchema = z.enum(["ci", "nightly"]);
 
 const v1TestSchema = z.object({
   name: z.string(),
@@ -43,7 +43,7 @@ const v1TestSchema = z.object({
 });
 
 const v1SuiteSchema = z.object({
-  key: suiteKeySchema,
+  key: v1SuiteKeySchema,
   name: z.string(),
   status: v1OutcomeSchema,
   durationMs: z.number().nonnegative(),
@@ -54,7 +54,7 @@ const v1SuiteSchema = z.object({
 export const verifySummaryV1Schema = z.object({
   schemaVersion: z.literal(1),
   runId: z.string(),
-  source: sourceSchema,
+  source: v1SourceSchema,
   gitSha: z.string(),
   gitRef: z.string(),
   generatedAt: z.string(),
@@ -85,9 +85,10 @@ export function upgradeV1(v1: VerifySummaryV1): VerifySummary {
   const suites: SuiteResult[] = v1.suites.map((s) => ({
     key: s.key,
     name: s.name,
-    // `passed` and `failed` mean the same in both versions; carry them across
-    // rather than recomputing, so an upgraded file still says what it said.
-    status: outcomeSchema.parse(s.status),
+    // `passed` and `failed` mean the same in both versions and are already a
+    // subset of Outcome, so this is a plain assignment: re-parsing would add a
+    // throw path to a layer whose whole job is not to blow up on old files.
+    status: s.status,
     durationMs: s.durationMs,
     counts: counts(s.counts),
     tests: s.tests.map((t) => ({
@@ -105,7 +106,7 @@ export function upgradeV1(v1: VerifySummaryV1): VerifySummary {
     gitSha: v1.gitSha,
     gitRef: v1.gitRef,
     generatedAt: v1.generatedAt,
-    overallStatus: outcomeSchema.parse(v1.overallStatus),
+    overallStatus: v1.overallStatus,
     counts: counts(v1.counts),
     suites,
   };

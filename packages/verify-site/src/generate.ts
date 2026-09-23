@@ -36,9 +36,16 @@ function parseArgs(argv: string[]): GenerateArgs {
 }
 
 /** Read + validate every summary in the history dir (invalid ones are skipped). */
-export function loadHistory(dir: string): VerifySummary[] {
-  if (!existsSync(dir)) return [];
+export interface History {
+  summaries: VerifySummary[];
+  /** Files present but unreadable — reported in the page footer, not just the log. */
+  skipped: number;
+}
+
+export function loadHistory(dir: string): History {
+  if (!existsSync(dir)) return { summaries: [], skipped: 0 };
   const summaries: VerifySummary[] = [];
+  let skipped = 0;
   for (const name of readdirSync(dir)) {
     if (!name.endsWith(".json")) continue;
     const path = join(dir, name);
@@ -47,6 +54,7 @@ export function loadHistory(dir: string): VerifySummary[] {
       raw = JSON.parse(readFileSync(path, "utf8"));
     } catch (err) {
       console.warn(`verify-site: skipping unparseable ${path} (${String(err)})`);
+      skipped += 1;
       continue;
     }
     // parseSummary, not the v2 schema directly: the retained history window is
@@ -54,6 +62,7 @@ export function loadHistory(dir: string): VerifySummary[] {
     const parsed = parseSummary(raw);
     if (!parsed) {
       console.warn(`verify-site: skipping invalid summary ${path}`);
+      skipped += 1;
       continue;
     }
     // Fail closed on the offending FILE, not the whole render: one poisoned
@@ -64,22 +73,28 @@ export function loadHistory(dir: string): VerifySummary[] {
       console.warn(
         `verify-site: skipping ${path} — ${pii.length} PII-shaped value(s), e.g. ${pii[0]?.kind}`,
       );
+      skipped += 1;
       continue;
     }
     summaries.push(parsed);
   }
-  return summaries;
+  return { summaries, skipped };
 }
 
 export function run(argv: string[]): { count: number; out: string } {
   const args = parseArgs(argv);
   const history = loadHistory(args.history);
-  const html = renderPage(history, { reportHref: args.reportHref });
+  const html = renderPage(history.summaries, {
+    reportHref: args.reportHref,
+    skippedSummaries: history.skipped,
+  });
   mkdirSync(args.out, { recursive: true });
   const out = join(args.out, "index.html");
   writeFileSync(out, html, "utf8");
-  console.log(`verify-site: rendered ${history.length} run(s) → ${out}`);
-  return { count: history.length, out };
+  console.log(
+    `verify-site: rendered ${history.summaries.length} run(s), skipped ${history.skipped} → ${out}`,
+  );
+  return { count: history.summaries.length, out };
 }
 
 const entry = process.argv[1];

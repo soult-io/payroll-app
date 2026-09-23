@@ -362,3 +362,86 @@ describe("buildSummary — spec 18 outcomes", () => {
     );
   });
 });
+
+// --- review findings: fail-closed status, contagious unknown ---------------
+
+function pwSpec(tests: unknown[], over: Record<string, unknown> = {}) {
+  return {
+    suites: [
+      {
+        title: "s.spec.ts",
+        file: "s.spec.ts",
+        specs: [{ title: "t", tests, ...over }],
+        suites: [],
+      },
+    ],
+  };
+}
+const E2E = { key: "e2e", name: "Playwright journeys" } as const;
+
+describe("playwrightSpecStatus fails CLOSED", () => {
+  it("does not report a failing attempt as passed when the test-level status is absent", () => {
+    const suite = fromPlaywrightReport(
+      pwSpec([{ results: [{ status: "failed", duration: 1 }] }]),
+      E2E,
+    );
+    expect(suite.tests[0]?.status).toBe("failed");
+  });
+
+  it("does not report a failing attempt as passed when the status is unrecognized", () => {
+    const suite = fromPlaywrightReport(
+      pwSpec([{ status: "whatever", results: [{ status: "timedOut", duration: 1 }] }]),
+      E2E,
+    );
+    expect(suite.tests[0]?.status).toBe("failed");
+  });
+
+  it("derives flaky from the attempts even when the reporter never labels it", () => {
+    const suite = fromPlaywrightReport(
+      pwSpec([
+        {
+          status: "expected",
+          results: [
+            { status: "failed", duration: 1 },
+            { status: "passed", duration: 2 },
+          ],
+        },
+      ]),
+      E2E,
+    );
+    expect(suite.tests[0]?.status).toBe("flaky");
+  });
+
+  it("lets spec.ok === false override a computed pass", () => {
+    const suite = fromPlaywrightReport(
+      pwSpec([{ status: "expected", results: [{ status: "passed", duration: 1 }] }], { ok: false }),
+      E2E,
+    );
+    expect(suite.tests[0]?.status).toBe("failed");
+  });
+
+  it("but never turns a skip into a failure — Playwright reports ok:false for those too", () => {
+    const suite = fromPlaywrightReport(
+      pwSpec([{ status: "skipped", results: [{ status: "skipped", duration: 0 }] }], { ok: false }),
+      E2E,
+    );
+    expect(suite.tests[0]?.status).toBe("skipped");
+  });
+});
+
+describe("an unknown flake count is contagious", () => {
+  it("leaves the total absent when any contributing suite does not know its own", () => {
+    const known = fromPlaywrightReport(FLAKY_REPORT, E2E);
+    const unknown: typeof known = {
+      ...known,
+      key: "engine",
+      counts: { ...known.counts, flaky: undefined },
+    };
+    expect(buildSummary([known, unknown], META).counts.flaky).toBeUndefined();
+  });
+
+  it("totals it when every suite knows", () => {
+    const known = fromPlaywrightReport(FLAKY_REPORT, E2E);
+    expect(buildSummary([known, { ...known, key: "engine" }], META).counts.flaky).toBe(2);
+  });
+});

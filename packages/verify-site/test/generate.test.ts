@@ -1,13 +1,15 @@
 import { mkdtempSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import type { VerifySummary } from "@payroll/verify-summary";
+import type { VerifySummaryV1 } from "@payroll/verify-summary";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { loadHistory } from "../src/generate.js";
 
 const tmp = mkdtempSync(join(tmpdir(), "verify-site-"));
 
-function valid(over: Partial<VerifySummary> = {}): VerifySummary {
+// Deliberately a v1 fixture, typed as v1: every file in the retained history
+// window is v1, and loadHistory must keep rendering them (spec 18 §Back-compat).
+function valid(over: Partial<VerifySummaryV1> = {}): VerifySummaryV1 {
   return {
     schemaVersion: 1,
     runId: "r",
@@ -45,14 +47,15 @@ afterEach(() => {
 
 describe("loadHistory", () => {
   it("returns empty for an absent directory", () => {
-    expect(loadHistory(join(tmp, "nope"))).toEqual([]);
+    expect(loadHistory(join(tmp, "nope"))).toEqual({ summaries: [], skipped: 0 });
   });
 
   it("loads valid summaries and skips non-json files", () => {
     write("a.json", valid());
     write("notes.txt", "ignore me");
-    const loaded = loadHistory(tmp);
+    const { summaries: loaded, skipped } = loadHistory(tmp);
     expect(loaded.length).toBeGreaterThanOrEqual(1);
+    expect(skipped).toBe(0);
     // Spec 18 §Back-compat: the fixture is v1 (as every retained history file
     // is) and comes back upgraded, which is the proof that old runs still render.
     expect(loaded.every((s) => s.schemaVersion === 2)).toBe(true);
@@ -85,8 +88,10 @@ describe("loadHistory", () => {
       ],
     });
     write("poison.json", poisoned);
-    const loaded = loadHistory(tmp);
+    const { summaries: loaded, skipped } = loadHistory(tmp);
     expect(loaded.some((s) => s.runId === "poison")).toBe(false);
+    // Counted, not just logged — the footer says so on the page (spec 18).
+    expect(skipped).toBeGreaterThanOrEqual(1);
     expect(warn).toHaveBeenCalled();
   });
 });

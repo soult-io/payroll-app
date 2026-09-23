@@ -7,12 +7,14 @@
  * generator (`generate.ts`) reads/writes and calls {@link renderPage}.
  */
 
-import type {
-  Outcome,
-  SuiteResult,
-  TestResult,
-  TestStatus,
-  VerifySummary,
+import {
+  type Outcome,
+  type SuiteKey,
+  type SuiteResult,
+  type TestResult,
+  type TestStatus,
+  type VerifySummary,
+  outcomeFromTests,
 } from "@payroll/verify-summary";
 
 export function escapeHtml(value: string): string {
@@ -39,12 +41,16 @@ export function shortSha(sha: string): string {
 }
 
 /**
- * Clean-pass rate over executed tests, 0–100 (100 when nothing ran).
- * A flake is executed but is not a clean pass, so it lowers the bar it sits on.
+ * Clean-pass rate over executed tests, 0–100. A flake is executed but is not a
+ * clean pass, so it lowers the bar it sits on.
+ *
+ * `undefined` when nothing executed — NOT 100. The old 100-for-empty
+ * convention predates spec 18 and contradicts it: it labelled a night on which
+ * nothing ran "100% pass".
  */
-export function passRate(summary: VerifySummary): number {
+export function passRate(summary: VerifySummary): number | undefined {
   const ran = summary.counts.executed;
-  return ran === 0 ? 100 : (summary.counts.passed / ran) * 100;
+  return ran === 0 ? undefined : (summary.counts.passed / ran) * 100;
 }
 
 /**
@@ -61,9 +67,10 @@ export function lastExecutedAtByTest(history: VerifySummary[]): Map<string, stri
     for (const suite of summary.suites) {
       for (const test of suite.tests) {
         if (test.status === "skipped") continue;
-        const prev = seen.get(test.fullName);
+        const key = executionKey(suite.key, test);
+        const prev = seen.get(key);
         if (prev === undefined || prev < summary.generatedAt) {
-          seen.set(test.fullName, summary.generatedAt);
+          seen.set(key, summary.generatedAt);
         }
       }
     }
@@ -71,9 +78,48 @@ export function lastExecutedAtByTest(history: VerifySummary[]): Map<string, stri
   return seen;
 }
 
+/**
+ * Map key. Scoped by suite because `fullName` alone collides across suites —
+ * engine and server can both hold `FUTA credit caps at 5.4%`, and a collision
+ * would let one suite's run date vouch for the other's never-run test.
+ * NUL separates: it cannot occur in a test title.
+ */
+function executionKey(suiteKey: SuiteKey, test: TestResult): string {
+  return `${suiteKey}\u0000${test.fullName}`;
+}
+
+/** When this test last executed, per the retained history; undefined = never. */
+export function lastExecutionOf(
+  suiteKey: SuiteKey,
+  test: TestResult,
+  lastExecuted: Map<string, string>,
+): string | undefined {
+  return lastExecuted.get(executionKey(suiteKey, test));
+}
+
 /** A test skipped in this run that no retained run has ever executed. */
-function isNeverRun(test: TestResult, lastExecuted: Map<string, string>): boolean {
-  return test.status === "skipped" && !lastExecuted.has(test.fullName);
+function isNeverRun(test: TestResult, lastExecutedAt: string | undefined): boolean {
+  return test.status === "skipped" && lastExecutedAt === undefined;
+}
+
+function countNeverRun(suite: SuiteResult, lastExecuted: Map<string, string>): number {
+  return suite.tests.filter((t) => isNeverRun(t, lastExecutionOf(suite.key, t, lastExecuted)))
+    .length;
+}
+
+/**
+ * A status demoted by tests no retained run has ever executed — one rule, used
+ * by both the headline and the suite row so the page cannot contradict itself.
+ * A FAILED verdict is never softened.
+ */
+function demoted(status: Outcome, neverRun: number): { badge: string; cls: string } {
+  if (neverRun === 0 || status === "failed") {
+    return { badge: badge(status), cls: OUTCOME_CLASS[status] };
+  }
+  return {
+    badge: `<span class="badge flake">${OUTCOME_LABEL[status]} · ${neverRun} NEVER RUN</span>`,
+    cls: "flake",
+  };
 }
 
 export function sortByGeneratedAtDesc(history: VerifySummary[]): VerifySummary[] {
@@ -118,17 +164,9 @@ function formatInstant(iso: string): string {
 
 function suiteRow(suite: SuiteResult, lastExecuted: Map<string, string>): string {
   const c = suite.counts;
-  const never = suite.tests.filter((t) => isNeverRun(t, lastExecuted)).length;
-  // Same rule as the headline: a suite is not simply PASSED while part of it
-  // has never been proven. Kept consistent so the page does not contradict
-  // itself one level down.
-  const status =
-    never > 0 && suite.status !== "failed"
-      ? `<span class="badge flake">${OUTCOME_LABEL[suite.status]} · ${never} NEVER RUN</span>`
-      : badge(suite.status);
   return `<tr>
       <td>${escapeHtml(suite.name)}</td>
-      <td>${status}</td>
+      <td>${demoted(suite.status, countNeverRun(suite, lastExecuted)).badge}</td>
       <td class="num">${c.passed}</td>
       <td class="num">${c.flaky ?? "—"}</td>
       <td class="num">${c.failed}</td>
@@ -139,16 +177,20 @@ function suiteRow(suite: SuiteResult, lastExecuted: Map<string, string>): string
 }
 
 function historyRow(summary: VerifySummary): string {
-  const rate = passRate(summary).toFixed(0);
+  const rate = passRate(summary);
+  // No bar at all for a run that executed nothing — a full-width "100% pass"
+  // is the claim spec 18 exists to stop.
+  const bar =
+    rate === undefined
+      ? `<span class="muted">—</span>`
+      : `<span class="bar" title="${rate.toFixed(0)}% pass"><span class="bar-fill ${outcomeClass(summary.overallStatus)}" style="width:${rate.toFixed(0)}%"></span></span>`;
   return `<tr>
       <td>${formatInstant(summary.generatedAt)}</td>
       <td>${badge(summary.overallStatus)}</td>
       <td class="mono">${escapeHtml(summary.source)}</td>
       <td class="mono">${escapeHtml(shortSha(summary.gitSha))}</td>
       <td class="num">${summary.counts.passed}/${summary.counts.total}</td>
-      <td>
-        <span class="bar" title="${rate}% pass"><span class="bar-fill ${outcomeClass(summary.overallStatus)}" style="width:${rate}%"></span></span>
-      </td>
+      <td>${bar}</td>
     </tr>`;
 }
 
@@ -181,22 +223,15 @@ function headerCard(
   // journeys unproven. The headline says so rather than making the reader find
   // it further down the page — that omission is what made the old dashboard
   // untrustworthy (spec 18).
-  const headline =
-    neverRun > 0 && latest.overallStatus !== "failed"
-      ? `<span class="badge flake">${OUTCOME_LABEL[latest.overallStatus]} · ${neverRun} NEVER RUN</span>`
-      : badge(latest.overallStatus);
-  const edge =
-    neverRun > 0 && latest.overallStatus === "passed"
-      ? "flake"
-      : outcomeClass(latest.overallStatus);
+  const head = demoted(latest.overallStatus, neverRun);
   // Absent flaky count means UNKNOWN (an upgraded v1 run), so print nothing —
   // "0 flaky" would assert something the file cannot support.
   const flaky = c.flaky === undefined ? "" : ` <strong>${c.flaky}</strong> flaky ·`;
   const never = neverRun > 0 ? ` <strong>${neverRun}</strong> never run ·` : "";
-  return `<section class="card status ${edge}">
+  return `<section class="card status ${head.cls}">
       <div class="status-head">
         <h1>payroll-app — QA verification</h1>
-        ${headline}
+        ${head.badge}
       </div>
       <p class="meta">
         <span>${formatInstant(latest.generatedAt)}</span> ·
@@ -214,23 +249,24 @@ function headerCard(
 
 // --- chunk C: rich cards (per-journey e2e + tax-worksheet correctness) ----
 
-function testStatusClass(status: TestStatus): string {
-  if (status === "passed") return "pass";
-  if (status === "failed") return "fail";
-  if (status === "flaky") return "flake";
-  return "skip";
-}
+// Records, like OUTCOME_* above: a new TestStatus becomes a compile error
+// rather than silently taking a default arm.
+const TEST_CLASS: Record<TestStatus, string> = {
+  passed: "pass",
+  failed: "fail",
+  flaky: "flake",
+  skipped: "skip",
+};
+
+const TEST_LABEL: Record<TestStatus, string> = {
+  passed: "PASS",
+  failed: "FAIL",
+  flaky: "FLAKY",
+  skipped: "SKIP",
+};
 
 function testBadge(status: TestStatus): string {
-  const label =
-    status === "passed"
-      ? "PASS"
-      : status === "failed"
-        ? "FAIL"
-        : status === "flaky"
-          ? "FLAKY"
-          : "SKIP";
-  return `<span class="badge ${testStatusClass(status)}">${label}</span>`;
+  return `<span class="badge ${TEST_CLASS[status]}">${TEST_LABEL[status]}</span>`;
 }
 
 /** Reporter file basename minus the .test.ts / .spec.ts suffix. */
@@ -272,12 +308,8 @@ function checkItem(test: TestResult): string {
       </li>`;
 }
 
-function groupOutcome(tests: TestResult[]): Outcome {
-  if (tests.some((t) => t.status === "failed")) return "failed";
-  if (tests.every((t) => t.status === "skipped")) return "not_run";
-  if (tests.some((t) => t.status === "flaky")) return "passed_with_flakes";
-  return "passed";
-}
+// One implementation of the spec-18 outcome table, shared with the aggregator.
+const groupOutcome = outcomeFromTests;
 
 function taxCard(title: string, tests: TestResult[]): string {
   const failing = tests.filter((t) => t.status === "failed").length;
@@ -311,40 +343,46 @@ function taxCardsSection(latest: VerifySummary): string {
 /**
  * The line under a journey's title — what the card actually claims.
  * A skip is never left to speak for itself: it says why, and either when it
- * last ran or that it never has.
+ * last ran or that it never has. Takes the resolved instant rather than the
+ * map, so "is this never-run" is decided once, by the caller.
  */
-function journeyDetail(test: TestResult, lastExecuted: Map<string, string>): string {
+function journeyDetail(test: TestResult, lastExecutedAt: string | undefined): string {
   const reason = test.skipReason ? escapeHtml(test.skipReason) : "no reason recorded by the suite";
-  if (isNeverRun(test, lastExecuted)) {
-    return `<p class="muted small">Never executed in any retained run — ${reason}</p>`;
-  }
+  const why = test.firstFailure ? ` · first attempt: ${escapeHtml(test.firstFailure)}` : "";
   if (test.status === "skipped") {
-    const at = lastExecuted.get(test.fullName);
-    const when = at ? ` · last ran ${formatInstant(at)}` : "";
-    return `<p class="muted small">${reason}${when}</p>`;
+    if (lastExecutedAt === undefined) {
+      return `<p class="muted small">Never executed in any retained run — ${reason}</p>`;
+    }
+    return `<p class="muted small">${reason} · last ran ${formatInstant(lastExecutedAt)}</p>`;
   }
   if (test.status === "flaky") {
-    const why = test.firstFailure ? ` · first attempt: ${escapeHtml(test.firstFailure)}` : "";
     const tries = test.attempts ? `${test.attempts} attempts` : "passed on retry";
     return `<p class="muted small">${formatDurationMs(test.durationMs)} · ${tries}${why}</p>`;
   }
-  return `<p class="muted small">${formatDurationMs(test.durationMs)}</p>`;
+  // A failure carries its reason too — the evidence is collected either way,
+  // and suppressing it on the one status that most needs it made no sense.
+  return `<p class="muted small">${formatDurationMs(test.durationMs)}${why}</p>`;
 }
 
-function journeyCard(test: TestResult, lastExecuted: Map<string, string>): string {
-  const never = isNeverRun(test, lastExecuted);
-  const edge = never ? "never" : testStatusClass(test.status);
+function journeyCard(
+  suiteKey: SuiteKey,
+  test: TestResult,
+  lastExecuted: Map<string, string>,
+): string {
+  const lastExecutedAt = lastExecutionOf(suiteKey, test, lastExecuted);
+  const never = isNeverRun(test, lastExecutedAt);
+  const edge = never ? "never" : TEST_CLASS[test.status];
   const chip = never ? `<span class="badge never">NEVER RUN</span>` : testBadge(test.status);
   return `<article class="tcard ${edge}-edge">
       <div class="tcard-head"><h3>${escapeHtml(test.name)}</h3>${chip}</div>
-      ${journeyDetail(test, lastExecuted)}
+      ${journeyDetail(test, lastExecutedAt)}
     </article>`;
 }
 
 function journeyCardsSection(latest: VerifySummary, lastExecuted: Map<string, string>): string {
   const e2e = latest.suites.find((s) => s.key === "e2e");
   if (!e2e || e2e.tests.length === 0) return "";
-  const cards = e2e.tests.map((t) => journeyCard(t, lastExecuted)).join("\n");
+  const cards = e2e.tests.map((t) => journeyCard(e2e.key, t, lastExecuted)).join("\n");
   return `<section class="card">
       <h2>End-to-end journeys</h2>
       <p class="prov">Each card is a Playwright user journey. Run ${provenance(latest)}.</p>
@@ -352,7 +390,8 @@ function journeyCardsSection(latest: VerifySummary, lastExecuted: Map<string, st
     </section>`;
 }
 
-const EMPTY_PAGE_BODY = `<section class="card status pass">
+// Muted, not green: a page with no ingested runs has proven nothing.
+const EMPTY_PAGE_BODY = `<section class="card status skip">
       <div class="status-head"><h1>payroll-app — QA verification</h1></div>
       <p class="muted">No verification runs ingested yet. The dashboard populates after the first CI or nightly run publishes a summary.</p>
     </section>`;
@@ -362,6 +401,8 @@ export interface RenderOptions {
   reportHref?: string | undefined;
   /** Max history rows to render (default 30). */
   historyLimit?: number | undefined;
+  /** History files the generator could not parse — surfaced in the footer. */
+  skippedSummaries?: number | undefined;
 }
 
 /** Render the full dashboard document from newest-first history. */
@@ -371,7 +412,7 @@ export function renderPage(history: VerifySummary[], options: RenderOptions = {}
   const limit = options.historyLimit ?? 30;
   const lastExecuted = lastExecutedAtByTest(sorted);
   const neverRun = latest
-    ? latest.suites.flatMap((s) => s.tests).filter((t) => isNeverRun(t, lastExecuted)).length
+    ? latest.suites.reduce((n, suite) => n + countNeverRun(suite, lastExecuted), 0)
     : 0;
   const body = latest
     ? `${headerCard(latest, options.reportHref, neverRun)}
@@ -386,7 +427,7 @@ export function renderPage(history: VerifySummary[], options: RenderOptions = {}
       ${historyTable(sorted.slice(0, limit))}
     </section>`
     : EMPTY_PAGE_BODY;
-  return renderDocument(body, latest?.generatedAt);
+  return renderDocument(body, latest?.generatedAt, options.skippedSummaries ?? 0);
 }
 
 /** Hours between the newest ingested run and this page being generated. */
@@ -406,8 +447,18 @@ function stalenessNote(newestRunAt: string | undefined, now: Date): string {
   return ` · <span class="stale">newest run is ${howLong} old (${formatInstant(newestRunAt)}) — this page may be a stale deploy</span>`;
 }
 
-function renderDocument(body: string, newestRunAt?: string | undefined): string {
+function renderDocument(
+  body: string,
+  newestRunAt: string | undefined,
+  skippedSummaries: number,
+): string {
   const now = new Date();
+  // A run the generator could not parse otherwise disappears from the page
+  // with no signal at all — the warning only reaches the CI log.
+  const dropped =
+    skippedSummaries > 0
+      ? ` · <span class="stale">${skippedSummaries} summary file(s) skipped as unreadable</span>`
+      : "";
   return `<!doctype html>
 <html lang="en" data-theme="dark">
 <head>
@@ -421,7 +472,7 @@ function renderDocument(body: string, newestRunAt?: string | undefined): string 
 <main>
 ${body}
     <footer class="muted">
-      Synthetic data only — no employee PII. Generated ${formatInstant(now.toISOString())} · summary schema v2${stalenessNote(newestRunAt, now)}.
+      Synthetic data only — no employee PII. Generated ${formatInstant(now.toISOString())} · summary schema v2${stalenessNote(newestRunAt, now)}${dropped}.
     </footer>
 </main>
 </body>
@@ -453,7 +504,6 @@ h2 { font-size: 1.05rem; margin: 0 0 12px; }
 .status.pass { border-left-color: var(--pass); }
 .status.fail { border-left-color: var(--fail); }
 .status.flake { border-left-color: var(--flake); }
-.status.skip { border-left-color: var(--muted); }
 .status-head { display: flex; align-items: center; justify-content: space-between; gap: 12px; flex-wrap: wrap; }
 .meta, .counts { margin: 8px 0 0; color: var(--muted); }
 .counts strong { color: var(--ink); }
