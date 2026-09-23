@@ -217,4 +217,9 @@ Added after the correctness and code-quality reviews of the first implementation
    as `0`.
 6. `extendedTimeoutMs(60_000, 65_000) > 125_000`, and the e2e helper calls it
    before every backoff.
-7. `tsc`, `biome ci`, `knip` and the full test suite pass.
+7. The repo's own gate passes: `pnpm lint` (biome, no new errors against the
+   539-warning baseline), `pnpm -r run build`, `pnpm -r run typecheck` and
+   `pnpm -r run test`. No knip — this repo does not vendor it, unlike the
+   fleet's `mcp-*` set.
+8. `test/` is inside the typecheck, so a schema-invalid fixture is a build
+   error rather than a runtime `NaN` that the assertions step over.
