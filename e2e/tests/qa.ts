@@ -11,7 +11,7 @@
 import { readFileSync } from "node:fs";
 import { dirname, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
-import { expect, type Browser, type BrowserContext, type Page } from "@playwright/test";
+import { expect, test, type Browser, type BrowserContext, type Page } from "@playwright/test";
 import { createOTP } from "@better-auth/utils/otp";
 
 export const LIVE_QA = Boolean(process.env.E2E_BASE_URL);
@@ -65,6 +65,27 @@ async function submitLoginTotp(page: Page, secret: string): Promise<void> {
   }
 }
 
+/**
+ * How long the credential rate-limit window takes to clear. Longer than the
+ * suite's own 60s test timeout (e2e/playwright.config.ts), which is why
+ * {@link extendedTimeoutMs} exists — see spec 18.
+ */
+export const LOGIN_RATE_LIMIT_BACKOFF_MS = 65_000;
+
+/** Headroom on top of the backoff for the retried login itself. */
+export const LOGIN_BACKOFF_SLACK_MS = 15_000;
+
+/**
+ * Budget a test needs if it is about to sleep out the rate-limit window.
+ *
+ * Playwright treats a timeout of 0 as "no timeout", so 0 must stay 0 — adding
+ * to it would silently impose a finite deadline on a test that had none.
+ */
+export function extendedTimeoutMs(currentMs: number, backoffMs: number): number {
+  if (currentMs === 0) return 0;
+  return currentMs + backoffMs + LOGIN_BACKOFF_SLACK_MS;
+}
+
 /** Full browser login: password step → TOTP challenge → dashboard. */
 export async function loginAs(
   page: Page,
@@ -91,7 +112,14 @@ export async function loginAs(
       await expect(page.getByRole("heading", { name: "Dashboard" })).toBeVisible();
       return;
     }
-    if (attempt < 2) await page.waitForTimeout(65_000);
+    if (attempt < 2) {
+      // Extend THIS test's budget before sleeping. The backoff is longer than
+      // the default 60s timeout, so without this the retry path can never
+      // complete: every throttled login times out, and the retry that follows
+      // reports the spec as merely "flaky" (spec 18, PAY-55).
+      test.setTimeout(extendedTimeoutMs(test.info().timeout, LOGIN_RATE_LIMIT_BACKOFF_MS));
+      await page.waitForTimeout(LOGIN_RATE_LIMIT_BACKOFF_MS);
+    }
   }
   throw new Error(`login as ${user.email} failed — #totp never appeared (credential rate limit?)`);
 }

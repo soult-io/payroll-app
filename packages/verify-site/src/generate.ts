@@ -14,7 +14,7 @@
 import { existsSync, mkdirSync, readFileSync, readdirSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { pathToFileURL } from "node:url";
-import { findPii, type VerifySummary, verifySummarySchema } from "@payroll/verify-summary";
+import { findPii, parseSummary, type VerifySummary } from "@payroll/verify-summary";
 import { renderPage } from "./lib.js";
 
 interface GenerateArgs {
@@ -49,22 +49,24 @@ export function loadHistory(dir: string): VerifySummary[] {
       console.warn(`verify-site: skipping unparseable ${path} (${String(err)})`);
       continue;
     }
-    const parsed = verifySummarySchema.safeParse(raw);
-    if (!parsed.success) {
+    // parseSummary, not the v2 schema directly: the retained history window is
+    // still entirely v1 and must keep rendering (spec 18 §Back-compat).
+    const parsed = parseSummary(raw);
+    if (!parsed) {
       console.warn(`verify-site: skipping invalid summary ${path}`);
       continue;
     }
     // Fail closed on the offending FILE, not the whole render: one poisoned
     // history file must never brick every future build (it stays on the data
     // branch). Skip + warn instead of throwing, so PII is never rendered.
-    const pii = findPii(parsed.data);
+    const pii = findPii(parsed);
     if (pii.length > 0) {
       console.warn(
         `verify-site: skipping ${path} — ${pii.length} PII-shaped value(s), e.g. ${pii[0]?.kind}`,
       );
       continue;
     }
-    summaries.push(parsed.data);
+    summaries.push(parsed);
   }
   return summaries;
 }

@@ -53,7 +53,10 @@ describe("loadHistory", () => {
     write("notes.txt", "ignore me");
     const loaded = loadHistory(tmp);
     expect(loaded.length).toBeGreaterThanOrEqual(1);
-    expect(loaded.every((s) => s.schemaVersion === 1)).toBe(true);
+    // Spec 18 §Back-compat: the fixture is v1 (as every retained history file
+    // is) and comes back upgraded, which is the proof that old runs still render.
+    expect(loaded.every((s) => s.schemaVersion === 2)).toBe(true);
+    expect(loaded.every((s) => s.counts.flaky === undefined)).toBe(true);
   });
 
   it("skips unparseable and schema-invalid files without throwing", () => {
