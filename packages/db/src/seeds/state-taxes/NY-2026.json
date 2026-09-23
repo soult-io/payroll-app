@@ -2,6 +2,12 @@
   "state": "NY",
   "taxYear": 2026,
   "source": "NYS-50-T-NYS (1/26) Method II Exact Calculation (annual schedule, reproduced in NFC bulletin NFC-26-1772477134, eff. pay period 02-2026): standard deduction $7,400 single/HoH, $7,950 married; exemption allowance $1,000/yr each (IT-2104). CLOSEST-FIT EXCEPTIONS: (1) Method III — above $1,077,550 single / $2,155,350 married NY taxes ALL wages at flat 10.45%/11.10%/11.70% — encoded as a 10.45% marginal top bracket instead (diverges only for ultra-high wages); (2) the 6.40%/11.44% (single) and 6.40%/13.49% (married) bubble ranges are the benefit-recapture rows, encoded as written; (3) New York City and Yonkers income taxes NOT modeled (local, out of scope).",
+  "depositSchedule": {
+    "frequency": "quarterly",
+    "dueDay": null,
+    "note": "Small employers remit with quarterly NYS-45 (Apr 30 / Jul 31 / Oct 31 / Jan 31); NYS-1 within 5 business days (3 for large) of the payroll pushing accumulated withholding to >=$700",
+    "source": "NYS Dept of Taxation and Finance, withholding tax due dates (tax.ny.gov/bus/wt/duedates)"
+  },
   "jurisdictions": {
     "NY": {
       "kind": "progressive",

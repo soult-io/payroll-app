@@ -1,9 +1,9 @@
-# State withholding seed data (PAY-13)
+# State withholding seed data (PAY-13, PAY-48)
 
 One JSON file per state-year: `<STATE>-<TAX_YEAR>.json` (e.g. `CA-2026.json`).
 The seeder (`packages/db/src/state-seeds.ts`) imports every file in this
 directory at build time (resolveJsonModule inlines them into dist) and upserts
-`state_tax_configs` + `state_tax_brackets` idempotently.
+`state_tax_configs` + `state_tax_brackets` + `state_deposit_schedules` idempotently.
 
 ## Format
 
@@ -12,6 +12,10 @@ directory at build time (resolveJsonModule inlines them into dist) and upserts
   "state": "CA",                    // USPS 2-letter code
   "taxYear": 2026,
   "source": "EDD 2026 Withholding Schedules — Method B (26methb.pdf)",
+  "depositSchedule": {              // optional: per-state deposit schedule
+    "frequency": "monthly",         // 'monthly' | 'quarterly'
+    "dueDay": 15                    // day of month following period end; null = last day
+  },
   "jurisdictions": {
     // Key = the jurisdiction row written to state_tax_configs. Use the bare
     // state code for status-independent states; '<state>:<filing_status>'
@@ -78,3 +82,20 @@ has a 2026 file (IL/TX also carry 2025):
 Adding a state-year: drop a new JSON file here, add the import + entry to
 `STATE_SEED_FILES` in `packages/db/src/state-seeds.ts`, and cover it with
 withholding-scenario tests computed from the published state tables.
+
+## Deposit schedules (PAY-48)
+
+When present, `depositSchedule` seeds `state_deposit_schedules` with the state's
+verified per-state deposit schedule (frequency, due day, notes, and source). A
+missing schedule means the jurisdiction falls back to the federal convention
+(monthly, due 15th of the following month, weekend roll-forward only).
+
+Verified schedules seeded as of 2026-09-23:
+
+| State | Frequency | Due rule | Source |
+|---|---|---|---|
+| CA | quarterly | last day of month following quarter end | CA EDD DE 44 + Deposit Requirements table |
+| IL | monthly | 15th of following month | IL DOR Publication 131 + IL-501 instructions |
+| NC | quarterly | last day of month following quarter end | NCDOR 2026 Tables + Instructions |
+| MD | quarterly | 15th of month following quarter end | MD Comptroller Withholding Guide + due dates |
+| NY | quarterly | last day of month following quarter end | NYS Taxation and Finance, withholding due dates |

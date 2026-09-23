@@ -52,9 +52,18 @@ const MONTH_NAMES = [
   "December",
 ] as const;
 
-function periodLabel(periodStart: string): string {
+function monthName(month: number): string {
+  return MONTH_NAMES[month - 1] ?? `Month ${month}`;
+}
+
+function periodLabel(periodStart: string, periodKind?: "month" | "quarter"): string {
+  if (periodKind === "quarter") {
+    const year = Number(periodStart.slice(0, 4));
+    const quarter = Math.ceil(Number(periodStart.slice(5, 7)) / 3);
+    return `Q${quarter} ${year}`;
+  }
   const month = Number(periodStart.slice(5, 7));
-  return `${MONTH_NAMES[month - 1] ?? periodStart} ${periodStart.slice(0, 4)}`;
+  return `${monthName(month)} ${periodStart.slice(0, 4)}`;
 }
 
 function jurisdictionLabel(jurisdiction: string): string {
@@ -147,7 +156,10 @@ async function submitDeposit() {
       depositedOn: iso,
       eftpsConfirmation: eftpsConfirmation.value.trim(),
     });
-    notify.success("Deposit recorded", `${periodLabel(target.periodStart)} marked as deposited.`);
+    notify.success(
+      "Deposit recorded",
+      `${periodLabel(target.periodStart, target.periodKind)} marked as deposited.`,
+    );
     depositDialog.value = false;
     await load();
   } catch (err) {
@@ -338,7 +350,7 @@ onMounted(async () => {
           />
         </template>
         <Column header="Period" style="width: 10rem">
-          <template #body="{ data }">{{ periodLabel(data.periodStart) }}</template>
+          <template #body="{ data }">{{ periodLabel(data.periodStart, data.periodKind) }}</template>
         </Column>
         <Column field="jurisdiction" header="Jurisdiction" style="width: 8rem">
   <template #body="{ data }">
@@ -424,7 +436,7 @@ onMounted(async () => {
     >
       <div v-if="attachTarget" class="stack">
         <p class="muted small" style="margin: 0">
-          {{ periodLabel(attachTarget.periodStart) }} — {{ money(attachTarget.amount) }}.
+          {{ periodLabel(attachTarget.periodStart, attachTarget.periodKind) }} — {{ money(attachTarget.amount) }}.
           Payment confirmations from eftps.gov (acknowledgment PDFs / receipts). Stored encrypted;
           every download is audit-logged.
         </p>
@@ -480,7 +492,7 @@ onMounted(async () => {
     >
       <div v-if="depositTarget" class="stack">
         <p class="muted small">
-          {{ periodLabel(depositTarget.periodStart) }} — {{ money(depositTarget.amount) }},
+          {{ periodLabel(depositTarget.periodStart, depositTarget.periodKind) }} — {{ money(depositTarget.amount) }},
           due {{ date(depositTarget.dueDate) }}. Pay on eftps.gov first; this records the deposit.
         </p>
         <div class="field">

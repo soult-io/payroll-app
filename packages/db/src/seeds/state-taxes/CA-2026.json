@@ -2,6 +2,12 @@
   "state": "CA",
   "taxYear": 2026,
   "source": "California EDD 2026 Withholding Schedules — Method B exact calculation (26methb.pdf): low income exemption $18,896 (single / married 0-1) and $37,791 (married 2+ / HoH); standard deduction $5,706 / $11,412; personal exemption credit $168.30/yr per regular allowance; estimated-deduction allowance $1,000/yr each (DE 4 item 2). Brackets = annual Tables 5-7.",
+  "depositSchedule": {
+    "frequency": "quarterly",
+    "dueDay": null,
+    "note": "DE 88 PIT+SDI: schedule follows federal deposit schedule + accumulated PIT; <$350 PIT/quarter → quarterly (Apr 30 / Jul 31 / Oct 31 / Jan 31); >=$350 → monthly 15th following; larger → semi-weekly/next-day",
+    "source": "California EDD, Employer's Guide DE 44, California Deposit Requirements table"
+  },
   "jurisdictions": {
     "CA:single": {
       "kind": "progressive",

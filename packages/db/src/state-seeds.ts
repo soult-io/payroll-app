@@ -15,7 +15,7 @@
  */
 
 import { and, eq } from "drizzle-orm";
-import { stateTaxBrackets, stateTaxConfigs } from "./schema.js";
+import { stateDepositSchedules, stateTaxBrackets, stateTaxConfigs } from "./schema.js";
 import type { SeedDb } from "./seed.js";
 
 import ak2026 from "./seeds/state-taxes/AK-2026.json" with { type: "json" };
@@ -92,6 +92,12 @@ export interface StateSeedFile {
   taxYear: number;
   source: string;
   jurisdictions: Record<string, StateSeedJurisdiction>;
+  depositSchedule?: {
+    frequency: "monthly" | "quarterly";
+    dueDay: number | null;
+    note?: string;
+    source?: string;
+  };
 }
 
 /** Every seed file, in load order. New state-years: add the import + entry. */
@@ -245,6 +251,27 @@ export async function seedStateTaxFile(db: SeedDb, file: StateSeedFile): Promise
         set: values,
       });
     await replaceBrackets(db, file, jurisdiction, cfg);
+  }
+  if (file.depositSchedule) {
+    await db
+      .insert(stateDepositSchedules)
+      .values({
+        stateCode: file.state,
+        taxYear: file.taxYear,
+        frequency: file.depositSchedule.frequency,
+        dueDay: file.depositSchedule.dueDay ?? null,
+        note: file.depositSchedule.note ?? "",
+        source: file.depositSchedule.source ?? "",
+      })
+      .onConflictDoUpdate({
+        target: [stateDepositSchedules.stateCode, stateDepositSchedules.taxYear],
+        set: {
+          frequency: file.depositSchedule.frequency,
+          dueDay: file.depositSchedule.dueDay ?? null,
+          note: file.depositSchedule.note ?? "",
+          source: file.depositSchedule.source ?? "",
+        },
+      });
   }
 }
 
