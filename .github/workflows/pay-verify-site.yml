@@ -52,10 +52,13 @@ jobs:
     # from a push, the nightly cron or a manual dispatch. A pull_request run
     # never feeds the site, including a fork PR from a branch named "main"
     # (head_branch alone matches that). workflow_dispatch always allowed.
+    # A CANCELLED run (ci cancels superseded runs on main) tested nothing, so it
+    # publishes nothing: no sha-* tag without a result behind it.
     # Keep in step with the API re-check in "Resolve triggering run".
     if: >-
       github.repository == 'soult-io/payroll-app' &&
       (github.event_name == 'workflow_dispatch' || (
+        github.event.workflow_run.conclusion != 'cancelled' &&
         github.event.workflow_run.head_branch == 'main' &&
         github.event.workflow_run.head_repository.full_name == github.repository &&
         contains(fromJSON('["push","schedule","workflow_dispatch"]'), github.event.workflow_run.event)
@@ -83,7 +86,7 @@ jobs:
             });
             const workflows = [".github/workflows/ci.yml", ".github/workflows/e2e-nightly.yml"];
             const problems = [
-              !workflows.some((w) => run.path.startsWith(w)) && `path ${run.path}`,
+              !workflows.some((w) => run.path === w || run.path.startsWith(`${w}@`)) && `path ${run.path}`,
               !["push", "schedule", "workflow_dispatch"].includes(run.event) && `event ${run.event}`,
               run.head_branch !== "main" && `head_branch ${run.head_branch}`,
               run.head_repository?.full_name !== `${context.repo.owner}/${context.repo.repo}` &&
