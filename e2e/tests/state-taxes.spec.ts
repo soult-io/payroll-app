@@ -21,6 +21,7 @@ import {
   QA_ADMIN,
   QA_EMPLOYEE_NAME,
 } from "./qa.js";
+import { step } from "./support/journey.js";
 
 function adminUser() {
   return LIVE_QA ? QA_ADMIN : loadEphemeralState()?.admin;
@@ -55,11 +56,13 @@ test("config page: State taxes tab renders", async ({ browser }) => {
   test.skip(!user, "ephemeral state missing — run the journeys first");
   const page = await newAuthedPage(browser, user!);
   try {
-    await page.goto("/admin/config");
-    await page.getByRole("tab", { name: "State taxes" }).click();
-    await expect(page.getByText("Jurisdiction", { exact: true })).toBeVisible();
-    await expect(page.getByText("Computation kind")).toBeVisible();
-    await expect(page.getByText("resolution falls back to the bare state code")).toBeVisible();
+    await step(page, "Config page: State taxes tab lists jurisdictions", async () => {
+      await page.goto("/admin/config");
+      await page.getByRole("tab", { name: "State taxes" }).click();
+      await expect(page.getByText("Jurisdiction", { exact: true })).toBeVisible();
+      await expect(page.getByText("Computation kind")).toBeVisible();
+      await expect(page.getByText("resolution falls back to the bare state code")).toBeVisible();
+    });
   } finally {
     await page.close();
   }
@@ -72,11 +75,13 @@ test("employee detail: State tax tab renders work-state and election tables", as
   test.skip(!user, "ephemeral state missing — run the journeys first");
   const page = await newAuthedPage(browser, user!);
   try {
-    await openStateTaxTab(page);
-    await expect(page.getByRole("heading", { name: "Work state (PAY-13)" })).toBeVisible();
-    await expect(
-      page.getByRole("heading", { name: "State withholding elections (append-only)" }),
-    ).toBeVisible();
+    await step(page, "Employee State tax tab shows work state + elections", async () => {
+      await openStateTaxTab(page);
+      await expect(page.getByRole("heading", { name: "Work state (PAY-13)" })).toBeVisible();
+      await expect(
+        page.getByRole("heading", { name: "State withholding elections (append-only)" }),
+      ).toBeVisible();
+    });
   } finally {
     await page.close();
   }
@@ -88,17 +93,21 @@ test("ephemeral only: assign a work state and see it in the history", async ({ b
   test.skip(!user, "ephemeral state missing — run the journeys first");
   const page = await newAuthedPage(browser, user!);
   try {
-    await openStateTaxTab(page);
-    await page.getByRole("button", { name: "Assign" }).click();
-    await page.getByLabel("State (USPS code)").fill("IL");
-    await page.getByRole("button", { name: "Assign", exact: true }).last().click();
-    await expect(page.getByText("Work state assigned")).toBeVisible();
-    // Scope to the work-state card — inactive tab panels stay mounted, so a
-    // bare tbody.first() would land in the hidden Compensation table.
-    const workStateCard = page.locator("section", {
-      has: page.getByRole("heading", { name: "Work state (PAY-13)" }),
+    await step(page, "Open the employee's State tax tab", async () => {
+      await openStateTaxTab(page);
     });
-    await expect(workStateCard.getByRole("cell", { name: "IL", exact: true })).toBeVisible();
+    await step(page, "Assign work state IL", async () => {
+      await page.getByRole("button", { name: "Assign" }).click();
+      await page.getByLabel("State (USPS code)").fill("IL");
+      await page.getByRole("button", { name: "Assign", exact: true }).last().click();
+      await expect(page.getByText("Work state assigned")).toBeVisible();
+      // Scope to the work-state card — inactive tab panels stay mounted, so a
+      // bare tbody.first() would land in the hidden Compensation table.
+      const workStateCard = page.locator("section", {
+        has: page.getByRole("heading", { name: "Work state (PAY-13)" }),
+      });
+      await expect(workStateCard.getByRole("cell", { name: "IL", exact: true })).toBeVisible();
+    });
   } finally {
     await page.close();
   }
@@ -128,19 +137,23 @@ test("ephemeral only: employee state election flows request → approval → pay
   const empCtx = await browser.newContext({ storageState: EMPLOYEE_SESSION_PATH });
   try {
     const emp = await empCtx.newPage();
-    await emp.goto("/my/requests/new");
-    await emp.getByRole("button", { name: /State withholding/ }).click();
-    await emp.locator("#stateCode").fill("il"); // form normalizes to uppercase
-    // PrimeVue InputNumber keeps the id on the wrapper; the input is inside.
-    await emp.locator("#allowances input").fill("1");
-    await emp.locator("#extraWithholding input").fill("10");
-    await emp.getByRole("button", { name: "Review", exact: true }).click();
-    // Inactive step panels stay mounted — assert on the step-3 heading, which
-    // only exists in the (visible) review panel.
-    await expect(emp.getByRole("heading", { name: "Review — State withholding" })).toBeVisible();
-    await emp.getByRole("button", { name: "Submit request" }).click();
-    await emp.waitForURL(/\/my\/requests\/[0-9a-f-]{36}/);
-    await expect(emp.getByText("Pending").first()).toBeVisible();
+    await step(emp, "Employee fills in an IL withholding election", async () => {
+      await emp.goto("/my/requests/new");
+      await emp.getByRole("button", { name: /State withholding/ }).click();
+      await emp.locator("#stateCode").fill("il"); // form normalizes to uppercase
+      // PrimeVue InputNumber keeps the id on the wrapper; the input is inside.
+      await emp.locator("#allowances input").fill("1");
+      await emp.locator("#extraWithholding input").fill("10");
+      await emp.getByRole("button", { name: "Review", exact: true }).click();
+      // Inactive step panels stay mounted — assert on the step-3 heading, which
+      // only exists in the (visible) review panel.
+      await expect(emp.getByRole("heading", { name: "Review — State withholding" })).toBeVisible();
+    });
+    await step(emp, "Employee submits the request (Pending)", async () => {
+      await emp.getByRole("button", { name: "Submit request" }).click();
+      await emp.waitForURL(/\/my\/requests\/[0-9a-f-]{36}/);
+      await expect(emp.getByText("Pending").first()).toBeVisible();
+    });
   } finally {
     await empCtx.close();
   }
@@ -149,30 +162,41 @@ test("ephemeral only: employee state election flows request → approval → pay
   const adminPage = await newAuthedPage(browser, state!.admin);
   let runPublicId = "";
   try {
-    await adminPage.goto("/admin/requests");
-    await adminPage.locator("tr", { hasText: "State withholding" }).first().click();
-    await adminPage.waitForURL(/\/admin\/requests\/[0-9a-f-]{36}/);
-    await adminPage.getByRole("button", { name: "Approve & apply" }).click();
-    await expect(adminPage.getByText("Request approved")).toBeVisible();
+    await step(adminPage, "Admin approves the election request", async () => {
+      await adminPage.goto("/admin/requests");
+      await adminPage.locator("tr", { hasText: "State withholding" }).first().click();
+      await adminPage.waitForURL(/\/admin\/requests\/[0-9a-f-]{36}/);
+      await adminPage.getByRole("button", { name: "Approve & apply" }).click();
+      await expect(adminPage.getByText("Request approved")).toBeVisible();
+    });
 
     // --- 3. Election + work state on the employee's State tax tab ---
-    await openStateTaxTab(adminPage);
-    const employeeId = Number(adminPage.url().match(/\/admin\/employees\/(\d+)/)?.[1]);
-    expect(employeeId).toBeGreaterThan(0);
-    const workStateCard = adminPage.locator("section", {
-      has: adminPage.getByRole("heading", { name: "Work state (PAY-13)" }),
-    });
-    // The previous spec test usually assigned IL already; assign if missing.
-    if (!(await workStateCard.getByRole("cell", { name: "IL", exact: true }).isVisible())) {
-      await adminPage.getByRole("button", { name: "Assign" }).click();
-      await adminPage.getByLabel("State (USPS code)").fill("IL");
-      await adminPage.getByRole("button", { name: "Assign", exact: true }).last().click();
-      await expect(adminPage.getByText("Work state assigned")).toBeVisible();
-    }
-    const electionsCard = adminPage.locator("section", {
-      has: adminPage.getByRole("heading", { name: "State withholding elections (append-only)" }),
-    });
-    await expect(electionsCard.getByRole("cell", { name: "IL", exact: true })).toBeVisible();
+    const employeeId = await step(
+      adminPage,
+      "Election and IL work state on the State tax tab",
+      async () => {
+        await openStateTaxTab(adminPage);
+        const id = Number(adminPage.url().match(/\/admin\/employees\/(\d+)/)?.[1]);
+        expect(id).toBeGreaterThan(0);
+        const workStateCard = adminPage.locator("section", {
+          has: adminPage.getByRole("heading", { name: "Work state (PAY-13)" }),
+        });
+        // The previous spec test usually assigned IL already; assign if missing.
+        if (!(await workStateCard.getByRole("cell", { name: "IL", exact: true }).isVisible())) {
+          await adminPage.getByRole("button", { name: "Assign" }).click();
+          await adminPage.getByLabel("State (USPS code)").fill("IL");
+          await adminPage.getByRole("button", { name: "Assign", exact: true }).last().click();
+          await expect(adminPage.getByText("Work state assigned")).toBeVisible();
+        }
+        const electionsCard = adminPage.locator("section", {
+          has: adminPage.getByRole("heading", {
+            name: "State withholding elections (append-only)",
+          }),
+        });
+        await expect(electionsCard.getByRole("cell", { name: "IL", exact: true })).toBeVisible();
+        return id;
+      },
+    );
 
     // --- 4. Generate → approve → issue the run for the effective month ---
     // page.request shares the context cookies but sends no Origin header —
@@ -200,11 +224,13 @@ test("ephemeral only: employee state election flows request → approval → pay
   const empCtx2 = await browser.newContext({ storageState: EMPLOYEE_SESSION_PATH });
   try {
     const emp = await empCtx2.newPage();
-    await emp.goto(`/my/payslips/${runPublicId}`);
-    const stateCell = emp
-      .locator("dt", { hasText: "State withholding" })
-      .locator("xpath=following-sibling::dd[1]");
-    await expect(stateCell).toHaveText("−$195.93");
+    await step(emp, "Issued payslip shows IL state withholding −$195.93", async () => {
+      await emp.goto(`/my/payslips/${runPublicId}`);
+      const stateCell = emp
+        .locator("dt", { hasText: "State withholding" })
+        .locator("xpath=following-sibling::dd[1]");
+      await expect(stateCell).toHaveText("−$195.93");
+    });
   } finally {
     await empCtx2.close();
   }

@@ -75,9 +75,12 @@ interface JourneyEvidence {
   commitSha: string;          // GITHUB_SHA of the run that captured it
   runId: string;              // GITHUB_RUN_ID
   source: "ci";               // D2: never "nightly"
+  generatedAt: string;
   journeys: Array<{
-    testId: string;           // Playwright test id, joins to summary tests[]
+    testId: string;           // Playwright's stable test id
+    fullName: string;         // file + describes + title: joins to summary tests[].fullName
     title: string;
+    file: string;             // spec file basename
     status: "passed" | "failed" | "flaky" | "skipped" | "timedOut";
     attempt: number;          // the FINAL attempt is kept
     steps: Array<{
@@ -96,7 +99,17 @@ interface JourneyEvidence {
 ```
 
 `screenshot` is always present. `null` means "no still was produced" and the
-page says so; it never falls back to the previous step's image.
+page says so; it never falls back to the previous step's image. A still whose
+size record is missing or unreadable is dropped to `null`, never guessed.
+
+The summary carries no Playwright test id, so the join is by `fullName`, which
+the reporter builds exactly as the summary's Playwright aggregator does
+(`titlePath()` minus the root and project). Still `path`s are relative to the
+evidence file's directory (`e2e/test-results/`), so file and stills move as
+one bundle. `attach()` copies each still to a content-hashed name under
+`attachments/`; the helper deletes the original so each still is stored once.
+The e2e job uploads the bundle as the `pay-verify-evidence` artifact, pass or
+fail.
 
 The zod schema lives in `@payroll/verify-summary` (`src/evidence.ts`), beside
 the summary schema, and runs the existing PII guard over every string leaf
