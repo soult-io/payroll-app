@@ -199,7 +199,13 @@ test("tax deposits: admin sees the computed schedule incl. last month (PAY-9)", 
       deposits: { periodStart: string; jurisdiction: string; amount: string }[];
     };
     expect(deposits.length).toBeGreaterThan(0);
-    expect(deposits.every((d) => d.jurisdiction === "federal")).toBe(true);
+    // PAY-49: Ada's IL work-state election means state deposit rows exist
+    // alongside the federal schedule — both jurisdictions are expected here.
+    expect(deposits.every((d) => d.jurisdiction === "federal" || d.jurisdiction === "IL")).toBe(
+      true,
+    );
+    expect(deposits.some((d) => d.jurisdiction === "federal")).toBe(true);
+    expect(deposits.some((d) => d.jurisdiction === "IL")).toBe(true);
     expect(Number(deposits[0]!.amount)).toBeGreaterThan(0);
   } finally {
     await page.context().close();

@@ -360,7 +360,13 @@ test("journey 7: deposit detail view (PAY-36/PAY-37/PAY-38)", async ({ browser }
   // exist and the FIRST row is December's, not the PAY-36 fixture. Every
   // assertion below therefore names the October row explicitly — the readability
   // checks from PAY-38 included, which previously leaned on `.first()`.
-  const row = page.locator(".p-datatable-tbody tr", { hasText: "Oct 2025" }).first();
+  // PAY-49: Ada's IL work-state election adds a state deposit row per month,
+  // so October has TWO rows — pin the FEDERAL one (this journey asserts the
+  // federal breakdown layout: EFTPS reference, combined Medicare, quarter).
+  const row = page
+    .locator(".p-datatable-tbody tr", { hasText: "Oct 2025" })
+    .filter({ hasText: "federal" })
+    .first();
   await expect(row).toBeVisible();
 
   // PAY-38: three-letter month in the period column.
