@@ -12,7 +12,9 @@
 # SECURITY: nginx-unprivileged runs as non-root (uid 101) on port 8080. Public
 # exposure, TLS and the LAN/VPN access gate are the BCN NPM's job (chunk D); this
 # server is reached by the proxy over the shared docker network.
-FROM nginxinc/nginx-unprivileged:1.27-alpine AS runtime
+# 1.30 is the maintained stable line; 1.27 stopped receiving rebuilds in
+# 2025-06 (Alpine 3.21.3) and its OpenSSL failed the Trivy gate (CVE-2026-31789).
+FROM nginxinc/nginx-unprivileged:1.30-alpine AS runtime
 COPY packages/verify-site/nginx.conf /etc/nginx/conf.d/default.conf
 # dist/site is the generated document set only (index.html + report/); the
 # compiled generator JS lives at dist/ root and is deliberately not served.
