@@ -795,19 +795,35 @@ async function seedDaveFinancials(
     "December",
   ] as const;
 
-  for (let m = 1; m < month; m++) {
-    const label = `Consulting retainer — ${monthNames[m - 1]} ${year}`;
+  // Paid months: the current year up to (not including) this one. In JANUARY
+  // that range is empty, which would leave Dave with no paid invoice and no
+  // payment at all — his whole reason to exist is a YTD above the 1099-NEC
+  // threshold, and PAY-7 asserts a paid invoice carrying a payment. A
+  // persistent database (live QA) hides this because last year's rows survive;
+  // the ephemeral e2e boot starts empty every run, so it would break for the
+  // whole of January. Fall back to the previous December.
+  const paidMonths: YearMonth[] =
+    month === 1
+      ? [{ year: year - 1, month: 12 }]
+      : Array.from({ length: month - 1 }, (_, i) => ({ year, month: i + 1 }));
+
+  for (const period of paidMonths) {
+    const label = `Consulting retainer — ${monthNames[period.month - 1]} ${period.year}`;
     const invoice = await ensureInvoice(db, {
       employeeId: daveId,
       description: label,
       amount: "800.00",
-      invoiceDate: `${year}-${pad2(m)}-28`,
+      invoiceDate: `${period.year}-${pad2(period.month)}-28`,
       status: "paid",
       reviewedBy: adminId,
     });
     // Paid on the 5th of the following month (clamped to `today` so a seed run
     // early in the month never records a future-dated payment).
-    const nominalPayDate = `${year}-${pad2(m + 1)}-05`;
+    const nextMonth =
+      period.month === 12
+        ? { year: period.year + 1, month: 1 }
+        : { year: period.year, month: period.month + 1 };
+    const nominalPayDate = `${nextMonth.year}-${pad2(nextMonth.month)}-05`;
     await ensurePayment(db, invoice.id, {
       payDate: nominalPayDate > today ? today : nominalPayDate,
       amount: "800.00",

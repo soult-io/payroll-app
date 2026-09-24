@@ -36,7 +36,7 @@ import { buildApp } from "../app.js";
 import type { Db } from "../db.js";
 import { inviteUser } from "../auth/users.js";
 import { syncDeposits } from "../deposits/service.js";
-import { QA_ADMIN, QA_CONTRACTOR_LOGIN, QA_EMPLOYEE_LOGIN, seedQaDataset } from "../qa/seed-qa.js";
+import { seedQaDataset } from "../qa/seed-qa.js";
 
 const HERE = dirname(fileURLToPath(import.meta.url));
 const REPO_ROOT = resolve(HERE, "../../../..");
@@ -128,13 +128,20 @@ await seedDatabase(db as unknown as SeedDb);
 // 2026-09-02 and stayed broken for 22 nights, so those four went untested and
 // the dashboard showed them as permanently never-run.
 //
-// `seedQaDataset` is the same builder `pnpm seed:qa` uses against live QA, it
-// is idempotent, and it takes ~2.3s against PGlite (57 issued runs through the
-// real generate -> approve -> issue pipeline). Running it here removes the
-// single-machine dependency for those four. `today` is deliberately the real
-// current date, not a fixed one: PAY-9 asserts the PREVIOUS calendar month is
-// present, which only holds against a live clock.
+// `seedQaDataset` is the same builder `pnpm seed:qa` uses against live QA and
+// is idempotent. It seeds 60 issued runs through the real
+// generate -> approve -> issue pipeline; measured boot-to-listening for this
+// whole entry (migrations + base seed + QA seed + app boot) is ~3s on a dev
+// laptop, against Playwright's 120s webServer budget. Running it here removes
+// the single-machine dependency for those four specs.
+//
+// `today` is deliberately the real current date, not a fixed one: PAY-9
+// asserts the PREVIOUS calendar month is present, which only holds against a
+// live clock.
 const qaSeed = await seedQaDataset({ db, auth, config });
+console.log(
+  `e2e:serve seeded QA dataset: ${qaSeed.payroll.issued + qaSeed.payroll.existing} issued runs`,
+);
 
 /** Decrypted base32 TOTP secret for a user (same path as test/flow-helpers). */
 async function decryptedTotpSecret(userId: string): Promise<string> {
@@ -265,14 +272,6 @@ writeFileSync(
       admin: { email: ADMIN.email, password: ADMIN_PASSWORD, totpSecret: adminTotpSecret },
       employee: { email: EMPLOYEE.email, inviteUrl: empInvite.setupLink },
       run: { publicId: runPublicId },
-      // The QA personas are seeded here too, with the SAME fixed credentials
-      // the live-QA stack uses, so the specs need no per-mode branching.
-      qa: {
-        admin: QA_ADMIN.email,
-        employee: QA_EMPLOYEE_LOGIN.email,
-        contractor: QA_CONTRACTOR_LOGIN.email,
-        issuedRuns: qaSeed.payroll.issued + qaSeed.payroll.existing,
-      },
     },
     null,
     2,

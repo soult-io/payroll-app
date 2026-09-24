@@ -242,7 +242,13 @@ test("journey 3: address change request round-trip (employee → admin approve �
   const ctx = await browser.newContext({ storageState: ADMIN_SESSION });
   const admin = await ctx.newPage();
   await admin.goto("/admin/requests");
-  const row = admin.locator("tr", { hasText: "Address" }).first();
+  // Scoped to this journey's own employee: the QA dataset seeds Carol's
+  // pending address change too, so "the first Address row" is only this one
+  // by accident of the list's descending submitted-at order.
+  const row = admin
+    .locator("tr", { hasText: "Address" })
+    .filter({ hasText: EMPLOYEE_NAME })
+    .first();
   await expect(row).toBeVisible();
   await row.click();
   await admin.waitForURL(`**/admin/requests/${publicId}**`);
@@ -347,20 +353,23 @@ test("journey 7: deposit detail view (PAY-36/PAY-37/PAY-38)", async ({ browser }
   const page = await ctx.newPage();
   await page.goto("/admin/deposits?year=2025");
 
-  // Verify three-letter month format in period column
-  await expect(page.locator(".p-datatable-tbody tr").first().locator("td").first()).toContainText(
-    "Oct 2025",
-  );
+  // Scoped to THIS boot's own 2025-10 fixture. The QA dataset seeds a full year
+  // of 2025 payroll for three personas (PAY-56), so ~12 federal 2025 deposits
+  // exist and the FIRST row is December's, not the PAY-36 fixture. Every
+  // assertion below therefore names the October row explicitly — the readability
+  // checks from PAY-38 included, which previously leaned on `.first()`.
+  const row = page.locator(".p-datatable-tbody tr", { hasText: "Oct 2025" }).first();
+  await expect(row).toBeVisible();
 
-  // Verify EFTPS string does NOT appear in table body
+  // PAY-38: three-letter month in the period column.
+  await expect(row.locator("td").first()).toContainText("Oct 2025");
+
+  // PAY-38: the EFTPS string does not appear in the table body.
   await expect(page.locator(".p-datatable-tbody")).not.toContainText("EFTPS");
 
-  // Verify sortable columns exist
+  // PAY-38: sortable columns exist.
   await expect(page.locator("th.p-datatable-sortable-column").first()).toBeVisible();
 
-  // Click the first data row (not the header row).
-  const row = page.locator(".p-datatable-tbody tr").first();
-  await expect(row).toBeVisible();
   await row.click();
 
   // Should navigate to detail page.

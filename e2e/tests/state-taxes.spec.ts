@@ -33,8 +33,16 @@ function adminUser() {
  * whichever persona sorts first, not this suite's own fixture — these specs
  * were silently operating on the wrong record.
  */
-/** This boot's own employee (serve.ts EMPLOYEE.name). */
-const EMPLOYEE_NAME = "E2E Employee";
+/**
+ * The employee these specs drive.
+ *
+ * "E2E Employee" exists only in the ephemeral boot (serve.ts). The read-only
+ * spec below runs in BOTH modes, so against live QA it must name a persona the
+ * QA seed provides — Carol, who exists in both since the boot now seeds that
+ * dataset too. The mutating specs are LIVE_QA-skipped, so they always get the
+ * ephemeral employee.
+ */
+const EMPLOYEE_NAME = LIVE_QA ? "Carol Mockington" : "E2E Employee";
 
 async function openStateTaxTab(page: Page, employeeName: string) {
   await page.goto("/admin/employees");

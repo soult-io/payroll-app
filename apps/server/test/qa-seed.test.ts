@@ -17,10 +17,12 @@ import {
   compensation,
   contractorDetails,
   contractorInvoices,
+  contractorPayments,
   contractorRecurringInvoices,
   employees,
   payrollEntries,
   payrollRuns,
+  taxFilings,
   w4Elections,
 } from "@payroll/db";
 import {
@@ -342,5 +344,107 @@ describe("idempotency", () => {
       .select({ id: changeRequestComments.id })
       .from(changeRequestComments);
     expect(comments).toHaveLength(3);
+  });
+});
+
+// --- PAY-56: the filing sync the seed now performs ------------------------
+
+describe("tax filings materialized by the seed", () => {
+  it("creates the closed-year W-2/W-3 row, so a fresh database has a populated Tax filings page", async () => {
+    const rows = await ctx.db
+      .select()
+      .from(taxFilings)
+      .where(and(eq(taxFilings.formType, "w2_w3"), eq(taxFilings.year, 2025)));
+    expect(rows).toHaveLength(1);
+    expect(must(rows[0], "w2_w3 2025").status).toBe("ready");
+  });
+
+  it("creates a 941 per issued quarter", async () => {
+    const rows = await ctx.db.select().from(taxFilings).where(eq(taxFilings.formType, "941"));
+    // 2025 Q1-Q4 + 2026 Q1-Q2 (history runs through 2026-07 at the fixed today).
+    expect(rows.length).toBeGreaterThanOrEqual(6);
+  });
+
+  it("does NOT create an in-year w2_w3 row — W-2s are never furnished before year-end", async () => {
+    const rows = await ctx.db
+      .select()
+      .from(taxFilings)
+      .where(and(eq(taxFilings.formType, "w2_w3"), eq(taxFilings.year, 2026)));
+    expect(rows).toHaveLength(0);
+  });
+
+  it("re-running never duplicates a filing", async () => {
+    const before = await ctx.db.select().from(taxFilings);
+    await seedQaDataset({ db: ctx.db, auth: ctx.auth, config: ctx.config }, { today: TODAY });
+    const after = await ctx.db.select().from(taxFilings);
+    expect(after.length).toBe(before.length);
+  });
+
+  it("NEVER touches a filing already marked filed, even with a stale worksheet hash", async () => {
+    const target = must(
+      (
+        await ctx.db
+          .select()
+          .from(taxFilings)
+          .where(and(eq(taxFilings.formType, "w2_w3"), eq(taxFilings.year, 2025)))
+      )[0],
+      "w2_w3 2025",
+    );
+    await ctx.db
+      .update(taxFilings)
+      .set({ status: "filed", worksheetHash: "deliberately-stale-hash" })
+      .where(eq(taxFilings.id, target.id));
+
+    await seedQaDataset({ db: ctx.db, auth: ctx.auth, config: ctx.config }, { today: TODAY });
+
+    const after = must(
+      (await ctx.db.select().from(taxFilings).where(eq(taxFilings.id, target.id)))[0],
+      "w2_w3 2025 after reseed",
+    );
+    // A filed return is a legal record. The seed must not reset its status nor
+    // recompute its worksheet, however stale the stored hash looks.
+    expect(after.status).toBe("filed");
+    expect(after.worksheetHash).toBe("deliberately-stale-hash");
+    expect(after.worksheet).toEqual(target.worksheet);
+  });
+});
+
+// --- PAY-56: the seed must not depend on where we are in the calendar ------
+
+describe("January boundary (review finding)", () => {
+  // The paid-invoice window used to be "months of the CURRENT year before this
+  // one", which is empty in January. Live QA hid it — last year's rows survive
+  // in a persistent database — but the ephemeral e2e boot starts empty, so
+  // PAY-7 ("Dave has a paid invoice carrying a payment") would have failed for
+  // the whole of January.
+  // NOTE: the date here must be a January the bundled tax tables cover. The
+  // seed needs federal config for the year it generates the current-period
+  // draft in, so `2027-01-03` fails with "no federal tax config/brackets for
+  // 2027" — a real, separate dated limitation, tracked outside this change.
+  it("still gives Dave a paid invoice carrying a payment on 1 January", async () => {
+    const jan = await createTestApp();
+    try {
+      const seeded = await seedQaDataset(
+        { db: jan.db, auth: jan.auth, config: jan.config },
+        { today: "2026-01-03" },
+      );
+      const invoices = await jan.db
+        .select()
+        .from(contractorInvoices)
+        .where(eq(contractorInvoices.employeeId, seeded.contractors.dave));
+      const paid = invoices.filter((i) => i.status === "paid");
+      expect(paid.length).toBeGreaterThan(0);
+
+      const payments = await jan.db
+        .select()
+        .from(contractorPayments)
+        .where(eq(contractorPayments.invoiceId, must(paid[0], "paid invoice").id));
+      expect(payments).toHaveLength(1);
+      // Falls back to the previous December, and never records a future payment.
+      expect(must(paid[0], "paid invoice").invoiceDate.startsWith("2025-12")).toBe(true);
+      expect(must(payments[0], "payment").payDate <= "2026-01-03").toBe(true);
+    } finally {
+      await jan.close();
+    }
   });
 });
