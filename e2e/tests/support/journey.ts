@@ -29,6 +29,7 @@ import {
   STILL_MISSING_ANNOTATION,
   type StillMeta,
 } from "../../reporters/evidence-reporter.js";
+import { LIVE_QA } from "../qa.js";
 
 /** A still never exceeds this height (CSS px), however long the page. */
 export const STILL_MAX_HEIGHT_PX = 4000;
@@ -51,7 +52,7 @@ const STILL_SCREENSHOT_TIMEOUT_MS = 10_000;
 const STILL_CAPTURE_TIMEOUT_MS = 15_000;
 
 /** Stills only in the ephemeral boot — never against live QA (spec 20 D2). */
-export const STILLS_ENABLED = !process.env.E2E_BASE_URL;
+export const STILLS_ENABLED = !LIVE_QA;
 
 /**
  * In the page: how the screen scrolls. `document` is the document's own hidden

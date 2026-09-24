@@ -28,58 +28,58 @@ function stills(testInfo: TestInfo): string[] {
     .map((a) => a.path ?? "");
 }
 
-function page(heightPx: number): string {
+function tallHtml(heightPx: number): string {
   return `<!doctype html><body style="margin:0"><div style="height:${heightPx}px;background:linear-gradient(#fff,#39f)">tall</div></body>`;
 }
 
 test.describe("harness · journey stills", () => {
-  test("a short page gives one untruncated still at the viewport height", async ({ page: p }) => {
-    await p.setContent(page(200));
-    await step(p, "short page", async () => {});
-    const viewport = p.viewportSize();
+  test("a short page gives one untruncated still at the viewport height", async ({ page }) => {
+    await page.setContent(tallHtml(200));
+    await step(page, "short page", async () => {});
+    const viewport = page.viewportSize();
     expect(metas(test.info())).toEqual([
       { width: viewport?.width, height: viewport?.height, truncated: false },
     ]);
     expect(stills(test.info())).toHaveLength(1);
   });
 
-  test("a tall page is captured in full below the cap", async ({ page: p }) => {
-    await p.setContent(page(2500));
-    await step(p, "tall page", async () => {});
+  test("a tall page is captured in full below the cap", async ({ page }) => {
+    await page.setContent(tallHtml(2500));
+    await step(page, "tall page", async () => {});
     const [meta] = metas(test.info());
     expect(meta?.height).toBe(2500);
     expect(meta?.truncated).toBe(false);
   });
 
-  test("a page over the cap is cut at the cap and flagged truncated", async ({ page: p }) => {
-    await p.setContent(page(STILL_MAX_HEIGHT_PX + 1500));
-    await step(p, "very tall page", async () => {});
+  test("a page over the cap is cut at the cap and flagged truncated", async ({ page }) => {
+    await page.setContent(tallHtml(STILL_MAX_HEIGHT_PX + 1500));
+    await step(page, "very tall page", async () => {});
     const [meta] = metas(test.info());
     expect(meta?.height).toBe(STILL_MAX_HEIGHT_PX);
     expect(meta?.truncated).toBe(true);
   });
 
-  test("a large inner scroller refuses the still and says why", async ({ page: p }) => {
-    await p.setContent(
-      `<!doctype html><body style="margin:0"><main style="height:100vh;overflow-y:auto">${page(3000)}</main></body>`,
+  test("a large inner scroller refuses the still and says why", async ({ page }) => {
+    await page.setContent(
+      `<!doctype html><body style="margin:0"><main style="height:100vh;overflow-y:auto">${tallHtml(3000)}</main></body>`,
     );
-    await step(p, "inner scroller", async () => {});
+    await step(page, "inner scroller", async () => {});
     expect(stills(test.info())).toEqual([]);
     const note = test.info().annotations.find((a) => a.type === STILL_MISSING_ANNOTATION);
     expect(note?.description).toContain("inner scroller: inner-scroller");
   });
 
-  test("a small inner scroller (a dropdown list) does not block the still", async ({ page: p }) => {
-    await p.setContent(
+  test("a small inner scroller (a dropdown list) does not block the still", async ({ page }) => {
+    await page.setContent(
       `<!doctype html><body style="margin:0"><ul style="height:80px;overflow-y:auto">${"<li>x</li>".repeat(40)}</ul></body>`,
     );
-    await step(p, "dropdown", async () => {});
+    await step(page, "dropdown", async () => {});
     expect(stills(test.info())).toHaveLength(1);
   });
 
-  test("a failing step still gets its still, and its own error propagates", async ({ page: p }) => {
-    await p.setContent(page(300));
-    const err = await step(p, "fails", async () => {
+  test("a failing step still gets its still, and its own error propagates", async ({ page }) => {
+    await page.setContent(tallHtml(300));
+    const err = await step(page, "fails", async () => {
       throw new Error("boom");
     }).catch((e: unknown) => e);
     expect(err).toBeInstanceOf(Error);
@@ -87,19 +87,19 @@ test.describe("harness · journey stills", () => {
     expect(stills(test.info())).toHaveLength(1);
   });
 
-  test("each step in a test gets its own still file", async ({ page: p }) => {
-    await p.setContent(page(300));
-    await step(p, "one", async () => {});
-    await p.setContent(page(600));
-    await step(p, "two", async () => {});
+  test("each step in a test gets its own still file", async ({ page }) => {
+    await page.setContent(tallHtml(300));
+    await step(page, "one", async () => {});
+    await page.setContent(tallHtml(600));
+    await step(page, "two", async () => {});
     const files = stills(test.info());
     expect(files).toHaveLength(2);
     expect(new Set(files).size).toBe(2);
     expect(files.every((f) => existsSync(f))).toBe(true);
   });
 
-  test("step returns the body's value", async ({ page: p }) => {
-    await p.setContent(page(100));
-    expect(await step(p, "value", async () => 42)).toBe(42);
+  test("step returns the body's value", async ({ page }) => {
+    await page.setContent(tallHtml(100));
+    expect(await step(page, "value", async () => 42)).toBe(42);
   });
 });
