@@ -7,6 +7,11 @@
  * spec), a draft payroll run is generated, and the fixture state (TOTP
  * secret, invite link, run id) is written to e2e/.state/state.json.
  *
+ * It also seeds the full QA synthetic dataset (`seedQaDataset`) — the same one
+ * `pnpm seed:qa` builds against live QA — so the live-QA specs run here too
+ * (PAY-56). That is the largest thing this entry does; everything below is
+ * layered on top of it.
+ *
  * Production boot (src/index.ts) is untouched: postgres-js over TCP + the
  * pg-boss scheduler. This entry exists for browser E2E only and is never
  * imported by the production start path.
@@ -121,25 +126,14 @@ const { app, auth } = await buildApp({
 
 await seedDatabase(db as unknown as SeedDb);
 
-// PAY-56: the full QA synthetic dataset, in the ephemeral boot too.
+// PAY-56: the full QA synthetic dataset, in the ephemeral boot too. Four
+// live-QA specs were gated on `E2E_BASE_URL` only because this boot lacked
+// their fixtures, so they ran nowhere but the nightly.
 //
-// Four live-QA journeys (PAY-7, PAY-8, PAY-9, PAY-23) were gated on
-// `E2E_BASE_URL` purely because this boot lacked their fixtures — contractor
-// Dave with invoices, two years of issued payroll history, the 2025 W-2/W-3
-// row. They therefore ran ONLY on the self-hosted nightly, which broke on
-// 2026-09-02 and stayed broken for 22 nights, so those four went untested and
-// the dashboard showed them as permanently never-run.
-//
-// `seedQaDataset` is the same builder `pnpm seed:qa` uses against live QA and
-// is idempotent. It seeds 60 issued runs through the real
-// generate -> approve -> issue pipeline; measured boot-to-listening for this
-// whole entry (migrations + base seed + QA seed + app boot) is ~3s on a dev
-// laptop, against Playwright's 120s webServer budget. Running it here removes
-// the single-machine dependency for those four specs.
-//
-// `today` is deliberately the real current date, not a fixed one: PAY-9
-// asserts the PREVIOUS calendar month is present, which only holds against a
-// live clock.
+// `seedQaDataset` is idempotent and is the same builder `pnpm seed:qa` uses
+// against live QA. `today` is deliberately the live clock, not a fixed date:
+// PAY-9 asserts the PREVIOUS calendar month is present, which only holds
+// against a real one.
 const qaSeed = await seedQaDataset({ db, auth, config });
 // The seeded date is logged because the dataset is CLOCK-DEPENDENT and
 // `reuseExistingServer` is on outside CI: a boot left over from last month

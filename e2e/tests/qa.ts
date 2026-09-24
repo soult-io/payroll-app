@@ -154,6 +154,25 @@ export async function newAuthedPage(browser: Browser, user: QaUser): Promise<Pag
 }
 
 // ---------------------------------------------------------------------------
+// Persona names, for scoping list rows.
+//
+// The ephemeral boot seeds the QA dataset too (PAY-56), so no list is a single
+// row any more and every spec must say WHICH record it means. These live here,
+// next to the logins, because they are the same category of fact — and because
+// two specs previously each declared their own `EMPLOYEE_NAME` with different
+// values.
+// ---------------------------------------------------------------------------
+
+/** This boot's own employee. MUST match `EMPLOYEE.name` in apps/server/src/e2e/serve.ts. */
+export const EPHEMERAL_EMPLOYEE_NAME = "E2E Employee";
+
+/** A QA-seed W-2 persona — exists in BOTH modes, so safe for live-QA specs. */
+export const QA_EMPLOYEE_NAME = "Carol Mockington";
+
+/** The persona whose current-period draft the seed leaves awaiting approval. */
+export const QA_DRAFT_EMPLOYEE_NAME = "Ada";
+
+// ---------------------------------------------------------------------------
 // Ephemeral-mode fixture state (e2e:serve boot output), used by specs that
 // also run against the local PGlite server.
 // ---------------------------------------------------------------------------

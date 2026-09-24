@@ -134,7 +134,7 @@ export function historyMonths(today: string): YearMonth[] {
 // flow's end state (credential account + TOTP enrolled + settings defaults)
 // ---------------------------------------------------------------------------
 
-export interface QaDeps {
+interface QaDeps {
   db: Db;
   auth: Auth;
   config: AppConfig;
@@ -921,17 +921,7 @@ export interface QaSeedOptions {
   today?: string;
 }
 
-/**
- * Fail early, and in words, when the bundled tax tables do not cover the year
- * we are about to generate payroll in.
- *
- * `seedDatabase` seeds a FIXED set of tax years. The dataset always generates a
- * current-period draft, so on 1 January of the first uncovered year every
- * caller breaks: `pnpm seed:qa` against live QA, and — since PAY-56 — the
- * ephemeral e2e boot, where the failure surfaces as a Playwright webServer
- * timeout and takes the whole suite with it. That is a confusing way to learn
- * you need next year's tables, so say it here instead.
- */
+/** Guard the precondition the dataset relies on; the error says the rest. */
 async function assertTaxYearSeeded(db: Db, year: number): Promise<void> {
   const rows = await db
     .select({ taxYear: taxConfig.taxYear })

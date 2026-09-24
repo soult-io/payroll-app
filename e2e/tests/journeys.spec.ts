@@ -17,6 +17,7 @@ import { fileURLToPath } from "node:url";
 import { expect, test, type Page } from "@playwright/test";
 import { createOTP } from "@better-auth/utils/otp";
 import { base32 } from "@better-auth/utils/base32";
+import { EPHEMERAL_EMPLOYEE_NAME } from "./qa.js";
 
 test.describe.configure({ mode: "serial" });
 
@@ -57,9 +58,7 @@ const EMPLOYEE_SESSION = resolve(STATE_DIR, "employee-storage.json");
 const ADMIN_SESSION = resolve(STATE_DIR, "admin-storage.json");
 
 const EMPLOYEE_PASSWORD = "e2e-employee-passphrase-47";
-/** This boot's own employee (serve.ts EMPLOYEE.name) — used to scope list rows
- * away from the QA personas the boot also seeds (PAY-56). */
-const EMPLOYEE_NAME = "E2E Employee";
+
 const NEW_ADDRESS = {
   line1: "742 Evergreen Terrace",
   city: "Springfield",
@@ -247,7 +246,7 @@ test("journey 3: address change request round-trip (employee → admin approve �
   // by accident of the list's descending submitted-at order.
   const row = admin
     .locator("tr", { hasText: "Address" })
-    .filter({ hasText: EMPLOYEE_NAME })
+    .filter({ hasText: EPHEMERAL_EMPLOYEE_NAME })
     .first();
   await expect(row).toBeVisible();
   await row.click();
@@ -303,7 +302,10 @@ test("journey 5: back navigation preserves the list filter state (PAY-17)", asyn
   // Scoped to THIS journey's own employee: the boot now also seeds the QA
   // dataset (PAY-56), so "the first issued row" is some other persona's run.
   // A test that only passes against a near-empty database is not a test.
-  const row = page.locator("tr", { hasText: "Issued" }).filter({ hasText: EMPLOYEE_NAME }).first();
+  const row = page
+    .locator("tr", { hasText: "Issued" })
+    .filter({ hasText: EPHEMERAL_EMPLOYEE_NAME })
+    .first();
   await expect(row).toBeVisible();
   await row.click();
   await expect(page).toHaveURL(new RegExp(`/admin/payroll/${STATE.run.publicId}\\?year=2025`));
@@ -313,13 +315,13 @@ test("journey 5: back navigation preserves the list filter state (PAY-17)", asyn
   await expect(page).toHaveURL(/\/admin\/payroll\?year=2025/);
   await expect(page.locator(".p-select").first()).toContainText("2025");
   await expect(
-    page.locator("tr", { hasText: "Issued" }).filter({ hasText: EMPLOYEE_NAME }).first(),
+    page.locator("tr", { hasText: "Issued" }).filter({ hasText: EPHEMERAL_EMPLOYEE_NAME }).first(),
   ).toBeVisible();
 
   // Browser-back behaves identically (query-param-driven filters make it free).
   await page
     .locator("tr", { hasText: "Issued" })
-    .filter({ hasText: EMPLOYEE_NAME })
+    .filter({ hasText: EPHEMERAL_EMPLOYEE_NAME })
     .first()
     .click();
   await expect(page).toHaveURL(new RegExp(`/admin/payroll/${STATE.run.publicId}\\?year=2025`));

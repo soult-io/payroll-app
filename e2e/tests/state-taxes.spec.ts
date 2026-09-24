@@ -17,36 +17,35 @@ import {
   LIVE_QA,
   loadEphemeralState,
   newAuthedPage,
+  EPHEMERAL_EMPLOYEE_NAME,
   QA_ADMIN,
+  QA_EMPLOYEE_NAME,
 } from "./qa.js";
 
 function adminUser() {
   return LIVE_QA ? QA_ADMIN : loadEphemeralState()?.admin;
 }
 
-/** Open the first employee's detail page and switch to the State tax tab. */
-/**
- * Open one employee's State tax tab.
- *
- * Takes the employee NAME rather than picking the first row: the ephemeral
- * boot now seeds the full QA dataset too (PAY-56), so "the first employee" is
- * whichever persona sorts first, not this suite's own fixture — these specs
- * were silently operating on the wrong record.
- */
 /**
  * The employee these specs drive.
  *
- * "E2E Employee" exists only in the ephemeral boot (serve.ts). The read-only
- * spec below runs in BOTH modes, so against live QA it must name a persona the
- * QA seed provides — Carol, who exists in both since the boot now seeds that
- * dataset too. The mutating specs are LIVE_QA-skipped, so they always get the
- * ephemeral employee.
+ * The ephemeral employee exists only in the local boot. The read-only spec
+ * below runs in BOTH modes, so against live QA it must name a persona the QA
+ * seed provides. The mutating specs are LIVE_QA-skipped, so they always get
+ * the ephemeral one.
  */
-const EMPLOYEE_NAME = LIVE_QA ? "Carol Mockington" : "E2E Employee";
+const EMPLOYEE_NAME = LIVE_QA ? QA_EMPLOYEE_NAME : EPHEMERAL_EMPLOYEE_NAME;
 
-async function openStateTaxTab(page: Page, employeeName: string) {
+/**
+ * Open one employee's State tax tab.
+ *
+ * Named rather than "the first row": the boot now seeds the full QA dataset
+ * (PAY-56), so the first employee is whichever persona sorts first — these
+ * specs were silently operating on the wrong record.
+ */
+async function openStateTaxTab(page: Page) {
   await page.goto("/admin/employees");
-  await page.locator("tbody tr", { hasText: employeeName }).first().click();
+  await page.locator("tbody tr", { hasText: EMPLOYEE_NAME }).first().click();
   await page.waitForURL(/\/admin\/employees\/\d+/);
   await page.getByRole("tab", { name: "State tax" }).click();
 }
@@ -73,7 +72,7 @@ test("employee detail: State tax tab renders work-state and election tables", as
   test.skip(!user, "ephemeral state missing — run the journeys first");
   const page = await newAuthedPage(browser, user!);
   try {
-    await openStateTaxTab(page, EMPLOYEE_NAME);
+    await openStateTaxTab(page);
     await expect(page.getByRole("heading", { name: "Work state (PAY-13)" })).toBeVisible();
     await expect(
       page.getByRole("heading", { name: "State withholding elections (append-only)" }),
@@ -89,7 +88,7 @@ test("ephemeral only: assign a work state and see it in the history", async ({ b
   test.skip(!user, "ephemeral state missing — run the journeys first");
   const page = await newAuthedPage(browser, user!);
   try {
-    await openStateTaxTab(page, EMPLOYEE_NAME);
+    await openStateTaxTab(page);
     await page.getByRole("button", { name: "Assign" }).click();
     await page.getByLabel("State (USPS code)").fill("IL");
     await page.getByRole("button", { name: "Assign", exact: true }).last().click();
@@ -157,7 +156,7 @@ test("ephemeral only: employee state election flows request → approval → pay
     await expect(adminPage.getByText("Request approved")).toBeVisible();
 
     // --- 3. Election + work state on the employee's State tax tab ---
-    await openStateTaxTab(adminPage, EMPLOYEE_NAME);
+    await openStateTaxTab(adminPage);
     const employeeId = Number(adminPage.url().match(/\/admin\/employees\/(\d+)/)?.[1]);
     expect(employeeId).toBeGreaterThan(0);
     const workStateCard = adminPage.locator("section", {

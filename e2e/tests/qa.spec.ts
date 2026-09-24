@@ -28,6 +28,7 @@ import {
   newAuthedPage,
   QA_ADMIN,
   QA_CONTRACTOR,
+  QA_DRAFT_EMPLOYEE_NAME,
   QA_EMPLOYEE,
   QA_EXPORT_TOKEN,
 } from "./qa.js";
@@ -95,7 +96,9 @@ test("scheduler draft: seeded current-period run shows in admin approvals (read-
     // The list defaults to the current year; the seed leaves ONE current-period
     // draft awaiting approval, Ada's. Scoped to her so this cannot pass on some
     // other run's row. Read-only assertion — never approve/void here.
-    const row = page.locator("tr", { hasText: "Awaiting approval" }).filter({ hasText: "Ada" });
+    const row = page
+      .locator("tr", { hasText: "Awaiting approval" })
+      .filter({ hasText: QA_DRAFT_EMPLOYEE_NAME });
     await expect(row.first()).toBeVisible();
   } finally {
     await page.context().close();
@@ -211,12 +214,10 @@ test("W-2/W-3 filing detail: full headers, Documents column, W-3 action placemen
     // to date), so a literal year silently stops existing once the window
     // moves past it.
     const closedYear = String(new Date().getUTCFullYear() - 1);
-    await page.goto("/admin/filings");
-    // The page's year filter defaults to the CURRENT year, and W-2/W-3 is a
-    // closed-year form — so the row this test is about is never on the default
-    // view. Select its year explicitly rather than relying on the default.
-    await page.locator(".p-select").first().click();
-    await page.getByRole("option", { name: closedYear }).click();
+    // The year filter defaults to the CURRENT year and W-2/W-3 is a closed-year
+    // form, so this row is never on the default view. Pin it by query param,
+    // the same way PAY-9 above does — no coupling to a PrimeVue class name.
+    await page.goto(`/admin/filings?year=${closedYear}`);
     const row = page
       .locator("tbody tr", { hasText: "W-2/W-3" })
       .filter({ hasText: closedYear })
