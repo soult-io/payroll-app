@@ -40,6 +40,7 @@ import {
   seedDatabase,
   taxConfig,
   w4Elections,
+  employeeWorkStates,
   type SeedDb,
 } from "@payroll/db";
 import { WORKFLOW_EVENTS } from "@payroll/notifications";
@@ -326,6 +327,31 @@ async function ensureW4(
   }
 }
 
+async function ensureWorkState(
+  db: Db,
+  employeeId: number,
+  stateCode: string,
+  effectiveFrom: string,
+): Promise<void> {
+  const found = await db
+    .select({ id: employeeWorkStates.id })
+    .from(employeeWorkStates)
+    .where(
+      and(
+        eq(employeeWorkStates.employeeId, employeeId),
+        eq(employeeWorkStates.effectiveFrom, effectiveFrom),
+      ),
+    )
+    .limit(1);
+  if (found[0]) return;
+  await db.insert(employeeWorkStates).values({
+    employeeId,
+    stateCode,
+    effectiveFrom,
+    effectiveTo: null,
+  });
+}
+
 export type W2Ids = Record<"ada" | "bob" | "carol", number>;
 
 async function seedW2People(
@@ -375,6 +401,10 @@ async function seedW2People(
   await ensureW4(deps.db, ids.ada, w4Rows(true));
   await ensureW4(deps.db, ids.bob, w4Rows(false));
   await ensureW4(deps.db, ids.carol, w4Rows(false));
+
+  // Ensure Ada has an IL work-state election
+  await ensureWorkState(deps.db, ids.ada, "IL", "2024-11-01");
+
   return ids;
 }
 
