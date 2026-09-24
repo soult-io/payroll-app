@@ -38,6 +38,7 @@ import {
   notificationSettings,
   payrollRuns,
   seedDatabase,
+  taxConfig,
   w4Elections,
   type SeedDb,
 } from "@payroll/db";
@@ -920,6 +921,33 @@ export interface QaSeedOptions {
   today?: string;
 }
 
+/**
+ * Fail early, and in words, when the bundled tax tables do not cover the year
+ * we are about to generate payroll in.
+ *
+ * `seedDatabase` seeds a FIXED set of tax years. The dataset always generates a
+ * current-period draft, so on 1 January of the first uncovered year every
+ * caller breaks: `pnpm seed:qa` against live QA, and — since PAY-56 — the
+ * ephemeral e2e boot, where the failure surfaces as a Playwright webServer
+ * timeout and takes the whole suite with it. That is a confusing way to learn
+ * you need next year's tables, so say it here instead.
+ */
+async function assertTaxYearSeeded(db: Db, year: number): Promise<void> {
+  const rows = await db
+    .select({ taxYear: taxConfig.taxYear })
+    .from(taxConfig)
+    .where(and(eq(taxConfig.jurisdiction, "federal"), eq(taxConfig.taxYear, year)))
+    .limit(1);
+  if (rows.length === 0) {
+    throw new Error(
+      `qa seed: no federal tax config for ${year}. The QA dataset generates a ` +
+        `current-period payroll run, so the bundled tax tables must cover the ` +
+        `current year. Add ${year} to packages/db/src/seed.ts (and its state ` +
+        `tables) before this date rolls around.`,
+    );
+  }
+}
+
 export async function seedQaDataset(
   deps: QaDeps,
   opts: QaSeedOptions = {},
@@ -927,6 +955,7 @@ export async function seedQaDataset(
   const today = opts.today ?? todayIso();
   // Reference data (company, tax tables, pay schedule) — idempotent.
   await seedDatabase(deps.db as unknown as SeedDb);
+  await assertTaxYearSeeded(deps.db, Number(today.slice(0, 4)));
 
   const admin = await ensureQaUser(deps, QA_ADMIN);
   const employeeLogin = await ensureQaUser(deps, QA_EMPLOYEE_LOGIN);

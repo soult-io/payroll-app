@@ -411,16 +411,31 @@ describe("tax filings materialized by the seed", () => {
 
 // --- PAY-56: the seed must not depend on where we are in the calendar ------
 
+describe("tax-year preflight", () => {
+  it("refuses, in words, to seed a year the bundled tax tables do not cover", async () => {
+    const future = await createTestApp();
+    try {
+      await expect(
+        seedQaDataset(
+          { db: future.db, auth: future.auth, config: future.config },
+          { today: "2031-06-15" },
+        ),
+      ).rejects.toThrow(/no federal tax config for 2031/);
+    } finally {
+      await future.close();
+    }
+  }, 300_000);
+});
+
 describe("January boundary (review finding)", () => {
   // The paid-invoice window used to be "months of the CURRENT year before this
   // one", which is empty in January. Live QA hid it — last year's rows survive
   // in a persistent database — but the ephemeral e2e boot starts empty, so
   // PAY-7 ("Dave has a paid invoice carrying a payment") would have failed for
   // the whole of January.
-  // NOTE: the date here must be a January the bundled tax tables cover. The
-  // seed needs federal config for the year it generates the current-period
-  // draft in, so `2027-01-03` fails with "no federal tax config/brackets for
-  // 2027" — a real, separate dated limitation, tracked outside this change.
+  // NOTE: the date here must be a January the bundled tax tables cover — the
+  // seed generates a current-period draft, so it needs federal config for that
+  // year. See the companion test below for the dated limitation this implies.
   it("still gives Dave a paid invoice carrying a payment on 1 January", async () => {
     const jan = await createTestApp();
     try {
@@ -446,5 +461,7 @@ describe("January boundary (review finding)", () => {
     } finally {
       await jan.close();
     }
-  });
+    // This `it` boots its own app AND runs a full seed, unlike every other test
+    // here, which reuses the padded beforeAll. Give it the same budget.
+  }, 300_000);
 });
