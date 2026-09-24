@@ -327,13 +327,24 @@ test("journey 6: admin user visiting /my/dashboard is redirected to /admin/dashb
   await ctx.close();
 });
 
-test("journey 7: deposit detail view (PAY-36/PAY-37)", async ({ browser }) => {
+test("journey 7: deposit detail view (PAY-36/PAY-37/PAY-38)", async ({ browser }) => {
   // Admin session from journey 2. The e2e fixture issues a 2025-10 run and
   // syncs deposits at boot; the list defaults to the current year, so open it
   // pinned to 2025 via the query param (PAY-17 filter state).
   const ctx = await browser.newContext({ storageState: ADMIN_SESSION });
   const page = await ctx.newPage();
   await page.goto("/admin/deposits?year=2025");
+
+  // Verify three-letter month format in period column
+  await expect(page.locator(".p-datatable-tbody tr").first().locator("td").first()).toContainText(
+    "Oct 2025",
+  );
+
+  // Verify EFTPS string does NOT appear in table body
+  await expect(page.locator(".p-datatable-tbody")).not.toContainText("EFTPS");
+
+  // Verify sortable columns exist
+  await expect(page.locator("th.p-datatable-sortable-column").first()).toBeVisible();
 
   // Click the first data row (not the header row).
   const row = page.locator(".p-datatable-tbody tr").first();
