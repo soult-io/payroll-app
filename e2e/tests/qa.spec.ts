@@ -183,7 +183,9 @@ test("tax deposits: admin sees the computed schedule incl. last month (PAY-9)", 
     // has produced no current-year runs yet — the default view is empty.
     await page.goto(`/admin/deposits?year=${prev.getUTCFullYear()}`);
     await expect(page.getByRole("heading", { name: "Tax deposits" })).toBeVisible();
-    const label = `${prev.toLocaleString("en-US", { month: "long", timeZone: "UTC" })} ${prev.getUTCFullYear()}`;
+    // Three-letter month, matching AdminDepositsView's periodLabel since PAY-38
+    // ("Aug 2026", not "August 2026"). `month: "short"` gives the same list.
+    const label = `${prev.toLocaleString("en-US", { month: "short", timeZone: "UTC" })} ${prev.getUTCFullYear()}`;
     await expect(page.locator("tbody tr", { hasText: label }).first()).toBeVisible();
 
     // Jurisdiction + reminder schedule editor render.
