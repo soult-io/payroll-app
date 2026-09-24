@@ -32,7 +32,7 @@ end of every step, and a human-pace walkthrough video with a visible cursor.
 | # | question | decision |
 |---|---|---|
 | D1 | where media lives between runs | orphan branch `pay-verify-assets`, force-pushed as a single commit holding only the latest bundle per source. Site image media budget 100 MB. |
-| D2 | sensitive screens | capture only from the **ephemeral CI** e2e run (throwaway DB, fake seed values). Never from the nightly live-QA run. Plus a **denylist** of steps that never get a still and are not recorded. |
+| D2 | where capture runs | only the **ephemeral CI** e2e run (throwaway DB, fake seed values), never the nightly live-QA run. Reason: CI runs once per commit, so the evidence binds to the exact commit it sits beside. **No step denylist:** all QA and CI data is synthetic (spec `qa-environment.md`, D31), so every step is captured. |
 | D3 | multi-context journeys | CI stitches the per-context clips into **one webm per journey**, in step order, with a caption card at each context switch. |
 | D4 | which tests are journeys | `journeys.spec.ts`, the chunk-F journeys in `qa.spec.ts`, and `state-taxes.spec.ts`. Utility specs (`mobile-login`, `qa-helpers`) get no media. |
 
@@ -56,13 +56,12 @@ still of the page the step names:
   helper asserts this at capture time: if `document.scrollingElement` is not
   the tallest scroller, it fails the still with `reason: "inner-scroller"`
   rather than emit a one-viewport image as if it were whole;
-- height capped at 4000 CSS px; a capped still carries `truncated: true`;
-- skipped entirely when the step title matches the denylist (D2). A denylisted
-  step records `screenshot: { denied: true }`, not `null`, so the page can say
-  why there is no image.
+- height capped at 4000 CSS px; a capped still carries `truncated: true`.
 
-Denylist (initial): any step whose title contains `SSN`, `tax ID`, `TIN`,
-`reveal`, or `bank`. It lives in one exported constant with a unit test.
+Every step is captured; there is no denylist (D2). Payroll screens show SSN and
+tax-ID fields, but in the ephemeral CI run their values come from the synthetic
+seed. This relies on the standing rule that no real data enters CI or QA; if
+that rule ever changes, capture must be revisited before it does.
 
 ### Evidence file
 
@@ -88,7 +87,6 @@ interface JourneyEvidence {
       screenshot:
         | { path: string; contentType: "image/jpeg";
             width: number; height: number; truncated: boolean }
-        | { denied: true }
         | null;               // no still (never a placeholder)
       videoOffsetMs?: number; // walkthrough only: step start in the stitched video
     }>;
@@ -205,8 +203,8 @@ with a "Show screens" control (R4).
 - Tall stills fit to width and scroll inside the stage, never squashed.
   Prev/Next, step dots, "open full size ↗", `width×height`, a "truncated at
   capture limit" note when `truncated`.
-- A step with no still reads "No screen captured for this step". A denied step
-  reads "Not captured — sensitive screen". Neither shows another step's image.
+- A step with no still reads "No screen captured for this step". It never
+  shows another step's image.
 - A flaky journey labels which attempt the media came from and keeps its
   flaky chip. An UNVERIFIED or NEVER RUN journey shows no media.
 - Lazy: zero image or video requests on page load. Without JS, each step has a
@@ -222,7 +220,7 @@ with a "Show screens" control (R4).
 1. This spec.
 2. Same-commit publishing in `pay-verify-site.yml` (independent; fixes a live
    defect).
-3. `step` helper, denylist, stills, evidence reporter; wrap the D4 journeys in
+3. `step` helper, stills, evidence reporter; wrap the D4 journeys in
    steps; upload the evidence artifact.
 4. Evidence schema + validation in `verify-summary`; `pay-verify-assets`
    branch; generator copies media and renders a Screens-only viewer.
@@ -238,10 +236,11 @@ is unchanged.
 
 ## Acceptance
 
-1. Every D4 journey step produces a still or an explicit `null` / `denied`
+1. Every D4 journey step produces a still or an explicit `null`
    record; no step is missing from the evidence.
 2. A still taller than 4000 px is cut at 4000 and flagged `truncated`.
-3. No denylisted step has a still, and no denylisted step appears in a video.
+3. No evidence is captured from the nightly run; `pay-verify-assets` holds a
+   `ci/` bundle only.
 4. The PII guard rejects an evidence file with a PII string in any title or
    path.
 5. From a **real CI run**, decode the walkthrough frames: every screen stays on
