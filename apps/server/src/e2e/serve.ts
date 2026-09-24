@@ -36,6 +36,7 @@ import { buildApp } from "../app.js";
 import type { Db } from "../db.js";
 import { inviteUser } from "../auth/users.js";
 import { syncDeposits } from "../deposits/service.js";
+import { QA_ADMIN, QA_CONTRACTOR_LOGIN, QA_EMPLOYEE_LOGIN, seedQaDataset } from "../qa/seed-qa.js";
 
 const HERE = dirname(fileURLToPath(import.meta.url));
 const REPO_ROOT = resolve(HERE, "../../../..");
@@ -117,6 +118,23 @@ const { app, auth } = await buildApp({
 });
 
 await seedDatabase(db as unknown as SeedDb);
+
+// PAY-56: the full QA synthetic dataset, in the ephemeral boot too.
+//
+// Four live-QA journeys (PAY-7, PAY-8, PAY-9, PAY-23) were gated on
+// `E2E_BASE_URL` purely because this boot lacked their fixtures — contractor
+// Dave with invoices, two years of issued payroll history, the 2025 W-2/W-3
+// row. They therefore ran ONLY on the self-hosted nightly, which broke on
+// 2026-09-02 and stayed broken for 22 nights, so those four went untested and
+// the dashboard showed them as permanently never-run.
+//
+// `seedQaDataset` is the same builder `pnpm seed:qa` uses against live QA, it
+// is idempotent, and it takes ~2.3s against PGlite (57 issued runs through the
+// real generate -> approve -> issue pipeline). Running it here removes the
+// single-machine dependency for those four. `today` is deliberately the real
+// current date, not a fixed one: PAY-9 asserts the PREVIOUS calendar month is
+// present, which only holds against a live clock.
+const qaSeed = await seedQaDataset({ db, auth, config });
 
 /** Decrypted base32 TOTP secret for a user (same path as test/flow-helpers). */
 async function decryptedTotpSecret(userId: string): Promise<string> {
@@ -247,6 +265,14 @@ writeFileSync(
       admin: { email: ADMIN.email, password: ADMIN_PASSWORD, totpSecret: adminTotpSecret },
       employee: { email: EMPLOYEE.email, inviteUrl: empInvite.setupLink },
       run: { publicId: runPublicId },
+      // The QA personas are seeded here too, with the SAME fixed credentials
+      // the live-QA stack uses, so the specs need no per-mode branching.
+      qa: {
+        admin: QA_ADMIN.email,
+        employee: QA_EMPLOYEE_LOGIN.email,
+        contractor: QA_CONTRACTOR_LOGIN.email,
+        issuedRuns: qaSeed.payroll.issued + qaSeed.payroll.existing,
+      },
     },
     null,
     2,

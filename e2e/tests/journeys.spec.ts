@@ -57,6 +57,9 @@ const EMPLOYEE_SESSION = resolve(STATE_DIR, "employee-storage.json");
 const ADMIN_SESSION = resolve(STATE_DIR, "admin-storage.json");
 
 const EMPLOYEE_PASSWORD = "e2e-employee-passphrase-47";
+/** This boot's own employee (serve.ts EMPLOYEE.name) — used to scope list rows
+ * away from the QA personas the boot also seeds (PAY-56). */
+const EMPLOYEE_NAME = "E2E Employee";
 const NEW_ADDRESS = {
   line1: "742 Evergreen Terrace",
   city: "Springfield",
@@ -291,7 +294,10 @@ test("journey 5: back navigation preserves the list filter state (PAY-17)", asyn
   await expect(page).toHaveURL(/\/admin\/payroll\?year=2025/);
 
   // Open the run review — the filter query rides along on the detail URL.
-  const row = page.locator("tr", { hasText: "Issued" }).first();
+  // Scoped to THIS journey's own employee: the boot now also seeds the QA
+  // dataset (PAY-56), so "the first issued row" is some other persona's run.
+  // A test that only passes against a near-empty database is not a test.
+  const row = page.locator("tr", { hasText: "Issued" }).filter({ hasText: EMPLOYEE_NAME }).first();
   await expect(row).toBeVisible();
   await row.click();
   await expect(page).toHaveURL(new RegExp(`/admin/payroll/${STATE.run.publicId}\\?year=2025`));
@@ -300,10 +306,16 @@ test("journey 5: back navigation preserves the list filter state (PAY-17)", asyn
   await page.getByRole("button", { name: "Back to runs" }).click();
   await expect(page).toHaveURL(/\/admin\/payroll\?year=2025/);
   await expect(page.locator(".p-select").first()).toContainText("2025");
-  await expect(page.locator("tr", { hasText: "Issued" }).first()).toBeVisible();
+  await expect(
+    page.locator("tr", { hasText: "Issued" }).filter({ hasText: EMPLOYEE_NAME }).first(),
+  ).toBeVisible();
 
   // Browser-back behaves identically (query-param-driven filters make it free).
-  await page.locator("tr", { hasText: "Issued" }).first().click();
+  await page
+    .locator("tr", { hasText: "Issued" })
+    .filter({ hasText: EMPLOYEE_NAME })
+    .first()
+    .click();
   await expect(page).toHaveURL(new RegExp(`/admin/payroll/${STATE.run.publicId}\\?year=2025`));
   await page.goBack();
   await expect(page).toHaveURL(/\/admin\/payroll\?year=2025/);

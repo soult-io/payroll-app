@@ -101,7 +101,6 @@ test("scheduler draft: seeded current-period run shows in admin approvals (read-
 test("contractor My Invoices: Dave sees approved+paid invoices, PDF round-trips (PAY-7)", async ({
   browser,
 }) => {
-  test.skip(!LIVE_QA, "live-QA only — needs the seeded contractor login (seed-qa Dave)");
   const page = await newAuthedPage(browser, QA_CONTRACTOR);
   try {
     // UI surface: the list page shows Dave's seeded invoices with status chips.
@@ -136,7 +135,6 @@ test("contractor My Invoices: Dave sees approved+paid invoices, PDF round-trips 
 test("PAY-8 scoped UI: contractor sees Invoices, not Payslips; /my/payslips redirects", async ({
   browser,
 }) => {
-  test.skip(!LIVE_QA, "live-QA only — needs the seeded contractor login (seed-qa Dave)");
   const page = await newAuthedPage(browser, QA_CONTRACTOR);
   try {
     await page.goto("/my/dashboard");
@@ -167,7 +165,6 @@ test("PAY-8 scoped UI: contractor sees Invoices, not Payslips; /my/payslips redi
 test("tax deposits: admin sees the computed schedule incl. last month (PAY-9)", async ({
   browser,
 }) => {
-  test.skip(!LIVE_QA, "live-QA only — deposit rows come from the seeded QA payroll history");
   const page = await newAuthedPage(browser, QA_ADMIN);
   try {
     await page.goto("/admin/deposits");
@@ -201,10 +198,14 @@ test("tax deposits: admin sees the computed schedule incl. last month (PAY-9)", 
 test("W-2/W-3 filing detail: full headers, Documents column, W-3 action placement (PAY-23)", async ({
   browser,
 }) => {
-  test.skip(!LIVE_QA, "live-QA only — the 2025 W-2/W-3 row comes from the seeded QA history");
   const page = await newAuthedPage(browser, QA_ADMIN);
   try {
     await page.goto("/admin/filings");
+    // The page's year filter defaults to the CURRENT year, and W-2/W-3 is a
+    // closed-year form — so the row this test is about is never on the default
+    // view. Select its year explicitly rather than relying on the default.
+    await page.locator(".p-select").first().click();
+    await page.getByRole("option", { name: "2025" }).click();
     const row = page
       .locator("tbody tr", { hasText: "W-2/W-3" })
       .filter({ hasText: "2025" })

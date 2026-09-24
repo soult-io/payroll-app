@@ -50,6 +50,8 @@ import { addressForStorage, encryptAddress } from "../crypto/address-encryption.
 import type { Db } from "../db.js";
 import { generateDraft, monthlyPeriod, transitionRun, type Period } from "../payroll/runs.js";
 import { syncDeposits } from "../deposits/service.js";
+import { syncAnnualFilings } from "../filings/annual.js";
+import { syncFilings } from "../filings/service.js";
 
 // ---------------------------------------------------------------------------
 // Fixed QA credentials (FAKE — QA-only, documented in docs/qa.md)
@@ -131,7 +133,7 @@ export function historyMonths(today: string): YearMonth[] {
 // flow's end state (credential account + TOTP enrolled + settings defaults)
 // ---------------------------------------------------------------------------
 
-interface QaDeps {
+export interface QaDeps {
   db: Db;
   auth: Auth;
   config: AppConfig;
@@ -921,6 +923,12 @@ export async function seedQaDataset(
   // PAY-9: compute the deposit schedule from the issued history so the admin
   // Tax deposits page has rows immediately (the daily tick keeps it fresh).
   await syncDeposits(deps, { today });
+  // PAY-23: same rationale for filings — without this the quarterly 941s and
+  // the closed-year W-2/W-3 row only appear after the scheduler's first tick,
+  // so a freshly seeded database has an empty Tax filings page. Both are
+  // upserts, so this stays idempotent.
+  await syncFilings(deps, { today });
+  await syncAnnualFilings(deps, { today });
   const changeRequestCreated = await seedChangeRequestThread(
     deps,
     w2.carol,
