@@ -140,9 +140,12 @@ describe("renderPage", () => {
       generatedAt: "2026-09-21T00:00:00Z",
       gitSha: "1111111newer0000000000000000000000000fff",
     });
-    const html = renderPage([older, newer]);
-    const headerRegion = html.slice(0, html.indexOf("Recent runs"));
-    expect(headerRegion).toContain("1111111"); // newer sha in header card
+    const html = renderPage([older, newer], { now: new Date("2026-09-21T01:00:00Z") });
+    // The commit moved to the per-source card with spec 19 — that card must
+    // show the NEWEST ci run's sha, not the older one.
+    const sources = html.slice(html.indexOf("<h2>Sources</h2>"), html.indexOf("<h2>Suites</h2>"));
+    expect(sources).toContain("1111111");
+    expect(sources).not.toContain("0000000newer");
   });
 
   it("escapes suite names (no raw HTML injection)", () => {
@@ -509,12 +512,38 @@ describe("never-run demotes the headline (spec 18)", () => {
     expect(suites).not.toMatch(/badge pass">PASSED</);
   });
 
-  it("leaves a clean run's headline alone", () => {
-    const clean = summary({
-      generatedAt: "2026-09-22T10:00:00.000Z",
-      suites: [makeE2eSuite([testResult("ran", "passed")])],
-    });
-    expect(renderPage([clean])).toMatch(/badge pass">PASSED</);
+  it("leaves a genuinely clean system's headline alone", () => {
+    // Clean now means: every source reporting, recently, all green, nothing
+    // never-run. A ci-only history is NOT clean — the nightly is quiet.
+    const at = new Date("2026-09-22T11:00:00Z");
+    const clean = [
+      summary({
+        generatedAt: "2026-09-22T10:00:00.000Z",
+        suites: [makeE2eSuite([testResult("ran", "passed")])],
+      }),
+      nightly({
+        generatedAt: "2026-09-22T10:30:00.000Z",
+        suites: [makeE2eSuite([testResult("ran", "passed")])],
+      }),
+    ];
+    const html = renderPage(clean, { now: at });
+    const headline = html.slice(0, html.indexOf("<h2>Sources</h2>"));
+    expect(headline).toMatch(/badge pass">PASSED</);
+  });
+
+  it("refuses a green headline for a ci-only history — the nightly is quiet", () => {
+    const html = renderPage(
+      [
+        summary({
+          generatedAt: "2026-09-22T10:00:00.000Z",
+          suites: [makeE2eSuite([testResult("ran", "passed")])],
+        }),
+      ],
+      { now: new Date("2026-09-22T11:00:00Z") },
+    );
+    const headline = html.slice(0, html.indexOf("<h2>Sources</h2>"));
+    expect(headline).not.toMatch(/badge pass">PASSED</);
+    expect(headline).toContain("SOURCE QUIET");
   });
 
   it("does not soften a FAILED headline into the never-run wording", () => {
@@ -654,5 +683,111 @@ describe("renderPage per-source (spec 19)", () => {
       ],
     });
     expect(renderPage([withGhost])).toContain("NEVER RUN");
+  });
+});
+
+// --- spec 19 review findings ----------------------------------------------
+
+describe("headline never-run spans every suite, not just journeys", () => {
+  it("demotes on a never-run UNIT test, not only a never-run journey", () => {
+    const engineWithGhost: SuiteResult = {
+      key: "engine",
+      name: "Engine unit tests",
+      status: "passed",
+      durationMs: 10,
+      counts: { passed: 1, failed: 0, flaky: 0, skipped: 1, executed: 1, total: 2 },
+      tests: [
+        testResult("engine ran", "passed", { file: "futa.test.ts" }),
+        testResult("engine ghost", "skipped", { file: "futa.test.ts" }),
+      ],
+    };
+    const ci = summary({
+      generatedAt: "2026-09-24T12:00:00.000Z",
+      suites: [engineWithGhost, makeE2eSuite([testResult("journey 1", "passed")])],
+    });
+    const night = nightly({
+      generatedAt: "2026-09-24T12:30:00.000Z",
+      suites: [makeE2eSuite([testResult("journey 1", "passed")])],
+    });
+    const html = renderPage([ci, night], { now: new Date("2026-09-24T13:00:00Z") });
+    const headline = html.slice(0, html.indexOf("<h2>Sources</h2>"));
+    // Both sources are fresh and green, so the ONLY reason to demote is the
+    // never-run engine test. Before the fix the headline read a plain PASSED
+    // while the engine suite row beneath it said "1 NEVER RUN".
+    expect(headline).toContain("1 NEVER RUN");
+    expect(headline).not.toMatch(/badge pass">PASSED</);
+  });
+});
+
+describe("staleness fails closed", () => {
+  const ci = summary({ generatedAt: "2026-09-24T12:00:00.000Z" });
+
+  it("treats an unreadable generatedAt as stale, never as fresh", () => {
+    const broken = nightly({ generatedAt: "not-a-date" });
+    const views = sourceViews([ci, broken], new Date("2026-09-24T13:00:00Z"));
+    expect(views.find((v) => v.source === "nightly")?.stale).toBe(true);
+  });
+
+  it("treats a future timestamp as stale — a skewed clock is not freshness", () => {
+    const future = nightly({ generatedAt: "2027-01-01T00:00:00.000Z" });
+    const views = sourceViews([ci, future], new Date("2026-09-24T13:00:00Z"));
+    expect(views.find((v) => v.source === "nightly")?.stale).toBe(true);
+  });
+
+  it("does not let an unreadable timestamp produce a green headline", () => {
+    const html = renderPage([ci, nightly({ generatedAt: "not-a-date" })], {
+      now: new Date("2026-09-24T13:00:00Z"),
+    });
+    const headline = html.slice(0, html.indexOf("<h2>Sources</h2>"));
+    expect(headline).not.toMatch(/badge pass">PASSED</);
+  });
+});
+
+describe("executedInLatest is scoped to the e2e suite", () => {
+  it("a same-named unit test cannot vouch for a journey that is being skipped", () => {
+    const COLLIDING = "FUTA credit caps at 5.4%";
+    const older = summary({
+      generatedAt: "2026-09-20T12:00:00.000Z",
+      suites: [makeE2eSuite([testResult(COLLIDING, "passed")])],
+    });
+    const latest = summary({
+      generatedAt: "2026-09-24T12:00:00.000Z",
+      suites: [
+        // Same fullName, different suite, executed in the latest run.
+        {
+          key: "server",
+          name: "Server integration tests",
+          status: "passed",
+          durationMs: 10,
+          counts: { passed: 1, failed: 0, flaky: 0, skipped: 0, executed: 1, total: 1 },
+          tests: [testResult(COLLIDING, "passed", { file: "futa.test.ts" })],
+        },
+        makeE2eSuite([testResult(COLLIDING, "skipped", { skipReason: "live-QA only" })]),
+      ],
+    });
+    const html = renderPage([older, latest], { now: new Date("2026-09-24T13:00:00Z") });
+    const journeys = html.slice(html.indexOf("<h2>End-to-end journeys</h2>"));
+    // The journey is skipped NOW; only a unit test of the same name ran. The
+    // card must say SKIP with its last real result, not wear a live PASS.
+    expect(journeys.slice(0, 900)).toContain("last ran");
+  });
+});
+
+describe("ordering does not assume a lexical ISO shape", () => {
+  it("orders by instant, so a +02:00 offset does not outrank an earlier Z", () => {
+    // 11:00Z, written with an offset — lexically AFTER "…12:00:00.000Z",
+    // chronologically BEFORE it.
+    const offset = summary({ generatedAt: "2026-09-24T13:00:00+02:00" });
+    const utc = summary({ generatedAt: "2026-09-24T12:00:00.000Z" });
+    expect(sortByGeneratedAtDesc([offset, utc])[0]?.generatedAt).toBe("2026-09-24T12:00:00.000Z");
+  });
+
+  it("never lets an unreadable instant become a source's latest", () => {
+    const good = nightly({ generatedAt: "2026-09-24T12:00:00.000Z" });
+    const bad = nightly({ generatedAt: "not-a-date" });
+    const views = sourceViews([good, bad], new Date("2026-09-24T13:00:00Z"));
+    expect(views.find((v) => v.source === "nightly")?.latest?.generatedAt).toBe(
+      "2026-09-24T12:00:00.000Z",
+    );
   });
 });

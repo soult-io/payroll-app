@@ -69,8 +69,7 @@ export function lastExecutedAtByTest(history: VerifySummary[]): Map<string, stri
       for (const test of suite.tests) {
         if (test.status === "skipped") continue;
         const key = executionKey(suite.key, test);
-        const prev = seen.get(key);
-        if (prev === undefined || prev < summary.generatedAt) {
+        if (isNewer(summary.generatedAt, seen.get(key))) {
           seen.set(key, summary.generatedAt);
         }
       }
@@ -117,8 +116,7 @@ export function latestExecutions(history: VerifySummary[]): Map<string, Executio
       for (const test of suite.tests) {
         if (test.status === "skipped") continue;
         const key = executionKey(suite.key, test);
-        const prev = seen.get(key);
-        if (prev === undefined || prev.generatedAt < summary.generatedAt) {
+        if (isNewer(summary.generatedAt, seen.get(key)?.generatedAt)) {
           seen.set(key, { test, source: summary.source, generatedAt: summary.generatedAt });
         }
       }
@@ -152,13 +150,33 @@ function demoted(status: Outcome, neverRun: number): { badge: string; cls: strin
   };
 }
 
+/**
+ * Parsed instant, or undefined when the string is not a date.
+ *
+ * Ordering used to be a lexical string compare, which silently assumes every
+ * producer emits the same ISO shape in UTC. It does not hold: a `+02:00`
+ * offset sorts after an earlier `Z` timestamp, and `…00Z` vs `…00.000Z` order
+ * arbitrarily because `'Z' > '.'`. Compare epochs instead.
+ */
+function instantOf(iso: string): number | undefined {
+  const ms = Date.parse(iso);
+  return Number.isNaN(ms) ? undefined : ms;
+}
+
 export function sortByGeneratedAtDesc(history: VerifySummary[]): VerifySummary[] {
-  // ISO-8601 UTC strings sort lexically; no localeCompare (repo bans it).
-  return [...history].sort((a, b) => {
-    if (a.generatedAt < b.generatedAt) return 1;
-    if (a.generatedAt > b.generatedAt) return -1;
-    return 0;
-  });
+  // Newest first; an unparseable instant sorts last rather than winning.
+  return [...history].sort(
+    (a, b) => (instantOf(b.generatedAt) ?? -1) - (instantOf(a.generatedAt) ?? -1),
+  );
+}
+
+/** Is `candidate` newer than `incumbent`? Unparseable never displaces. */
+function isNewer(candidate: string, incumbent: string | undefined): boolean {
+  const c = instantOf(candidate);
+  if (c === undefined) return false;
+  if (incumbent === undefined) return true;
+  const i = instantOf(incumbent);
+  return i === undefined || c > i;
 }
 
 const OUTCOME_CLASS: Record<Outcome, string> = {
@@ -185,8 +203,6 @@ const OUTCOME_LABEL: Record<Outcome, string> = {
  * healthy one, which is exactly how a nightly that had been dead for 23 nights
  * managed to look fine.
  */
-export const EXPECTED_SOURCES = ["ci", "nightly"] as const satisfies readonly Source[];
-
 interface SourceExpectation {
   /** How the source is described on the page. */
   label: string;
@@ -214,6 +230,14 @@ const SOURCE_EXPECTATIONS: Record<Source, SourceExpectation> = {
   },
 };
 
+/**
+ * Derived from SOURCE_EXPECTATIONS, which is a `Record<Source, …>` and so is
+ * exhaustiveness-checked by the compiler. Writing the list out by hand would
+ * type-check happily while missing a member — and a source with no card is
+ * indistinguishable from a healthy one, which is the whole failure this guards.
+ */
+export const EXPECTED_SOURCES = Object.keys(SOURCE_EXPECTATIONS) as Source[];
+
 export interface SourceView {
   source: Source;
   /** undefined = this source has NEVER reported. */
@@ -234,14 +258,20 @@ export function sourceViews(history: VerifySummary[], now: Date): SourceView[] {
   const newest = new Map<Source, VerifySummary>();
   for (const s of history) {
     const prev = newest.get(s.source);
-    if (prev === undefined || prev.generatedAt < s.generatedAt) newest.set(s.source, s);
+    if (isNewer(s.generatedAt, prev?.generatedAt)) newest.set(s.source, s);
   }
   return EXPECTED_SOURCES.map((source) => {
     const latest = newest.get(source);
     if (!latest) return { source, latest: undefined, ageHours: undefined, stale: true };
     const ms = now.getTime() - new Date(latest.generatedAt).getTime();
-    const ageHours = Number.isNaN(ms) ? undefined : Math.max(0, ms / 3_600_000);
-    const stale = ageHours !== undefined && ageHours > SOURCE_EXPECTATIONS[source].staleAfterHours;
+    const ageHours = Number.isNaN(ms) ? undefined : ms / 3_600_000;
+    // FAIL CLOSED. An age we cannot compute, or one in the future (a skewed
+    // runner clock), is not evidence of freshness — and treating it as fresh
+    // would disable the very quiet-source detection this exists to provide.
+    const stale =
+      ageHours === undefined ||
+      ageHours < 0 ||
+      ageHours > SOURCE_EXPECTATIONS[source].staleAfterHours;
     return { source, latest, ageHours, stale };
   });
 }
@@ -261,6 +291,7 @@ export function worstOutcome(outcomes: Outcome[]): Outcome {
 }
 
 function formatAge(hours: number): string {
+  if (hours < 0) return "a negative interval (clock skew)";
   if (hours < 48) return `${Math.floor(hours)}h`;
   return `${Math.floor(hours / 24)} days`;
 }
@@ -333,7 +364,12 @@ function historyTable(history: VerifySummary[]): string {
     </table>`;
 }
 
-function headerCard(views: SourceView[], reportHref: string | undefined, neverRun: number): string {
+function headerCard(
+  views: SourceView[],
+  reportHref: string | undefined,
+  tests: { test: TestResult; neverRun: boolean }[],
+): string {
+  const neverRun = tests.filter((t) => t.neverRun).length;
   const report = reportHref
     ? `<a class="report" href="${escapeHtml(reportHref)}">View full test report →</a>`
     : "";
@@ -361,10 +397,18 @@ function headerCard(views: SourceView[], reportHref: string | undefined, neverRu
     .map((v) => {
       const meta = SOURCE_EXPECTATIONS[v.source];
       return v.latest
-        ? `${escapeHtml(meta.label)} has not reported for ${formatAge(v.ageHours ?? 0)}`
+        ? `${escapeHtml(meta.label)} has not reported for ${v.ageHours === undefined ? "an unknown time — its timestamp is unreadable" : formatAge(v.ageHours)}`
         : `${escapeHtml(meta.label)} has never reported`;
     })
     .join(" · ");
+  // Totals come from each summary's own `counts`, which is the authoritative
+  // figure — deriving them from `tests[]` would make the headline depend on
+  // that array always being complete, an invariant nothing enforces.
+  //
+  // They are therefore a SUM across sources, and ci and the nightly both report
+  // the e2e suite, so journeys are counted once per source that ran them. The
+  // label says so rather than presenting it as a distinct-test count; the
+  // per-source cards carry the honest per-source figures.
   const totals = reported.reduce(
     (acc, v) => {
       const c = v.latest.counts;
@@ -392,11 +436,45 @@ function headerCard(views: SourceView[], reportHref: string | undefined, neverRu
       <p class="counts">
         <strong>${totals.passed}</strong> passed ·${flaky} <strong>${totals.failed}</strong> failed ·
         <strong>${totals.skipped}</strong> skipped ·${never} ${totals.total} total
-        <span class="muted">across ${reported.length} source${reported.length === 1 ? "" : "s"}</span>
+        <span class="muted">summed across ${reported.length} source${reported.length === 1 ? "" : "s"}${reported.length > 1 ? ", so shared journeys count once per source" : ""}</span>
       </p>
       ${quietLine ? `<p class="small stale">${quietLine}</p>` : ""}
       ${report}
     </section>`;
+}
+
+/**
+ * Every DISTINCT test the system currently has, across all reporting sources.
+ *
+ * Deduped by (suite, fullName), because ci and the nightly both report the e2e
+ * suite. This is the set the headline's never-run figure is computed over, and
+ * it spans ALL suites, not just the e2e journeys: narrowing it to journeys let
+ * a never-run unit test demote its suite row while the headline stayed green —
+ * the page contradicting itself one line apart.
+ */
+function systemTests(
+  views: SourceView[],
+  executions: Map<string, Execution>,
+): { key: string; suiteKey: SuiteKey; test: TestResult; neverRun: boolean }[] {
+  const byKey = new Map<string, { key: string; suiteKey: SuiteKey; test: TestResult }>();
+  for (const v of views) {
+    if (!hasReported(v)) continue;
+    for (const suite of v.latest.suites) {
+      for (const test of suite.tests) {
+        const key = executionKey(suite.key, test);
+        const prev = byKey.get(key);
+        // A test executed by ANY source represents the pair; a skip only wins
+        // if nothing better has been seen.
+        if (prev === undefined || (prev.test.status === "skipped" && test.status !== "skipped")) {
+          byKey.set(key, { key, suiteKey: suite.key, test });
+        }
+      }
+    }
+  }
+  return [...byKey.values()].map((e) => ({
+    ...e,
+    neverRun: isNeverRun(e.test, executions.get(e.key)?.generatedAt),
+  }));
 }
 
 function sourceCard(view: SourceView): string {
@@ -409,10 +487,12 @@ function sourceCard(view: SourceView): string {
   }
   const c = view.latest.counts;
   const flaky = c.flaky === undefined ? "" : ` · ${c.flaky} flaky`;
-  const age = view.ageHours === undefined ? "" : formatAge(view.ageHours);
-  const freshness = view.stale
-    ? `<p class="small stale">Last reported ${age} ago — expected at most ${formatAge(meta.staleAfterHours)}.</p>`
-    : `<p class="muted small">Last reported ${age} ago.</p>`;
+  const freshness =
+    view.ageHours === undefined
+      ? `<p class="small stale">Its timestamp (<span class="mono">${escapeHtml(view.latest.generatedAt)}</span>) is not a readable instant, so this run's age is unknown.</p>`
+      : view.stale
+        ? `<p class="small stale">Last reported ${formatAge(view.ageHours)} ago — expected at most ${formatAge(meta.staleAfterHours)}.</p>`
+        : `<p class="muted small">Last reported ${formatAge(view.ageHours)} ago.</p>`;
   return `<article class="tcard ${view.stale ? "flake" : outcomeClass(view.latest.overallStatus)}-edge">
       <div class="tcard-head"><h3>${escapeHtml(meta.label)}</h3>${badge(view.latest.overallStatus)}</div>
       <p class="muted small">
@@ -558,9 +638,14 @@ function journeyDetail(test: TestResult, lastExecutedAt: string | undefined): st
  * must not wear a pass it earned days ago.
  */
 function executedInLatest(views: SourceView[], test: TestResult): boolean {
+  // Scoped to the e2e suite, because the execution lookup is keyed that way.
+  // `fullName` alone collides across suites (see executionKey), and a collision
+  // here would let a unit test vouch for a journey's freshness.
   return views.some((v) =>
-    v.latest?.suites.some((s) =>
-      s.tests.some((t) => t.fullName === test.fullName && t.status !== "skipped"),
+    v.latest?.suites.some(
+      (s) =>
+        s.key === "e2e" &&
+        s.tests.some((t) => t.fullName === test.fullName && t.status !== "skipped"),
     ),
   );
 }
@@ -644,15 +729,13 @@ export function renderPage(history: VerifySummary[], options: RenderOptions = {}
   const views = sourceViews(sorted, now);
   const executions = latestExecutions(sorted);
   const lastExecuted = lastExecutedAtByTest(sorted);
-  const neverRun = journeyUnion(views).filter((t) =>
-    isNeverRun(t, executions.get(executionKey("e2e", t))?.generatedAt),
-  ).length;
+  const tests = systemTests(views, executions);
   // Tax cards come from whichever source carries the non-e2e suites (ci); a
   // nightly-only page would otherwise silently drop them.
   const taxSource = views.find((v) => v.latest?.suites.some((s) => s.key !== "e2e"))?.latest;
   const body =
     sorted.length > 0
-      ? `${headerCard(views, options.reportHref, neverRun)}
+      ? `${headerCard(views, options.reportHref, tests)}
     ${sourcesSection(views)}
     <section class="card">
       <h2>Suites</h2>
