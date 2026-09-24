@@ -79,13 +79,28 @@ export function lastExecutedAtByTest(history: VerifySummary[]): Map<string, stri
 }
 
 /**
- * Map key. Scoped by suite because `fullName` alone collides across suites —
- * engine and server can both hold `FUTA credit caps at 5.4%`, and a collision
- * would let one suite's run date vouch for the other's never-run test.
- * NUL separates: it cannot occur in a test title.
+ * Map key: suite + file + full name.
+ *
+ * `fullName` alone collides across suites — engine and server can both hold
+ * `FUTA credit caps at 5.4%` — and it collides across FILES within one suite
+ * too, because vitest's fullName is just the ancestor titles plus the title,
+ * with no path. Either collision lets one test's run date vouch for another's
+ * never-run test. NUL separates: it cannot occur in a title or a filename.
  */
 function executionKey(suiteKey: SuiteKey, test: TestResult): string {
-  return `${suiteKey}\u0000${test.fullName}`;
+  return `${suiteKey}\u0000${fileKey(test.file)}\u0000${test.fullName}`;
+}
+
+/**
+ * Basename only. The raw `file` is NOT usable as an identity component across
+ * sources: vitest reports an absolute path that differs per runner
+ * (`/home/runner/work/...` on GitHub-hosted vs `/__w/...` on the self-hosted
+ * qa-e2e box), while Playwright reports a bare `journeys.spec.ts`. The
+ * basename is stable in both and is what actually disambiguates.
+ */
+function fileKey(file: string | undefined): string {
+  if (!file) return "";
+  return file.split("/").pop() ?? file;
 }
 
 /** When this test last executed, per the retained history; undefined = never. */
@@ -166,7 +181,9 @@ function instantOf(iso: string): number | undefined {
 export function sortByGeneratedAtDesc(history: VerifySummary[]): VerifySummary[] {
   // Newest first; an unparseable instant sorts last rather than winning.
   return [...history].sort(
-    (a, b) => (instantOf(b.generatedAt) ?? -1) - (instantOf(a.generatedAt) ?? -1),
+    (a, b) =>
+      (instantOf(b.generatedAt) ?? Number.NEGATIVE_INFINITY) -
+      (instantOf(a.generatedAt) ?? Number.NEGATIVE_INFINITY),
   );
 }
 
@@ -246,11 +263,17 @@ export interface SourceView {
   stale: boolean;
 }
 
-/** A source view narrowed to one that has actually reported. */
-export type ReportedSourceView = SourceView & { latest: VerifySummary };
+/**
+ * A source view narrowed to one that has actually reported.
+ *
+ * `ageHours` is a number here, not optional: a summary only becomes a source's
+ * `latest` by way of `isNewer`, which rejects an unparseable instant outright,
+ * so a reported view always has a computable age.
+ */
+export type ReportedSourceView = SourceView & { latest: VerifySummary; ageHours: number };
 
 export function hasReported(view: SourceView): view is ReportedSourceView {
-  return view.latest !== undefined;
+  return view.latest !== undefined && view.ageHours !== undefined;
 }
 
 /** The newest summary PER SOURCE, plus how long ago, for every expected source. */
@@ -364,81 +387,101 @@ function historyTable(history: VerifySummary[]): string {
     </table>`;
 }
 
+/** Worst outcome across every reporting source AND every one of their suites. */
+function headlineOutcome(reported: ReportedSourceView[]): Outcome {
+  if (reported.length === 0) return "not_run";
+  // Per-SUITE statuses as well as each summary's own `overallStatus`. A run can
+  // report `passed` overall while one of its suites is `not_run`, and reading
+  // only the top-level value let the headline go green above a Suites table
+  // saying NOT RUN. It also means a summary whose stored `overallStatus`
+  // disagrees with its own suites cannot talk the page into a green badge.
+  return worstOutcome([
+    ...reported.map((v) => v.latest.overallStatus),
+    ...reported.flatMap((v) => v.latest.suites.map((su) => su.status)),
+  ]);
+}
+
+/**
+ * Per-source counts, summed. ci and the nightly both report the e2e suite, so
+ * a shared journey counts once per source — the label says so. Taken from each
+ * summary's own `counts`, which is authoritative; deriving them from `tests[]`
+ * would make the headline depend on that array always being complete, which
+ * nothing enforces.
+ */
+function summedTotals(reported: ReportedSourceView[]): {
+  passed: number;
+  failed: number;
+  skipped: number;
+  total: number;
+  flaky: string;
+} {
+  const t = reported.reduce(
+    (acc, v) => ({
+      passed: acc.passed + v.latest.counts.passed,
+      failed: acc.failed + v.latest.counts.failed,
+      skipped: acc.skipped + v.latest.counts.skipped,
+      total: acc.total + v.latest.counts.total,
+    }),
+    { passed: 0, failed: 0, skipped: 0, total: 0 },
+  );
+  // Only sum flakes when EVERY reporting source knows its own count; one
+  // upgraded v1 summary makes the total unknowable, and a partial number would
+  // read as fact (spec 18 §Counts).
+  const known = reported.every((v) => v.latest.counts.flaky !== undefined);
+  const sum = reported.reduce((n, v) => n + (v.latest.counts.flaky ?? 0), 0);
+  return { ...t, flaky: known ? ` <strong>${sum}</strong> flaky ·` : "" };
+}
+
+function quietSentence(quiet: SourceView[]): string {
+  return quiet
+    .map((v) => {
+      const meta = SOURCE_EXPECTATIONS[v.source];
+      return v.latest
+        ? `${escapeHtml(meta.label)} has not reported for ${formatAge(v.ageHours ?? 0)}`
+        : `${escapeHtml(meta.label)} has never reported`;
+    })
+    .join(" · ");
+}
+
 function headerCard(
   views: SourceView[],
   reportHref: string | undefined,
   tests: { test: TestResult; neverRun: boolean }[],
 ): string {
   const neverRun = tests.filter((t) => t.neverRun).length;
+  const reported = views.filter(hasReported);
+  const quiet = views.filter((v) => v.stale);
+  const base = headlineOutcome(reported);
+  const totals = summedTotals(reported);
+
+  // Both facts matter, so the badge carries both: a run can be green on what it
+  // executed AND have tests nothing has ever proven AND have a source that
+  // stopped reporting. Suppressing either is how this page lied before.
+  const reasons: string[] = [];
+  if (neverRun > 0) reasons.push(`${neverRun} NEVER RUN`);
+  if (quiet.length > 0) reasons.push(`${quiet.length} SOURCE${quiet.length > 1 ? "S" : ""} QUIET`);
+  const demote = reasons.length > 0 && base !== "failed";
+
   const report = reportHref
     ? `<a class="report" href="${escapeHtml(reportHref)}">View full test report →</a>`
     : "";
-  const reported = views.filter(hasReported);
-  const quiet = views.filter((v) => v.stale);
-  // The badge is a claim about the SYSTEM, not about whichever run finished
-  // last. Worst outcome across every source, then demoted by anything unproven
-  // — never-run tests, and any source that has gone quiet or never spoke.
-  const base: Outcome =
-    reported.length === 0 ? "not_run" : worstOutcome(reported.map((v) => v.latest.overallStatus));
-  // Both facts matter, so the badge carries both: a run can be green on what it
-  // executed AND have journeys nothing has ever proven AND have a source that
-  // stopped reporting. Suppressing either one is how this page lied before.
-  const reasons: string[] = [];
-  if (neverRun > 0) reasons.push(`${neverRun} NEVER RUN`);
-  if (quiet.length > 0) {
-    reasons.push(`${quiet.length} SOURCE${quiet.length > 1 ? "S" : ""} QUIET`);
-  }
-  const demote = reasons.length > 0 && base !== "failed";
-  const cls = demote ? "flake" : outcomeClass(base);
-  const badgeHtml = demote
-    ? `<span class="badge flake">${[OUTCOME_LABEL[base], ...reasons].join(" · ")}</span>`
-    : badge(base);
-  const quietLine = quiet
-    .map((v) => {
-      const meta = SOURCE_EXPECTATIONS[v.source];
-      return v.latest
-        ? `${escapeHtml(meta.label)} has not reported for ${v.ageHours === undefined ? "an unknown time — its timestamp is unreadable" : formatAge(v.ageHours)}`
-        : `${escapeHtml(meta.label)} has never reported`;
-    })
-    .join(" · ");
-  // Totals come from each summary's own `counts`, which is the authoritative
-  // figure — deriving them from `tests[]` would make the headline depend on
-  // that array always being complete, an invariant nothing enforces.
-  //
-  // They are therefore a SUM across sources, and ci and the nightly both report
-  // the e2e suite, so journeys are counted once per source that ran them. The
-  // label says so rather than presenting it as a distinct-test count; the
-  // per-source cards carry the honest per-source figures.
-  const totals = reported.reduce(
-    (acc, v) => {
-      const c = v.latest.counts;
-      return {
-        passed: acc.passed + c.passed,
-        failed: acc.failed + c.failed,
-        skipped: acc.skipped + c.skipped,
-        total: acc.total + c.total,
-      };
-    },
-    { passed: 0, failed: 0, skipped: 0, total: 0 },
-  );
-  // Only sum flakes when EVERY reporting source knows its own count; one
-  // upgraded v1 summary makes the total unknowable, and a partial number would
-  // read as fact (spec 18 §Counts).
-  const flakyKnown = reported.every((v) => v.latest.counts.flaky !== undefined);
-  const flakyTotal = reported.reduce((n, v) => n + (v.latest.counts.flaky ?? 0), 0);
-  const flaky = flakyKnown ? ` <strong>${flakyTotal}</strong> flaky ·` : "";
-  const never = neverRun > 0 ? ` <strong>${neverRun}</strong> never run ·` : "";
-  return `<section class="card status ${cls}">
+  const neverLine =
+    neverRun > 0
+      ? `<p class="small stale"><strong>${neverRun}</strong> distinct test${neverRun === 1 ? "" : "s"} no retained run has ever executed.</p>`
+      : "";
+  const quietText = quietSentence(quiet);
+  return `<section class="card status ${demote ? "flake" : outcomeClass(base)}">
       <div class="status-head">
         <h1>payroll-app — QA verification</h1>
-        ${badgeHtml}
+        ${demote ? `<span class="badge flake">${[OUTCOME_LABEL[base], ...reasons].join(" · ")}</span>` : badge(base)}
       </div>
       <p class="counts">
-        <strong>${totals.passed}</strong> passed ·${flaky} <strong>${totals.failed}</strong> failed ·
-        <strong>${totals.skipped}</strong> skipped ·${never} ${totals.total} total
+        <strong>${totals.passed}</strong> passed ·${totals.flaky} <strong>${totals.failed}</strong> failed ·
+        <strong>${totals.skipped}</strong> skipped · ${totals.total} total
         <span class="muted">summed across ${reported.length} source${reported.length === 1 ? "" : "s"}${reported.length > 1 ? ", so shared journeys count once per source" : ""}</span>
       </p>
-      ${quietLine ? `<p class="small stale">${quietLine}</p>` : ""}
+      ${neverLine}
+      ${quietText ? `<p class="small stale">${quietText}</p>` : ""}
       ${report}
     </section>`;
 }
@@ -446,11 +489,11 @@ function headerCard(
 /**
  * Every DISTINCT test the system currently has, across all reporting sources.
  *
- * Deduped by (suite, fullName), because ci and the nightly both report the e2e
- * suite. This is the set the headline's never-run figure is computed over, and
- * it spans ALL suites, not just the e2e journeys: narrowing it to journeys let
- * a never-run unit test demote its suite row while the headline stayed green —
- * the page contradicting itself one line apart.
+ * Deduped by (suite, file, fullName), because ci and the nightly both report
+ * the e2e suite. This is the set the headline's never-run figure is computed
+ * over, and it spans ALL suites, not just the e2e journeys: narrowing it to
+ * journeys let a never-run unit test demote its suite row while the headline
+ * stayed green — the page contradicting itself one line apart.
  */
 function systemTests(
   views: SourceView[],
@@ -479,20 +522,17 @@ function systemTests(
 
 function sourceCard(view: SourceView): string {
   const meta = SOURCE_EXPECTATIONS[view.source];
-  if (!view.latest) {
+  if (!hasReported(view)) {
     return `<article class="tcard never-edge">
       <div class="tcard-head"><h3>${escapeHtml(meta.label)}</h3><span class="badge never">NEVER REPORTED</span></div>
-      <p class="muted small">No summary from this source has ever been ingested. It should come from ${escapeHtml(meta.produces)}.</p>
+      <p class="muted small">No usable summary from this source has ever been ingested. It should come from ${escapeHtml(meta.produces)}.</p>
     </article>`;
   }
   const c = view.latest.counts;
   const flaky = c.flaky === undefined ? "" : ` · ${c.flaky} flaky`;
-  const freshness =
-    view.ageHours === undefined
-      ? `<p class="small stale">Its timestamp (<span class="mono">${escapeHtml(view.latest.generatedAt)}</span>) is not a readable instant, so this run's age is unknown.</p>`
-      : view.stale
-        ? `<p class="small stale">Last reported ${formatAge(view.ageHours)} ago — expected at most ${formatAge(meta.staleAfterHours)}.</p>`
-        : `<p class="muted small">Last reported ${formatAge(view.ageHours)} ago.</p>`;
+  const freshness = view.stale
+    ? `<p class="small stale">Last reported ${formatAge(view.ageHours)} ago — expected at most ${formatAge(meta.staleAfterHours)}.</p>`
+    : `<p class="muted small">Last reported ${formatAge(view.ageHours)} ago.</p>`;
   return `<article class="tcard ${view.stale ? "flake" : outcomeClass(view.latest.overallStatus)}-edge">
       <div class="tcard-head"><h3>${escapeHtml(meta.label)}</h3>${badge(view.latest.overallStatus)}</div>
       <p class="muted small">

@@ -144,8 +144,11 @@ describe("renderPage", () => {
     // The commit moved to the per-source card with spec 19 — that card must
     // show the NEWEST ci run's sha, not the older one.
     const sources = html.slice(html.indexOf("<h2>Sources</h2>"), html.indexOf("<h2>Suites</h2>"));
-    expect(sources).toContain("1111111");
-    expect(sources).not.toContain("0000000newer");
+    // The ci card shows the NEWER run. Asserted on the distinguishing part of
+    // each fixture sha ("newer"/"older") rather than the leading digits, which
+    // both fixtures share — a negative on those would pass by accident.
+    expect(sources).toContain("1111111newer");
+    expect(sources).not.toContain("0000000older");
   });
 
   it("escapes suite names (no raw HTML injection)", () => {
@@ -450,8 +453,13 @@ describe("never-run journeys (spec 18)", () => {
     expect(html).toMatch(/last ran 2026-09-21 10:00:00 UTC/);
   });
 
-  it("counts never-run tests separately instead of folding them into total passed", () => {
-    expect(renderPage(history)).toMatch(/1<\/strong> never run/);
+  it("states the never-run count as its own figure, not folded into the totals", () => {
+    // Deliberately on its own line: the totals are summed per source while this
+    // is a count of DISTINCT tests, so the two do not share a universe and must
+    // not read as one sentence.
+    expect(renderPage(history)).toMatch(
+      /<strong>1<\/strong> distinct test no retained run has ever executed/,
+    );
   });
 });
 
@@ -559,8 +567,10 @@ describe("never-run demotes the headline (spec 18)", () => {
       ],
     });
     const html = renderPage([failed]);
-    expect(html).toContain('badge fail">FAILED');
-    expect(html).not.toContain("NEVER RUN·");
+    const headline = html.slice(0, html.indexOf("<h2>Sources</h2>"));
+    expect(headline).toContain('badge fail">FAILED');
+    // A FAILED verdict is never softened into the amber never-run wording.
+    expect(headline).not.toContain("NEVER RUN");
   });
 });
 
@@ -789,5 +799,94 @@ describe("ordering does not assume a lexical ISO shape", () => {
     expect(views.find((v) => v.source === "nightly")?.latest?.generatedAt).toBe(
       "2026-09-24T12:00:00.000Z",
     );
+  });
+});
+
+describe("round-2 review findings", () => {
+  it("a not_run SUITE demotes the headline even when the summary says passed", () => {
+    // A real shape: enough executed elsewhere that the summary-level outcome is
+    // `passed`, while one suite executed nothing. Reading only overallStatus let
+    // the headline go green above a Suites table reading NOT RUN.
+    const ci = summary({
+      generatedAt: "2026-09-24T12:00:00.000Z",
+      overallStatus: "passed",
+      counts: { passed: 171, failed: 0, flaky: 0, skipped: 2, executed: 171, total: 173 },
+      suites: [
+        suite("engine", "Engine unit tests", 171, 0, 0),
+        { ...makeE2eSuite([testResult("j", "passed")]), status: "not_run" as const },
+      ],
+    });
+    const night = nightly({
+      generatedAt: "2026-09-24T12:30:00.000Z",
+      suites: [makeE2eSuite([testResult("j", "passed")])],
+    });
+    const html = renderPage([ci, night], { now: new Date("2026-09-24T13:00:00Z") });
+    const headline = html.slice(0, html.indexOf("<h2>Sources</h2>"));
+    expect(headline).not.toMatch(/badge pass">PASSED</);
+    expect(headline).toContain("NOT RUN");
+  });
+
+  it("two same-named tests in different FILES of one suite are distinct", () => {
+    const NAME = "FUTA caps at 5.4%";
+    const engineTwoFiles: SuiteResult = {
+      key: "engine",
+      name: "Engine unit tests",
+      status: "passed",
+      durationMs: 10,
+      counts: { passed: 1, failed: 0, flaky: 0, skipped: 1, executed: 1, total: 2 },
+      tests: [
+        testResult(NAME, "passed", { file: "/home/runner/work/a/futa-credit.test.ts" }),
+        // Same fullName, different file, never executed. Before the fix the
+        // first one's execution vouched for this one.
+        testResult(NAME, "skipped", { file: "/home/runner/work/a/futa-cap.test.ts" }),
+      ],
+    };
+    const html = renderPage(
+      [
+        summary({ generatedAt: "2026-09-24T12:00:00.000Z", suites: [engineTwoFiles] }),
+        nightly({
+          generatedAt: "2026-09-24T12:30:00.000Z",
+          suites: [makeE2eSuite([testResult("j", "passed")])],
+        }),
+      ],
+      { now: new Date("2026-09-24T13:00:00Z") },
+    );
+    const headline = html.slice(0, html.indexOf("<h2>Sources</h2>"));
+    expect(headline).toMatch(/<strong>1<\/strong> distinct test no retained run has ever executed/);
+  });
+
+  it("matches a test across sources despite runner-specific absolute paths", () => {
+    // vitest reports an absolute path that differs per runner; the basename is
+    // the stable part, so the same test must resolve to one identity.
+    const a = summary({
+      generatedAt: "2026-09-24T12:00:00.000Z",
+      suites: [
+        {
+          key: "engine",
+          name: "Engine unit tests",
+          status: "passed",
+          durationMs: 1,
+          counts: { passed: 1, failed: 0, flaky: 0, skipped: 0, executed: 1, total: 1 },
+          tests: [testResult("shared", "passed", { file: "/home/runner/work/x/futa.test.ts" })],
+        },
+      ],
+    });
+    const b = nightly({
+      generatedAt: "2026-09-24T12:30:00.000Z",
+      suites: [
+        {
+          key: "engine",
+          name: "Engine unit tests",
+          status: "not_run",
+          durationMs: 0,
+          counts: { passed: 0, failed: 0, flaky: 0, skipped: 1, executed: 0, total: 1 },
+          tests: [testResult("shared", "skipped", { file: "/__w/x/futa.test.ts" })],
+        },
+      ],
+    });
+    const html = renderPage([a, b], { now: new Date("2026-09-24T13:00:00Z") });
+    const headline = html.slice(0, html.indexOf("<h2>Sources</h2>"));
+    // ci executed it, so it is NOT never-run despite the nightly's differing path.
+    expect(headline).not.toContain("distinct test no retained run has ever executed");
   });
 });
