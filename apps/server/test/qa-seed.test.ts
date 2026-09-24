@@ -22,8 +22,10 @@ import {
   employees,
   payrollEntries,
   payrollRuns,
+  taxDeposits,
   taxFilings,
   w4Elections,
+  employeeWorkStates,
 } from "@payroll/db";
 import {
   historyMonths,
@@ -329,6 +331,42 @@ describe("idempotency", () => {
     expect(second.payroll.draftCreated).toBe(false);
     expect(second.changeRequestCreated).toBe(false);
     expect(first.payroll.issued).toBe(3 * EXPECTED_MONTHS);
+  });
+
+  it("Ada has an IL work-state election", async () => {
+    const rows = await ctx.db
+      .select()
+      .from(employeeWorkStates)
+      .where(eq(employeeWorkStates.employeeId, first.w2.ada));
+    expect(rows).toHaveLength(1);
+    expect(rows[0].stateCode).toBe("IL");
+    expect(rows[0].effectiveFrom).toBe("2024-11-01");
+  });
+
+  it("Ada's issued runs have state withholding", async () => {
+    const runs = await ctx.db
+      .select()
+      .from(payrollRuns)
+      .where(and(eq(payrollRuns.employeeId, first.w2.ada), eq(payrollRuns.status, "issued")));
+
+    for (const run of runs) {
+      const entries = await ctx.db
+        .select()
+        .from(payrollEntries)
+        .where(eq(payrollEntries.runId, run.id));
+      const stateWithholding = entries.find((e) => e.category === "state_withholding");
+      expect(Number(must(stateWithholding, "state_withholding entry").amount)).toBeGreaterThan(0);
+    }
+  });
+
+  it("Seeded deposits include IL rows alongside federal rows", async () => {
+    const deposits = await ctx.db.select().from(taxDeposits);
+
+    const federalDeposits = deposits.filter((d) => d.jurisdiction === "federal");
+    const ilDeposits = deposits.filter((d) => d.jurisdiction === "IL");
+
+    expect(federalDeposits).toHaveLength(19); // 19 months of history
+    expect(ilDeposits).toHaveLength(19); // 19 months of history
   });
 
   it("row counts are stable after two runs", async () => {

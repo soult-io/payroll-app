@@ -90,7 +90,7 @@ year through last month, issued through the real draft→approve→issue pipelin
 
 | Persona | State | Persona coverage |
 | --- | --- | --- |
-| Ada Testworth | IL | W-4 exempt (zero federal withholding); the ONE current-period draft run awaiting approval is hers |
+| Ada Testworth | IL | W-4 exempt (zero federal withholding); has a state work-state election (flat-rate IL income tax); the ONE current-period draft run awaiting approval is hers |
 | Bob Fakeley | TX | mid-year salary change — two compensation rows ($3,800 → $4,200 effective July 1 of the current year) |
 | Carol Mockington | WA | pending address change request with a 3-comment thread; carries the `qa-employee` login |
 
