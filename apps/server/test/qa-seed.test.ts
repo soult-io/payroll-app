@@ -17,10 +17,12 @@ import {
   compensation,
   contractorDetails,
   contractorInvoices,
+  contractorPayments,
   contractorRecurringInvoices,
   employees,
   payrollEntries,
   payrollRuns,
+  taxFilings,
   w4Elections,
 } from "@payroll/db";
 import {
@@ -342,5 +344,136 @@ describe("idempotency", () => {
       .select({ id: changeRequestComments.id })
       .from(changeRequestComments);
     expect(comments).toHaveLength(3);
+    // PAY-56: the seed now materializes filings too, so they belong in the
+    // same stability assertion rather than in a third full re-seed.
+    const filings = await ctx.db
+      .select({ formType: taxFilings.formType, year: taxFilings.year })
+      .from(taxFilings);
+    const shape = filings
+      .map((f) => `${f.formType}/${f.year}`)
+      .sort()
+      .join(" ");
+    expect(shape).toBe(
+      "940/2025 940/2026 941/2025 941/2025 941/2025 941/2025 941/2026 941/2026 w2_w3/2025",
+    );
   });
+});
+
+// --- PAY-56: the filing sync the seed now performs ------------------------
+
+describe("tax filings materialized by the seed", () => {
+  it("creates the closed-year W-2/W-3 row, so a fresh database has a populated Tax filings page", async () => {
+    const rows = await ctx.db
+      .select()
+      .from(taxFilings)
+      .where(and(eq(taxFilings.formType, "w2_w3"), eq(taxFilings.year, 2025)));
+    expect(rows).toHaveLength(1);
+    expect(must(rows[0], "w2_w3 2025").status).toBe("ready");
+  });
+
+  it("creates a 941 per issued quarter", async () => {
+    const rows = await ctx.db.select().from(taxFilings).where(eq(taxFilings.formType, "941"));
+    // Fixed clock, so this is exact: 2025 Q1-Q4 + 2026 Q1-Q2 (history runs
+    // through 2026-07). An inequality would absorb a duplicate-941 regression.
+    expect(rows).toHaveLength(6);
+  });
+
+  it("does NOT create an in-year w2_w3 row — W-2s are never furnished before year-end", async () => {
+    const rows = await ctx.db
+      .select()
+      .from(taxFilings)
+      .where(and(eq(taxFilings.formType, "w2_w3"), eq(taxFilings.year, 2026)));
+    expect(rows).toHaveLength(0);
+  });
+
+  // Its own app: this deliberately mutates a filing to `filed`, which would
+  // otherwise leave the shared context poisoned for anything added after it.
+  it("NEVER touches a filing already marked filed, even with a stale worksheet hash", async () => {
+    const own = await createTestApp();
+    try {
+      await seedQaDataset({ db: own.db, auth: own.auth, config: own.config }, { today: TODAY });
+      const target = must(
+        (
+          await own.db
+            .select()
+            .from(taxFilings)
+            .where(and(eq(taxFilings.formType, "w2_w3"), eq(taxFilings.year, 2025)))
+        )[0],
+        "w2_w3 2025",
+      );
+      await own.db
+        .update(taxFilings)
+        .set({ status: "filed", worksheetHash: "deliberately-stale-hash" })
+        .where(eq(taxFilings.id, target.id));
+
+      await seedQaDataset({ db: own.db, auth: own.auth, config: own.config }, { today: TODAY });
+
+      const after = must(
+        (await own.db.select().from(taxFilings).where(eq(taxFilings.id, target.id)))[0],
+        "w2_w3 2025 after reseed",
+      );
+      // A filed return is a legal record. The seed must not reset its status
+      // nor recompute its worksheet, however stale the stored hash looks.
+      expect(after.status).toBe("filed");
+      expect(after.worksheetHash).toBe("deliberately-stale-hash");
+      expect(after.worksheet).toEqual(target.worksheet);
+    } finally {
+      await own.close();
+    }
+  }, 300_000);
+});
+
+describe("tax-year preflight", () => {
+  it("refuses, in words, to seed a year the bundled tax tables do not cover", async () => {
+    const future = await createTestApp();
+    try {
+      await expect(
+        seedQaDataset(
+          { db: future.db, auth: future.auth, config: future.config },
+          { today: "2031-06-15" },
+        ),
+      ).rejects.toThrow(/no federal tax config for 2031/);
+    } finally {
+      await future.close();
+    }
+  }, 300_000);
+});
+
+describe("January boundary", () => {
+  // The paid-invoice window used to be "months of the CURRENT year before this
+  // one", which is empty in January. Live QA hid it — last year's rows survive
+  // in a persistent database — but the ephemeral e2e boot starts empty, so
+  // PAY-7 ("Dave has a paid invoice carrying a payment") would have failed for
+  // the whole of January.
+  // NOTE: the date here must be a January the bundled tax tables cover — the
+  // seed generates a current-period draft, so it needs federal config for that
+  // year. See the companion test below for the dated limitation this implies.
+  it("still gives Dave a paid invoice carrying a payment on 1 January", async () => {
+    const jan = await createTestApp();
+    try {
+      const seeded = await seedQaDataset(
+        { db: jan.db, auth: jan.auth, config: jan.config },
+        { today: "2026-01-03" },
+      );
+      const invoices = await jan.db
+        .select()
+        .from(contractorInvoices)
+        .where(eq(contractorInvoices.employeeId, seeded.contractors.dave));
+      const paid = invoices.filter((i) => i.status === "paid");
+      expect(paid.length).toBeGreaterThan(0);
+
+      const payments = await jan.db
+        .select()
+        .from(contractorPayments)
+        .where(eq(contractorPayments.invoiceId, must(paid[0], "paid invoice").id));
+      expect(payments).toHaveLength(1);
+      // Falls back to the previous December, and never records a future payment.
+      expect(must(paid[0], "paid invoice").invoiceDate.startsWith("2025-12")).toBe(true);
+      expect(must(payments[0], "payment").payDate <= "2026-01-03").toBe(true);
+    } finally {
+      await jan.close();
+    }
+    // This `it` boots its own app AND runs a full seed, unlike every other test
+    // here, which reuses the padded beforeAll. Give it the same budget.
+  }, 300_000);
 });

@@ -28,6 +28,7 @@ import {
   newAuthedPage,
   QA_ADMIN,
   QA_CONTRACTOR,
+  QA_DRAFT_EMPLOYEE_NAME,
   QA_EMPLOYEE,
   QA_EXPORT_TOKEN,
 } from "./qa.js";
@@ -85,14 +86,20 @@ test("payslip PDF download round-trip (%PDF magic, non-trivial bytes)", async ({
 test("scheduler draft: seeded current-period run shows in admin approvals (read-only)", async ({
   browser,
 }) => {
-  test.skip(!LIVE_QA, "live-QA only — the ephemeral boot has no pg-boss scheduler context");
+  // De-gated with PAY-7/8/9/23 (PAY-56). The old skip reason said "the
+  // ephemeral boot has no pg-boss scheduler context", but this assertion never
+  // needed the scheduler — only the seeded row it leaves behind, which the boot
+  // now has. Still strictly read-only.
   const page = await newAuthedPage(browser, QA_ADMIN);
   try {
     await page.goto("/admin/payroll");
     // The list defaults to the current year; the seed leaves ONE current-period
-    // draft awaiting approval. Read-only assertion — never approve/void here.
-    const row = page.locator("tr", { hasText: "Awaiting approval" }).first();
-    await expect(row).toBeVisible();
+    // draft awaiting approval, Ada's. Scoped to her so this cannot pass on some
+    // other run's row. Read-only assertion — never approve/void here.
+    const row = page
+      .locator("tr", { hasText: "Awaiting approval" })
+      .filter({ hasText: QA_DRAFT_EMPLOYEE_NAME });
+    await expect(row.first()).toBeVisible();
   } finally {
     await page.context().close();
   }
@@ -101,7 +108,6 @@ test("scheduler draft: seeded current-period run shows in admin approvals (read-
 test("contractor My Invoices: Dave sees approved+paid invoices, PDF round-trips (PAY-7)", async ({
   browser,
 }) => {
-  test.skip(!LIVE_QA, "live-QA only — needs the seeded contractor login (seed-qa Dave)");
   const page = await newAuthedPage(browser, QA_CONTRACTOR);
   try {
     // UI surface: the list page shows Dave's seeded invoices with status chips.
@@ -136,7 +142,6 @@ test("contractor My Invoices: Dave sees approved+paid invoices, PDF round-trips 
 test("PAY-8 scoped UI: contractor sees Invoices, not Payslips; /my/payslips redirects", async ({
   browser,
 }) => {
-  test.skip(!LIVE_QA, "live-QA only — needs the seeded contractor login (seed-qa Dave)");
   const page = await newAuthedPage(browser, QA_CONTRACTOR);
   try {
     await page.goto("/my/dashboard");
@@ -167,17 +172,20 @@ test("PAY-8 scoped UI: contractor sees Invoices, not Payslips; /my/payslips redi
 test("tax deposits: admin sees the computed schedule incl. last month (PAY-9)", async ({
   browser,
 }) => {
-  test.skip(!LIVE_QA, "live-QA only — deposit rows come from the seeded QA payroll history");
   const page = await newAuthedPage(browser, QA_ADMIN);
   try {
-    await page.goto("/admin/deposits");
-    await expect(page.getByRole("heading", { name: "Tax deposits" })).toBeVisible();
-
     // The QA seed syncs deposits from 2 years of issued payroll history — the
     // previous calendar month must be listed (read-only assertion).
     const now = new Date();
     const prev = new Date(Date.UTC(now.getUTCFullYear(), now.getUTCMonth() - 1, 1));
-    const label = `${prev.toLocaleString("en-US", { month: "long", timeZone: "UTC" })} ${prev.getUTCFullYear()}`;
+    // Pin the year filter to the month under assertion. It defaults to the
+    // CURRENT year and filters server-side, so every January — when the seed
+    // has produced no current-year runs yet — the default view is empty.
+    await page.goto(`/admin/deposits?year=${prev.getUTCFullYear()}`);
+    await expect(page.getByRole("heading", { name: "Tax deposits" })).toBeVisible();
+    // Three-letter month, matching AdminDepositsView's periodLabel since PAY-38
+    // ("Aug 2026", not "August 2026"). `month: "short"` gives the same list.
+    const label = `${prev.toLocaleString("en-US", { month: "short", timeZone: "UTC" })} ${prev.getUTCFullYear()}`;
     await expect(page.locator("tbody tr", { hasText: label }).first()).toBeVisible();
 
     // Jurisdiction + reminder schedule editor render.
@@ -201,18 +209,27 @@ test("tax deposits: admin sees the computed schedule incl. last month (PAY-9)", 
 test("W-2/W-3 filing detail: full headers, Documents column, W-3 action placement (PAY-23)", async ({
   browser,
 }) => {
-  test.skip(!LIVE_QA, "live-QA only — the 2025 W-2/W-3 row comes from the seeded QA history");
   const page = await newAuthedPage(browser, QA_ADMIN);
   try {
-    await page.goto("/admin/filings");
+    // The most recent CLOSED year — derived, never hardcoded: the QA seed's
+    // history is a rolling window (previous calendar year in full + this year
+    // to date), so a literal year silently stops existing once the window
+    // moves past it.
+    const closedYear = String(new Date().getUTCFullYear() - 1);
+    // The year filter defaults to the CURRENT year and W-2/W-3 is a closed-year
+    // form, so this row is never on the default view. Pin it by query param,
+    // the same way PAY-9 above does — no coupling to a PrimeVue class name.
+    await page.goto(`/admin/filings?year=${closedYear}`);
     const row = page
       .locator("tbody tr", { hasText: "W-2/W-3" })
-      .filter({ hasText: "2025" })
+      .filter({ hasText: closedYear })
       .first();
     await expect(row).toBeVisible();
     await row.click();
 
-    await expect(page.getByRole("heading", { name: /Forms W-2\/W-3 — 2025/ })).toBeVisible();
+    await expect(
+      page.getByRole("heading", { name: new RegExp(`Forms W-2/W-3 — ${closedYear}`) }),
+    ).toBeVisible();
 
     const w3Section = page.locator("section", {
       has: page.getByRole("heading", { name: /W-3 transmittal totals/ }),

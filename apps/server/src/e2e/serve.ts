@@ -7,6 +7,11 @@
  * spec), a draft payroll run is generated, and the fixture state (TOTP
  * secret, invite link, run id) is written to e2e/.state/state.json.
  *
+ * It also seeds the full QA synthetic dataset (`seedQaDataset`) — the same one
+ * `pnpm seed:qa` builds against live QA — so the live-QA specs run here too
+ * (PAY-56). That is the largest thing this entry does; everything below is
+ * layered on top of it.
+ *
  * Production boot (src/index.ts) is untouched: postgres-js over TCP + the
  * pg-boss scheduler. This entry exists for browser E2E only and is never
  * imported by the production start path.
@@ -36,6 +41,9 @@ import { buildApp } from "../app.js";
 import type { Db } from "../db.js";
 import { inviteUser } from "../auth/users.js";
 import { syncDeposits } from "../deposits/service.js";
+import { syncAnnualFilings } from "../filings/annual.js";
+import { syncFilings } from "../filings/service.js";
+import { seedQaDataset } from "../qa/seed-qa.js";
 
 const HERE = dirname(fileURLToPath(import.meta.url));
 const REPO_ROOT = resolve(HERE, "../../../..");
@@ -117,6 +125,24 @@ const { app, auth } = await buildApp({
 });
 
 await seedDatabase(db as unknown as SeedDb);
+
+// PAY-56: the full QA synthetic dataset, in the ephemeral boot too. Four
+// live-QA specs were gated on `E2E_BASE_URL` only because this boot lacked
+// their fixtures, so they ran nowhere but the nightly.
+//
+// `seedQaDataset` is idempotent and is the same builder `pnpm seed:qa` uses
+// against live QA. `today` is deliberately the live clock, not a fixed date:
+// PAY-9 asserts the PREVIOUS calendar month is present, which only holds
+// against a real one.
+const qaSeed = await seedQaDataset({ db, auth, config });
+// The seeded date is logged because the dataset is CLOCK-DEPENDENT and
+// `reuseExistingServer` is on outside CI: a boot left over from last month
+// silently invalidates the "previous calendar month" assertions, and this line
+// is what makes that visible in the Playwright output.
+console.log(
+  `e2e:serve seeded QA dataset for ${new Date().toISOString().slice(0, 10)}: ` +
+    `${qaSeed.payroll.issued + qaSeed.payroll.existing} issued runs`,
+);
 
 /** Decrypted base32 TOTP secret for a user (same path as test/flow-helpers). */
 async function decryptedTotpSecret(userId: string): Promise<string> {
@@ -274,9 +300,14 @@ for (const action of ["approve", "issue"] as const) {
   if (res.statusCode !== 200) throw new Error(`${action}: ${res.body}`);
 }
 
-// Compute the deposit schedule from the issued run (no today override — the
-// Oct 2025 deposit shows as overdue, which also exercises the overdue chip).
+// Recompute everything DERIVED from issued runs, now that this boot has issued
+// its own. The QA seed already ran these, but that was before the 2025-10 run
+// above existed, so its 2025 Q4 941 and W-2/W-3 worksheets would otherwise
+// exclude it. No today override — the Oct 2025 deposit shows as overdue, which
+// also exercises the overdue chip.
 await syncDeposits({ db, config });
+await syncFilings({ db, config });
+await syncAnnualFilings({ db, config });
 
 await app.listen({ port: PORT, host: HOST });
 console.log(`e2e:serve ready at ${BASE_URL} (state → ${STATE_FILE})`);

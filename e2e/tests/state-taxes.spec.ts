@@ -17,17 +17,35 @@ import {
   LIVE_QA,
   loadEphemeralState,
   newAuthedPage,
+  EPHEMERAL_EMPLOYEE_NAME,
   QA_ADMIN,
+  QA_EMPLOYEE_NAME,
 } from "./qa.js";
 
 function adminUser() {
   return LIVE_QA ? QA_ADMIN : loadEphemeralState()?.admin;
 }
 
-/** Open the first employee's detail page and switch to the State tax tab. */
+/**
+ * The employee these specs drive.
+ *
+ * The ephemeral employee exists only in the local boot. The read-only spec
+ * below runs in BOTH modes, so against live QA it must name a persona the QA
+ * seed provides. The mutating specs are LIVE_QA-skipped, so they always get
+ * the ephemeral one.
+ */
+const EMPLOYEE_NAME = LIVE_QA ? QA_EMPLOYEE_NAME : EPHEMERAL_EMPLOYEE_NAME;
+
+/**
+ * Open one employee's State tax tab.
+ *
+ * Named rather than "the first row": the boot now seeds the full QA dataset
+ * (PAY-56), so the first employee is whichever persona sorts first — these
+ * specs were silently operating on the wrong record.
+ */
 async function openStateTaxTab(page: Page) {
   await page.goto("/admin/employees");
-  await page.locator("tbody tr").first().click();
+  await page.locator("tbody tr", { hasText: EMPLOYEE_NAME }).first().click();
   await page.waitForURL(/\/admin\/employees\/\d+/);
   await page.getByRole("tab", { name: "State tax" }).click();
 }

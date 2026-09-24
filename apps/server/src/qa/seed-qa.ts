@@ -38,6 +38,7 @@ import {
   notificationSettings,
   payrollRuns,
   seedDatabase,
+  taxConfig,
   w4Elections,
   type SeedDb,
 } from "@payroll/db";
@@ -50,6 +51,8 @@ import { addressForStorage, encryptAddress } from "../crypto/address-encryption.
 import type { Db } from "../db.js";
 import { generateDraft, monthlyPeriod, transitionRun, type Period } from "../payroll/runs.js";
 import { syncDeposits } from "../deposits/service.js";
+import { syncAnnualFilings } from "../filings/annual.js";
+import { syncFilings } from "../filings/service.js";
 
 // ---------------------------------------------------------------------------
 // Fixed QA credentials (FAKE — QA-only, documented in docs/qa.md)
@@ -793,19 +796,35 @@ async function seedDaveFinancials(
     "December",
   ] as const;
 
-  for (let m = 1; m < month; m++) {
-    const label = `Consulting retainer — ${monthNames[m - 1]} ${year}`;
+  // Paid months: the current year up to (not including) this one. In JANUARY
+  // that range is empty, which would leave Dave with no paid invoice and no
+  // payment at all — his whole reason to exist is a YTD above the 1099-NEC
+  // threshold, and PAY-7 asserts a paid invoice carrying a payment. A
+  // persistent database (live QA) hides this because last year's rows survive;
+  // the ephemeral e2e boot starts empty every run, so it would break for the
+  // whole of January. Fall back to the previous December.
+  const paidMonths: YearMonth[] =
+    month === 1
+      ? [{ year: year - 1, month: 12 }]
+      : Array.from({ length: month - 1 }, (_, i) => ({ year, month: i + 1 }));
+
+  for (const period of paidMonths) {
+    const label = `Consulting retainer — ${monthNames[period.month - 1]} ${period.year}`;
     const invoice = await ensureInvoice(db, {
       employeeId: daveId,
       description: label,
       amount: "800.00",
-      invoiceDate: `${year}-${pad2(m)}-28`,
+      invoiceDate: `${period.year}-${pad2(period.month)}-28`,
       status: "paid",
       reviewedBy: adminId,
     });
     // Paid on the 5th of the following month (clamped to `today` so a seed run
     // early in the month never records a future-dated payment).
-    const nominalPayDate = `${year}-${pad2(m + 1)}-05`;
+    const nextMonth =
+      period.month === 12
+        ? { year: period.year + 1, month: 1 }
+        : { year: period.year, month: period.month + 1 };
+    const nominalPayDate = `${nextMonth.year}-${pad2(nextMonth.month)}-05`;
     await ensurePayment(db, invoice.id, {
       payDate: nominalPayDate > today ? today : nominalPayDate,
       amount: "800.00",
@@ -902,6 +921,23 @@ export interface QaSeedOptions {
   today?: string;
 }
 
+/** Guard the precondition the dataset relies on; the error says the rest. */
+async function assertTaxYearSeeded(db: Db, year: number): Promise<void> {
+  const rows = await db
+    .select({ taxYear: taxConfig.taxYear })
+    .from(taxConfig)
+    .where(and(eq(taxConfig.jurisdiction, "federal"), eq(taxConfig.taxYear, year)))
+    .limit(1);
+  if (rows.length === 0) {
+    throw new Error(
+      `qa seed: no federal tax config for ${year}. The QA dataset generates a ` +
+        `current-period payroll run, so the bundled tax tables must cover the ` +
+        `current year. Add ${year} to packages/db/src/seed.ts (and its state ` +
+        `tables) before this date rolls around.`,
+    );
+  }
+}
+
 export async function seedQaDataset(
   deps: QaDeps,
   opts: QaSeedOptions = {},
@@ -909,6 +945,7 @@ export async function seedQaDataset(
   const today = opts.today ?? todayIso();
   // Reference data (company, tax tables, pay schedule) — idempotent.
   await seedDatabase(deps.db as unknown as SeedDb);
+  await assertTaxYearSeeded(deps.db, Number(today.slice(0, 4)));
 
   const admin = await ensureQaUser(deps, QA_ADMIN);
   const employeeLogin = await ensureQaUser(deps, QA_EMPLOYEE_LOGIN);
@@ -921,6 +958,12 @@ export async function seedQaDataset(
   // PAY-9: compute the deposit schedule from the issued history so the admin
   // Tax deposits page has rows immediately (the daily tick keeps it fresh).
   await syncDeposits(deps, { today });
+  // PAY-23: same rationale for filings — without this the quarterly 941s and
+  // the closed-year W-2/W-3 row only appear after the scheduler's first tick,
+  // so a freshly seeded database has an empty Tax filings page. Both are
+  // upserts, so this stays idempotent.
+  await syncFilings(deps, { today });
+  await syncAnnualFilings(deps, { today });
   const changeRequestCreated = await seedChangeRequestThread(
     deps,
     w2.carol,

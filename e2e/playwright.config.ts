@@ -42,6 +42,12 @@ export default defineConfig({
           url: "http://127.0.0.1:9898/health",
           reuseExistingServer: !process.env.CI,
           timeout: 120_000,
+          // Playwright ignores webServer stdout by default. The boot logs the
+          // DATE it seeded for, and the dataset is clock-dependent, so with
+          // `reuseExistingServer` on a stale boot from last month silently
+          // invalidates the "previous calendar month" assertions. Piping it is
+          // what makes that visible (PAY-56).
+          stdout: "pipe",
         },
       }),
 });
