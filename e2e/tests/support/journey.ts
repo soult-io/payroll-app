@@ -40,6 +40,15 @@ const STILL_JPEG_QUALITY = 70;
  * box) are part of the screen, not a second page.
  */
 const MAIN_SCROLLER_MIN_VIEWPORT_SHARE = 0.5;
+/** Hidden pixels an inner scroller may have before it counts (layout rounding). */
+const INNER_SCROLL_TOLERANCE_PX = 1;
+/** The screenshot's own bound (ms): the config sets no actionTimeout. */
+const STILL_SCREENSHOT_TIMEOUT_MS = 10_000;
+/**
+ * Bound on the whole capture (ms). A stuck page must not hang the step until
+ * the test timeout, which would replace the step's own result.
+ */
+const STILL_CAPTURE_TIMEOUT_MS = 15_000;
 
 /** Stills only in the ephemeral boot — never against live QA (spec 20 D2). */
 export const STILLS_ENABLED = !process.env.E2E_BASE_URL;
@@ -73,7 +82,7 @@ async function captureStill(page: Page, testInfo: TestInfo, index: number): Prom
   const viewport = page.viewportSize();
   if (!viewport) throw new Error("page has no fixed viewport");
   const scroll = await page.evaluate(measureScroll, MAIN_SCROLLER_MIN_VIEWPORT_SHARE);
-  if (scroll.inner > 0) {
+  if (scroll.inner > INNER_SCROLL_TOLERANCE_PX) {
     throw new Error(
       `inner-scroller: a large inner scroller hides ${scroll.inner}px; a fullPage still would show one viewport`,
     );
@@ -90,17 +99,28 @@ async function captureStill(page: Page, testInfo: TestInfo, index: number): Prom
     // CSS pixels: the height cap bounds the file on any device scale.
     scale: "css",
     animations: "disabled",
+    timeout: STILL_SCREENSHOT_TIMEOUT_MS,
   });
   const meta: StillMeta = { width: viewport.width, height, truncated: fullHeight > height };
   // Attached inside the step body, so the reporter attributes them to this step.
-  // attach() copies the file into the attachments dir (content-hashed name);
-  // drop the original so the uploaded evidence holds each still once.
+  // attach() copies the file into the attachments dir (named by a hash of the
+  // source path) before it resolves; drop the original so the uploaded
+  // evidence holds each still once.
   await testInfo.attach(STEP_STILL_ATTACHMENT, { path, contentType: "image/jpeg" });
   await rm(path, { force: true });
   await testInfo.attach(STEP_STILL_META_ATTACHMENT, {
     body: JSON.stringify(meta),
     contentType: "application/json",
   });
+}
+
+/** Reject after `ms`, so a hung capture settles instead of hanging the step. */
+function within<T>(ms: number, work: Promise<T>): Promise<T> {
+  let timer: ReturnType<typeof setTimeout> | undefined;
+  const limit = new Promise<never>((_, reject) => {
+    timer = setTimeout(() => reject(new Error(`capture timed out after ${ms}ms`)), ms);
+  });
+  return Promise.race([work, limit]).finally(() => clearTimeout(timer));
 }
 
 /** Per-test step counter, so still file names are unique within a test attempt. */
@@ -126,12 +146,14 @@ export async function step<T>(page: Page, title: string, body: () => Promise<T>)
     try {
       return await body();
     } finally {
-      await captureStill(page, testInfo, index).catch((err: unknown) => {
-        testInfo.annotations.push({
-          type: STILL_MISSING_ANNOTATION,
-          description: `${title}: ${err instanceof Error ? err.message : String(err)}`,
-        });
-      });
+      await within(STILL_CAPTURE_TIMEOUT_MS, captureStill(page, testInfo, index)).catch(
+        (err: unknown) => {
+          testInfo.annotations.push({
+            type: STILL_MISSING_ANNOTATION,
+            description: `${title}: ${err instanceof Error ? err.message : String(err)}`,
+          });
+        },
+      );
     }
   });
 }

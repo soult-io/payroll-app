@@ -78,13 +78,17 @@ test("payslip PDF download round-trip (%PDF magic, non-trivial bytes)", async ({
   const ctx = await browser.newContext({ storageState: EMPLOYEE_SESSION_PATH });
   try {
     const emp = await ctx.newPage();
-    const pdf = await emp.request.get(
-      `/api/payslips/${must(state, "ephemeral state").run.publicId}/pdf`,
-    );
-    expect(pdf.status()).toBe(200);
-    const body = await pdf.body();
-    expect(body.subarray(0, 5).toString()).toBe("%PDF-");
-    expect(body.length).toBeGreaterThan(2000);
+    const publicId = must(state, "ephemeral state").run.publicId;
+    await step(emp, "Payslip PDF downloads (%PDF, non-trivial size)", async () => {
+      // Read-only navigation so the step's still shows the payslip whose PDF
+      // is fetched (the API call alone leaves the page blank).
+      await emp.goto(`/my/payslips/${publicId}`);
+      const pdf = await emp.request.get(`/api/payslips/${publicId}/pdf`);
+      expect(pdf.status()).toBe(200);
+      const body = await pdf.body();
+      expect(body.subarray(0, 5).toString()).toBe("%PDF-");
+      expect(body.length).toBeGreaterThan(2000);
+    });
   } finally {
     await ctx.close();
   }
