@@ -30,6 +30,7 @@ import {
 } from "@payroll/db";
 import { createTestApp, type TestContext } from "./helpers.js";
 import { inviteAndOnboard, login, sessionHeader, TEST_PASSWORD } from "./flow-helpers.js";
+import { annualDueDate } from "../src/filings/annual.js";
 
 interface TestEvent {
   date: string;
@@ -544,6 +545,168 @@ describe("GET /api/admin/calendar — aggregation", () => {
           detail: "Projected — filing not generated yet",
         }),
       );
+    });
+
+    it("Year with issued runs and no w2_w3 row: W-2/W-3 generates on Jan 1 of year+1 and due on annualDueDate", async () => {
+      const companyId = (await t.db.select({ id: company.id }).from(company).limit(1))[0]!.id;
+      const futureEmployeeId = (
+        await t.db
+          .insert(employees)
+          .values({ companyId, legalName: "Future Employee W2", hireDate: "2025-01-01" })
+          .returning()
+      )[0]!.id;
+
+      // Current year keeps the Jan-1 generates date in the future regardless of
+      // when the suite runs (mirrors the dynamic year in the 941 tests above).
+      const year = new Date().getFullYear();
+      const payDate = `${year}-03-15`;
+      const generatesDate = `${year + 1}-01-01`;
+      const dueDate = annualDueDate(year);
+      const dueMonth = Number(dueDate.slice(5, 7));
+
+      await t.db.insert(payrollRuns).values({
+        employeeId: futureEmployeeId,
+        periodStart: `${year}-01-01`,
+        periodEnd: `${year}-03-31`,
+        payDate,
+        status: "issued",
+        runSnapshot: {},
+      });
+
+      const jan = await calendar(year + 1, 1);
+      expect(jan.events).toContainEqual(
+        expect.objectContaining({
+          date: generatesDate,
+          kind: "filing_generates",
+          label: `W-2/W-3 ${year} generates`,
+          detail: "Created by the daily filing sync",
+        }),
+      );
+      const dueCal = await calendar(year + 1, dueMonth);
+      expect(dueCal.events).toContainEqual(
+        expect.objectContaining({
+          date: dueDate,
+          kind: "filing_due_projected",
+          label: `W-2/W-3 ${year} due (projected)`,
+          detail: "Projected — filing not generated yet",
+        }),
+      );
+    });
+
+    it("Same year WITH w2_w3 tax_filings row: no W-2/W-3 projected events, only real filing_due", async () => {
+      const companyId = (await t.db.select({ id: company.id }).from(company).limit(1))[0]!.id;
+      const futureEmployeeId = (
+        await t.db
+          .insert(employees)
+          .values({ companyId, legalName: "Future Employee W2 2", hireDate: "2025-01-01" })
+          .returning()
+      )[0]!.id;
+
+      const year = 2027;
+      const payDate = "2027-03-15";
+      const dueDate = annualDueDate(year);
+
+      await t.db.insert(payrollRuns).values({
+        employeeId: futureEmployeeId,
+        periodStart: "2027-01-01",
+        periodEnd: "2027-03-31",
+        payDate,
+        status: "issued",
+        runSnapshot: {},
+      });
+
+      await t.db.insert(taxFilings).values({
+        formType: "w2_w3",
+        year,
+        quarter: 0,
+        dueDate,
+        status: "not_started",
+      });
+
+      const jan = await calendar(year + 1, 1);
+      expect(jan.events.filter((e) => e.kind === "filing_generates")).toHaveLength(0);
+      // The 940 projection for the same year legitimately coexists — scope to W-2/W-3.
+      expect(
+        jan.events.filter((e) => e.kind === "filing_due_projected" && e.label.includes("W-2/W-3")),
+      ).toHaveLength(0);
+
+      expect(jan.events).toContainEqual(
+        expect.objectContaining({
+          date: dueDate,
+          kind: "filing_due",
+          label: `W-2/W-3 ${year} due`,
+          detail: "not_started",
+        }),
+      );
+    });
+
+    it("Year with issued runs and no 940 row: Form 940 due projected", async () => {
+      const companyId = (await t.db.select({ id: company.id }).from(company).limit(1))[0]!.id;
+      const futureEmployeeId = (
+        await t.db
+          .insert(employees)
+          .values({ companyId, legalName: "Future Employee 940", hireDate: "2025-01-01" })
+          .returning()
+      )[0]!.id;
+
+      const year = 2029;
+      const payDate = "2029-03-15";
+      const dueDate = annualDueDate(year);
+
+      await t.db.insert(payrollRuns).values({
+        employeeId: futureEmployeeId,
+        periodStart: "2029-01-01",
+        periodEnd: "2029-03-31",
+        payDate,
+        status: "issued",
+        runSnapshot: {},
+      });
+
+      const jan = await calendar(year + 1, 1);
+      expect(jan.events).toContainEqual(
+        expect.objectContaining({
+          date: dueDate,
+          kind: "filing_due_projected",
+          label: `Form 940 ${year} due (projected)`,
+          detail: "Projected — filing not generated yet",
+        }),
+      );
+    });
+
+    it("Year with 940 row: no Form 940 projected event", async () => {
+      const companyId = (await t.db.select({ id: company.id }).from(company).limit(1))[0]!.id;
+      const futureEmployeeId = (
+        await t.db
+          .insert(employees)
+          .values({ companyId, legalName: "Future Employee 940 2", hireDate: "2025-01-01" })
+          .returning()
+      )[0]!.id;
+
+      const year = 2029;
+      const payDate = "2029-03-15";
+      const dueDate = annualDueDate(year);
+
+      await t.db.insert(payrollRuns).values({
+        employeeId: futureEmployeeId,
+        periodStart: "2029-01-01",
+        periodEnd: "2029-03-31",
+        payDate,
+        status: "issued",
+        runSnapshot: {},
+      });
+
+      await t.db.insert(taxFilings).values({
+        formType: "940",
+        year,
+        quarter: 0,
+        dueDate,
+        status: "not_started",
+      });
+
+      const jan = await calendar(year + 1, 1);
+      expect(
+        jan.events.filter((e) => e.kind === "filing_due_projected" && e.label.includes("940")),
+      ).toHaveLength(0);
     });
   });
 });

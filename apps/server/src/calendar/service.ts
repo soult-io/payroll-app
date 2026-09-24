@@ -27,7 +27,7 @@
  * matching admin detail view; the web app resolves them with vue-router.
  */
 
-import { and, asc, eq, gte, isNotNull, lte, ne, sql, type SQLWrapper } from "drizzle-orm";
+import { and, asc, eq, gte, inArray, isNotNull, lte, ne, sql, type SQLWrapper } from "drizzle-orm";
 import {
   contractorDetails,
   contractorRecurringInvoices,
@@ -42,6 +42,7 @@ import {
   filingDueDate as filingsFilingDueDate,
   quarterEnd as filingsQuarterEnd,
 } from "../filings/service.js";
+import { annualDueDate, w2AvailableOn } from "../filings/annual.js";
 import { interpolateDescription, invoiceDateFor } from "../contractors/recurring.js";
 
 export type CalendarEventKind =
@@ -419,6 +420,79 @@ async function projectedFilingEvents(
 }
 
 /**
+ * Projected annual-form events (PAY-52). The w2_w3 row is year-close-only by
+ * design, so without projection the January calendar never shows the W-2/W-3
+ * deadline until the row already exists; the 940 row appears in-year but only
+ * after the sync has seen the year's first issued run.
+ */
+async function projectedAnnualFilingEvents(
+  db: Db,
+  monthStart: string,
+  monthEnd: string,
+): Promise<CalendarEvent[]> {
+  const today = new Date().toISOString().slice(0, 10);
+
+  const yearsWithRuns = await db
+    .selectDistinct({ year: sql<number>`extract(year from ${payrollRuns.payDate})::int` })
+    .from(payrollRuns)
+    .where(eq(payrollRuns.status, "issued"));
+
+  const annualRows = await db
+    .select({ year: taxFilings.year, formType: taxFilings.formType })
+    .from(taxFilings)
+    .where(and(inArray(taxFilings.formType, ["940", "w2_w3"]), eq(taxFilings.quarter, 0)));
+
+  const existingByYear = new Map<number, Set<string>>();
+  for (const row of annualRows) {
+    const forms = existingByYear.get(row.year) ?? new Set<string>();
+    forms.add(row.formType);
+    existingByYear.set(row.year, forms);
+  }
+
+  const candidates: CalendarEvent[] = [];
+  for (const { year } of yearsWithRuns) {
+    const existing = existingByYear.get(year) ?? new Set<string>();
+    const dueDate = annualDueDate(year);
+
+    if (!existing.has("w2_w3")) {
+      candidates.push(
+        {
+          date: w2AvailableOn(year),
+          kind: "filing_generates",
+          label: `W-2/W-3 ${year} generates`,
+          detail: "Created by the daily filing sync",
+          link: null,
+        },
+        {
+          date: dueDate,
+          kind: "filing_due_projected",
+          label: `W-2/W-3 ${year} due (projected)`,
+          detail: "Projected — filing not generated yet",
+          link: null,
+        },
+      );
+    }
+
+    if (!existing.has("940")) {
+      candidates.push({
+        date: dueDate,
+        kind: "filing_due_projected",
+        label: `Form 940 ${year} due (projected)`,
+        detail: "Projected — filing not generated yet",
+        link: null,
+      });
+    }
+  }
+
+  return candidates.filter(
+    (e) =>
+      e.date >= monthStart &&
+      e.date <= monthEnd &&
+      (e.kind !== "filing_generates" || e.date > today),
+  );
+}
+
+/**
  * Every calendar event falling inside (year, month), sorted by date then
  * kind then label for a stable grid rendering.
  */
@@ -432,6 +506,7 @@ export async function monthCalendar(db: Db, year: number, month: number): Promis
     ...(await depositEvents(db, monthStart, monthEnd)),
     ...(await filingEvents(db, monthStart, monthEnd)),
     ...(await projectedFilingEvents(db, monthStart, monthEnd)),
+    ...(await projectedAnnualFilingEvents(db, monthStart, monthEnd)),
     ...(await w8Expiries(db, monthStart, monthEnd)),
   ];
   events.sort(
