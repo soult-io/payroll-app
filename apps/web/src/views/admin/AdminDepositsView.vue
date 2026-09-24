@@ -38,18 +38,18 @@ const { money } = useMoney();
 const notify = useNotify();
 
 const MONTH_NAMES = [
-  "January",
-  "February",
-  "March",
-  "April",
+  "Jan",
+  "Feb",
+  "Mar",
+  "Apr",
   "May",
-  "June",
-  "July",
-  "August",
-  "September",
-  "October",
-  "November",
-  "December",
+  "Jun",
+  "Jul",
+  "Aug",
+  "Sep",
+  "Oct",
+  "Nov",
+  "Dec",
 ] as const;
 
 function monthName(month: number): string {
@@ -68,6 +68,12 @@ function periodLabel(periodStart: string, periodKind?: "month" | "quarter"): str
 
 function jurisdictionLabel(jurisdiction: string): string {
   return jurisdiction === "federal" ? "Federal" : jurisdiction;
+}
+
+/** Numeric Amount sort: API sends amount as a string; a fixed-width zero-padded
+ *  decimal keeps PrimeVue's string sort numerically correct. */
+function amountSortField(row: TaxDepositRow): string {
+  return Number(row.amount).toFixed(2).padStart(14, "0");
 }
 
 // -------------------------------------------------------------------- deposits
@@ -167,6 +173,15 @@ async function submitDeposit() {
   } finally {
     depositBusy.value = false;
   }
+}
+
+// ------------------------------------------------------------- confirmation (PAY-38)
+const confirmationDialog = ref(false);
+const confirmationTarget = ref<TaxDepositRow | null>(null);
+
+function openConfirmationDialog(row: TaxDepositRow) {
+  confirmationTarget.value = row;
+  confirmationDialog.value = true;
 }
 
 // ------------------------------------------------------------- attachments (PAY-27)
@@ -349,31 +364,31 @@ onMounted(async () => {
             body="Deposit rows appear as soon as a month has issued payroll runs — the daily scheduler syncs the schedule."
           />
         </template>
-        <Column header="Period" style="width: 10rem">
+        <Column field="periodStart" header="Period" style="width: 10rem" sortable>
           <template #body="{ data }">{{ periodLabel(data.periodStart, data.periodKind) }}</template>
         </Column>
-        <Column field="jurisdiction" header="Jurisdiction" style="width: 8rem">
+        <Column field="jurisdiction" header="Jurisdiction" style="width: 8rem" sortable sortField="jurisdiction">
   <template #body="{ data }">
     {{ jurisdictionLabel(data.jurisdiction) }}
   </template>
 </Column>
-        <Column header="Amount" style="width: 9rem">
+        <Column header="Amount" style="width: 9rem" sortable :sort-field="amountSortField">
           <template #body="{ data }">{{ money(data.amount) }}</template>
         </Column>
-        <Column header="Due date" style="width: 9rem">
+        <Column field="dueDate" header="Due date" style="width: 10rem" sortable>
           <template #body="{ data }">
-            <span :class="{ 'overdue-text': isOverdue(data) }">{{ date(data.dueDate) }}</span>
+            <span :class="{ 'overdue-text': isOverdue(data) }" style="white-space: nowrap">{{ date(data.dueDate) }}</span>
           </template>
         </Column>
-        <Column header="Status" style="width: 8rem">
+        <Column field="status" header="Status" style="width: 8rem" sortable>
           <template #body="{ data }">
             <StatusChip :status="isOverdue(data) ? 'overdue' : data.status" />
           </template>
         </Column>
-        <Column header="Deposited">
+        <Column header="Deposited" style="width: 12rem" sortable sort-field="depositedOn">
           <template #body="{ data }">
             <template v-if="data.status === 'deposited'">
-              {{ date(data.depositedOn) }} · EFTPS {{ data.eftpsConfirmation }}
+              {{ date(data.depositedOn) }}
             </template>
             <span v-else class="muted">—</span>
           </template>
@@ -393,6 +408,14 @@ onMounted(async () => {
               size="small"
               text
               @click.stop="openAttachments(data)"
+            />
+            <Button
+              v-if="data.status === 'deposited' && data.eftpsConfirmation"
+              label="View confirmation"
+              icon="pi pi-eye"
+              size="small"
+              text
+              @click.stop="openConfirmationDialog(data)"
             />
           </template>
         </Column>
@@ -512,6 +535,30 @@ onMounted(async () => {
             :disabled="!depositedOn || !eftpsConfirmation.trim()"
             @click="submitDeposit"
           />
+        </div>
+      </div>
+    </Dialog>
+
+    <Dialog
+      v-model:visible="confirmationDialog"
+      modal
+      header="EFTPS confirmation"
+      :style="{ width: '22rem' }"
+    >
+      <div v-if="confirmationTarget" class="stack">
+        <p class="muted small">
+          {{ periodLabel(confirmationTarget.periodStart) }}
+        </p>
+        <div class="field">
+          <label>Deposited on</label>
+          <InputText :model-value="date(confirmationTarget.depositedOn)" readonly />
+        </div>
+        <div class="field">
+          <label>Confirmation number</label>
+          <InputText :model-value="confirmationTarget.eftpsConfirmation" readonly />
+        </div>
+        <div class="row dialog-actions">
+          <Button label="Close" text @click="confirmationDialog = false" />
         </div>
       </div>
     </Dialog>
