@@ -9,6 +9,8 @@ import {
   renderPage,
   shortSha,
   sortByGeneratedAtDesc,
+  sourceViews,
+  worstOutcome,
 } from "../src/lib.js";
 
 function suite(
@@ -138,9 +140,15 @@ describe("renderPage", () => {
       generatedAt: "2026-09-21T00:00:00Z",
       gitSha: "1111111newer0000000000000000000000000fff",
     });
-    const html = renderPage([older, newer]);
-    const headerRegion = html.slice(0, html.indexOf("Recent runs"));
-    expect(headerRegion).toContain("1111111"); // newer sha in header card
+    const html = renderPage([older, newer], { now: new Date("2026-09-21T01:00:00Z") });
+    // The commit moved to the per-source card with spec 19 — that card must
+    // show the NEWEST ci run's sha, not the older one.
+    const sources = html.slice(html.indexOf("<h2>Sources</h2>"), html.indexOf("<h2>Suites</h2>"));
+    // The ci card shows the NEWER run. Asserted on the distinguishing part of
+    // each fixture sha ("newer"/"older") rather than the leading digits, which
+    // both fixtures share — a negative on those would pass by accident.
+    expect(sources).toContain("1111111newer");
+    expect(sources).not.toContain("0000000older");
   });
 
   it("escapes suite names (no raw HTML injection)", () => {
@@ -445,8 +453,13 @@ describe("never-run journeys (spec 18)", () => {
     expect(html).toMatch(/last ran 2026-09-21 10:00:00 UTC/);
   });
 
-  it("counts never-run tests separately instead of folding them into total passed", () => {
-    expect(renderPage(history)).toMatch(/1<\/strong> never run/);
+  it("states the never-run count as its own figure, not folded into the totals", () => {
+    // Deliberately on its own line: the totals are summed per source while this
+    // is a count of DISTINCT tests, so the two do not share a universe and must
+    // not read as one sentence.
+    expect(renderPage(history)).toMatch(
+      /<strong>1<\/strong> distinct test no retained run has ever executed/,
+    );
   });
 });
 
@@ -492,22 +505,53 @@ describe("never-run demotes the headline (spec 18)", () => {
     }),
   ];
 
-  it("never shows a bare PASSED in the current-state sections", () => {
+  it("never shows a bare PASSED in the headline or the suite rows", () => {
     const html = renderPage(withGap);
-    // Headline AND the suite row — the page must not contradict itself about
-    // what is true NOW. The "Recent runs" table below is excluded on purpose:
-    // it records what each run itself reported and must not be rewritten.
-    const currentState = html.slice(0, html.indexOf("Recent runs"));
-    expect(currentState.match(/PASSED · 1 NEVER RUN/g)).toHaveLength(2);
-    expect(currentState).not.toMatch(/badge pass">PASSED</);
+    // The headline and the suite rows both describe what is true NOW, and must
+    // agree. Two sections are deliberately excluded: the per-source cards,
+    // which carry each SOURCE's own verdict (a healthy ci is legitimately
+    // green), and "Recent runs", which records what each run itself reported
+    // and must never be rewritten.
+    const headline = html.slice(0, html.indexOf("<h2>Sources</h2>"));
+    const suites = html.slice(html.indexOf("<h2>Suites</h2>"), html.indexOf("<h2>End-to-end"));
+    expect(headline).toContain("1 NEVER RUN");
+    expect(headline).not.toMatch(/badge pass">PASSED</);
+    expect(suites).toContain("PASSED · 1 NEVER RUN");
+    expect(suites).not.toMatch(/badge pass">PASSED</);
   });
 
-  it("leaves a clean run's headline alone", () => {
-    const clean = summary({
-      generatedAt: "2026-09-22T10:00:00.000Z",
-      suites: [makeE2eSuite([testResult("ran", "passed")])],
-    });
-    expect(renderPage([clean])).toMatch(/badge pass">PASSED</);
+  it("leaves a genuinely clean system's headline alone", () => {
+    // Clean now means: every source reporting, recently, all green, nothing
+    // never-run. A ci-only history is NOT clean — the nightly is quiet.
+    const at = new Date("2026-09-22T11:00:00Z");
+    const clean = [
+      summary({
+        generatedAt: "2026-09-22T10:00:00.000Z",
+        suites: [makeE2eSuite([testResult("ran", "passed")])],
+      }),
+      nightly({
+        generatedAt: "2026-09-22T10:30:00.000Z",
+        suites: [makeE2eSuite([testResult("ran", "passed")])],
+      }),
+    ];
+    const html = renderPage(clean, { now: at });
+    const headline = html.slice(0, html.indexOf("<h2>Sources</h2>"));
+    expect(headline).toMatch(/badge pass">PASSED</);
+  });
+
+  it("refuses a green headline for a ci-only history — the nightly is quiet", () => {
+    const html = renderPage(
+      [
+        summary({
+          generatedAt: "2026-09-22T10:00:00.000Z",
+          suites: [makeE2eSuite([testResult("ran", "passed")])],
+        }),
+      ],
+      { now: new Date("2026-09-22T11:00:00Z") },
+    );
+    const headline = html.slice(0, html.indexOf("<h2>Sources</h2>"));
+    expect(headline).not.toMatch(/badge pass">PASSED</);
+    expect(headline).toContain("SOURCE QUIET");
   });
 
   it("does not soften a FAILED headline into the never-run wording", () => {
@@ -523,7 +567,326 @@ describe("never-run demotes the headline (spec 18)", () => {
       ],
     });
     const html = renderPage([failed]);
-    expect(html).toContain('badge fail">FAILED');
-    expect(html).not.toContain("NEVER RUN·");
+    const headline = html.slice(0, html.indexOf("<h2>Sources</h2>"));
+    expect(headline).toContain('badge fail">FAILED');
+    // A FAILED verdict is never softened into the amber never-run wording.
+    expect(headline).not.toContain("NEVER RUN");
+  });
+});
+
+// --- spec 19 (PAY-58): the per-source view --------------------------------
+
+function nightly(over: Partial<VerifySummary> & { generatedAt: string }): VerifySummary {
+  return summary({ source: "nightly", ...over });
+}
+
+const CI_RUN = summary({
+  generatedAt: "2026-09-24T12:00:00.000Z",
+  counts: { passed: 560, failed: 0, flaky: 0, skipped: 6, executed: 560, total: 566 },
+  suites: [
+    suite("engine", "Engine unit tests", 171, 0, 0),
+    suite("server", "Server integration tests", 375, 0, 0),
+    makeE2eSuite([testResult("journey 1: onboarding", "passed")]),
+  ],
+});
+
+const NIGHTLY_RUN = nightly({
+  generatedAt: "2026-09-24T13:00:00.000Z",
+  overallStatus: "failed",
+  counts: { passed: 11, failed: 1, flaky: 0, skipped: 9, executed: 12, total: 21 },
+  suites: [
+    {
+      ...makeE2eSuite([
+        testResult("tax deposits (PAY-9)", "passed"),
+        testResult("W-2/W-3 detail (PAY-23)", "failed"),
+      ]),
+      status: "failed",
+    },
+  ],
+});
+
+describe("sourceViews (spec 19)", () => {
+  it("represents every expected source, even one that has never reported", () => {
+    const views = sourceViews([CI_RUN], new Date("2026-09-24T14:00:00Z"));
+    expect(views.map((v) => v.source)).toEqual(["ci", "nightly"]);
+    expect(views.find((v) => v.source === "nightly")?.latest).toBeUndefined();
+  });
+
+  it("picks the newest summary per source, not the newest overall", () => {
+    const older = summary({ generatedAt: "2026-09-20T12:00:00.000Z" });
+    const views = sourceViews([older, CI_RUN, NIGHTLY_RUN], new Date("2026-09-24T14:00:00Z"));
+    expect(views.find((v) => v.source === "ci")?.latest?.generatedAt).toBe(CI_RUN.generatedAt);
+    expect(views.find((v) => v.source === "nightly")?.latest?.generatedAt).toBe(
+      NIGHTLY_RUN.generatedAt,
+    );
+  });
+
+  it("applies a per-source staleness threshold — a cron is not a push", () => {
+    const at = new Date("2026-09-26T12:00:00Z"); // 48h after both runs
+    const views = sourceViews([CI_RUN, NIGHTLY_RUN], at);
+    expect(views.find((v) => v.source === "nightly")?.stale).toBe(true);
+    expect(views.find((v) => v.source === "ci")?.stale).toBe(false);
+  });
+});
+
+describe("worstOutcome (spec 19)", () => {
+  it("ranks failed above not_run above flaky above passed", () => {
+    expect(worstOutcome(["passed", "failed", "passed_with_flakes"])).toBe("failed");
+    expect(worstOutcome(["passed", "not_run"])).toBe("not_run");
+    expect(worstOutcome(["passed", "passed_with_flakes"])).toBe("passed_with_flakes");
+    expect(worstOutcome(["passed", "passed"])).toBe("passed");
+  });
+});
+
+describe("renderPage per-source (spec 19)", () => {
+  it("keeps the ci suites and counts when the NEWEST summary is a nightly", () => {
+    const html = renderPage([CI_RUN, NIGHTLY_RUN]);
+    expect(html).toContain("Engine unit tests");
+    expect(html).toContain("Server integration tests");
+    expect(html).toMatch(/560/); // the ci pass count survives
+  });
+
+  it("takes the worst outcome across sources for the headline", () => {
+    expect(renderPage([CI_RUN, NIGHTLY_RUN])).toContain("FAILED");
+  });
+
+  it("says so, loudly, when an expected source has never reported", () => {
+    const html = renderPage([CI_RUN]);
+    expect(html).toContain("NEVER REPORTED");
+    // Headline only: the ci source card SHOULD still show its own green badge.
+    const headline = html.slice(0, html.indexOf("<h2>Sources</h2>"));
+    expect(headline).not.toMatch(/badge pass">PASSED</);
+    expect(headline).toContain("SOURCE QUIET");
+  });
+
+  it("reports a quiet nightly with its age and refuses a plain green badge", () => {
+    const passingNightly = nightly({
+      generatedAt: "2026-09-24T13:00:00.000Z",
+      suites: [makeE2eSuite([testResult("tax deposits (PAY-9)", "passed")])],
+    });
+    const html = renderPage([CI_RUN, passingNightly], {
+      now: new Date("2026-09-30T12:00:00Z"),
+    });
+    const headline = html.slice(0, html.indexOf("<h2>Sources</h2>"));
+    expect(headline).toContain("SOURCE QUIET");
+    expect(headline).not.toMatch(/badge pass">PASSED</);
+    // The age is stated, not just the fact.
+    expect(html).toMatch(/has not reported for \d+ days/);
+  });
+
+  it("shows a nightly-only journey's real result rather than NEVER RUN", () => {
+    const html = renderPage([CI_RUN, NIGHTLY_RUN]);
+    expect(html).toContain("tax deposits (PAY-9)");
+    // It never ran in ci, but the nightly executed it — so it is not never-run.
+    const card = html.slice(html.indexOf("tax deposits (PAY-9)") - 400);
+    expect(card.slice(0, 600)).not.toContain("NEVER RUN");
+  });
+
+  it("still shows NEVER RUN for a journey no retained run has executed", () => {
+    const withGhost = summary({
+      generatedAt: "2026-09-24T12:00:00.000Z",
+      suites: [
+        makeE2eSuite([
+          testResult("ran", "passed"),
+          testResult("ghost", "skipped", { skipReason: "live-QA only" }),
+        ]),
+      ],
+    });
+    expect(renderPage([withGhost])).toContain("NEVER RUN");
+  });
+});
+
+// --- spec 19 review findings ----------------------------------------------
+
+describe("headline never-run spans every suite, not just journeys", () => {
+  it("demotes on a never-run UNIT test, not only a never-run journey", () => {
+    const engineWithGhost: SuiteResult = {
+      key: "engine",
+      name: "Engine unit tests",
+      status: "passed",
+      durationMs: 10,
+      counts: { passed: 1, failed: 0, flaky: 0, skipped: 1, executed: 1, total: 2 },
+      tests: [
+        testResult("engine ran", "passed", { file: "futa.test.ts" }),
+        testResult("engine ghost", "skipped", { file: "futa.test.ts" }),
+      ],
+    };
+    const ci = summary({
+      generatedAt: "2026-09-24T12:00:00.000Z",
+      suites: [engineWithGhost, makeE2eSuite([testResult("journey 1", "passed")])],
+    });
+    const night = nightly({
+      generatedAt: "2026-09-24T12:30:00.000Z",
+      suites: [makeE2eSuite([testResult("journey 1", "passed")])],
+    });
+    const html = renderPage([ci, night], { now: new Date("2026-09-24T13:00:00Z") });
+    const headline = html.slice(0, html.indexOf("<h2>Sources</h2>"));
+    // Both sources are fresh and green, so the ONLY reason to demote is the
+    // never-run engine test. Before the fix the headline read a plain PASSED
+    // while the engine suite row beneath it said "1 NEVER RUN".
+    expect(headline).toContain("1 NEVER RUN");
+    expect(headline).not.toMatch(/badge pass">PASSED</);
+  });
+});
+
+describe("staleness fails closed", () => {
+  const ci = summary({ generatedAt: "2026-09-24T12:00:00.000Z" });
+
+  it("treats an unreadable generatedAt as stale, never as fresh", () => {
+    const broken = nightly({ generatedAt: "not-a-date" });
+    const views = sourceViews([ci, broken], new Date("2026-09-24T13:00:00Z"));
+    expect(views.find((v) => v.source === "nightly")?.stale).toBe(true);
+  });
+
+  it("treats a future timestamp as stale — a skewed clock is not freshness", () => {
+    const future = nightly({ generatedAt: "2027-01-01T00:00:00.000Z" });
+    const views = sourceViews([ci, future], new Date("2026-09-24T13:00:00Z"));
+    expect(views.find((v) => v.source === "nightly")?.stale).toBe(true);
+  });
+
+  it("does not let an unreadable timestamp produce a green headline", () => {
+    const html = renderPage([ci, nightly({ generatedAt: "not-a-date" })], {
+      now: new Date("2026-09-24T13:00:00Z"),
+    });
+    const headline = html.slice(0, html.indexOf("<h2>Sources</h2>"));
+    expect(headline).not.toMatch(/badge pass">PASSED</);
+  });
+});
+
+describe("executedInLatest is scoped to the e2e suite", () => {
+  it("a same-named unit test cannot vouch for a journey that is being skipped", () => {
+    const COLLIDING = "FUTA credit caps at 5.4%";
+    const older = summary({
+      generatedAt: "2026-09-20T12:00:00.000Z",
+      suites: [makeE2eSuite([testResult(COLLIDING, "passed")])],
+    });
+    const latest = summary({
+      generatedAt: "2026-09-24T12:00:00.000Z",
+      suites: [
+        // Same fullName, different suite, executed in the latest run.
+        {
+          key: "server",
+          name: "Server integration tests",
+          status: "passed",
+          durationMs: 10,
+          counts: { passed: 1, failed: 0, flaky: 0, skipped: 0, executed: 1, total: 1 },
+          tests: [testResult(COLLIDING, "passed", { file: "futa.test.ts" })],
+        },
+        makeE2eSuite([testResult(COLLIDING, "skipped", { skipReason: "live-QA only" })]),
+      ],
+    });
+    const html = renderPage([older, latest], { now: new Date("2026-09-24T13:00:00Z") });
+    const journeys = html.slice(html.indexOf("<h2>End-to-end journeys</h2>"));
+    // The journey is skipped NOW; only a unit test of the same name ran. The
+    // card must say SKIP with its last real result, not wear a live PASS.
+    expect(journeys.slice(0, 900)).toContain("last ran");
+  });
+});
+
+describe("ordering does not assume a lexical ISO shape", () => {
+  it("orders by instant, so a +02:00 offset does not outrank an earlier Z", () => {
+    // 11:00Z, written with an offset — lexically AFTER "…12:00:00.000Z",
+    // chronologically BEFORE it.
+    const offset = summary({ generatedAt: "2026-09-24T13:00:00+02:00" });
+    const utc = summary({ generatedAt: "2026-09-24T12:00:00.000Z" });
+    expect(sortByGeneratedAtDesc([offset, utc])[0]?.generatedAt).toBe("2026-09-24T12:00:00.000Z");
+  });
+
+  it("never lets an unreadable instant become a source's latest", () => {
+    const good = nightly({ generatedAt: "2026-09-24T12:00:00.000Z" });
+    const bad = nightly({ generatedAt: "not-a-date" });
+    const views = sourceViews([good, bad], new Date("2026-09-24T13:00:00Z"));
+    expect(views.find((v) => v.source === "nightly")?.latest?.generatedAt).toBe(
+      "2026-09-24T12:00:00.000Z",
+    );
+  });
+});
+
+describe("round-2 review findings", () => {
+  it("a not_run SUITE demotes the headline even when the summary says passed", () => {
+    // A real shape: enough executed elsewhere that the summary-level outcome is
+    // `passed`, while one suite executed nothing. Reading only overallStatus let
+    // the headline go green above a Suites table reading NOT RUN.
+    const ci = summary({
+      generatedAt: "2026-09-24T12:00:00.000Z",
+      overallStatus: "passed",
+      counts: { passed: 171, failed: 0, flaky: 0, skipped: 2, executed: 171, total: 173 },
+      suites: [
+        suite("engine", "Engine unit tests", 171, 0, 0),
+        { ...makeE2eSuite([testResult("j", "passed")]), status: "not_run" as const },
+      ],
+    });
+    const night = nightly({
+      generatedAt: "2026-09-24T12:30:00.000Z",
+      suites: [makeE2eSuite([testResult("j", "passed")])],
+    });
+    const html = renderPage([ci, night], { now: new Date("2026-09-24T13:00:00Z") });
+    const headline = html.slice(0, html.indexOf("<h2>Sources</h2>"));
+    expect(headline).not.toMatch(/badge pass">PASSED</);
+    expect(headline).toContain("NOT RUN");
+  });
+
+  it("two same-named tests in different FILES of one suite are distinct", () => {
+    const NAME = "FUTA caps at 5.4%";
+    const engineTwoFiles: SuiteResult = {
+      key: "engine",
+      name: "Engine unit tests",
+      status: "passed",
+      durationMs: 10,
+      counts: { passed: 1, failed: 0, flaky: 0, skipped: 1, executed: 1, total: 2 },
+      tests: [
+        testResult(NAME, "passed", { file: "/home/runner/work/a/futa-credit.test.ts" }),
+        // Same fullName, different file, never executed. Before the fix the
+        // first one's execution vouched for this one.
+        testResult(NAME, "skipped", { file: "/home/runner/work/a/futa-cap.test.ts" }),
+      ],
+    };
+    const html = renderPage(
+      [
+        summary({ generatedAt: "2026-09-24T12:00:00.000Z", suites: [engineTwoFiles] }),
+        nightly({
+          generatedAt: "2026-09-24T12:30:00.000Z",
+          suites: [makeE2eSuite([testResult("j", "passed")])],
+        }),
+      ],
+      { now: new Date("2026-09-24T13:00:00Z") },
+    );
+    const headline = html.slice(0, html.indexOf("<h2>Sources</h2>"));
+    expect(headline).toMatch(/<strong>1<\/strong> distinct test no retained run has ever executed/);
+  });
+
+  it("matches a test across sources despite runner-specific absolute paths", () => {
+    // vitest reports an absolute path that differs per runner; the basename is
+    // the stable part, so the same test must resolve to one identity.
+    const a = summary({
+      generatedAt: "2026-09-24T12:00:00.000Z",
+      suites: [
+        {
+          key: "engine",
+          name: "Engine unit tests",
+          status: "passed",
+          durationMs: 1,
+          counts: { passed: 1, failed: 0, flaky: 0, skipped: 0, executed: 1, total: 1 },
+          tests: [testResult("shared", "passed", { file: "/home/runner/work/x/futa.test.ts" })],
+        },
+      ],
+    });
+    const b = nightly({
+      generatedAt: "2026-09-24T12:30:00.000Z",
+      suites: [
+        {
+          key: "engine",
+          name: "Engine unit tests",
+          status: "not_run",
+          durationMs: 0,
+          counts: { passed: 0, failed: 0, flaky: 0, skipped: 1, executed: 0, total: 1 },
+          tests: [testResult("shared", "skipped", { file: "/__w/x/futa.test.ts" })],
+        },
+      ],
+    });
+    const html = renderPage([a, b], { now: new Date("2026-09-24T13:00:00Z") });
+    const headline = html.slice(0, html.indexOf("<h2>Sources</h2>"));
+    // ci executed it, so it is NOT never-run despite the nightly's differing path.
+    expect(headline).not.toContain("distinct test no retained run has ever executed");
   });
 });

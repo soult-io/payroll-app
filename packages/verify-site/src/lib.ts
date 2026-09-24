@@ -8,6 +8,7 @@
  */
 
 import {
+  type Source,
   type Outcome,
   type SuiteKey,
   type SuiteResult,
@@ -68,8 +69,7 @@ export function lastExecutedAtByTest(history: VerifySummary[]): Map<string, stri
       for (const test of suite.tests) {
         if (test.status === "skipped") continue;
         const key = executionKey(suite.key, test);
-        const prev = seen.get(key);
-        if (prev === undefined || prev < summary.generatedAt) {
+        if (isNewer(summary.generatedAt, seen.get(key))) {
           seen.set(key, summary.generatedAt);
         }
       }
@@ -79,13 +79,28 @@ export function lastExecutedAtByTest(history: VerifySummary[]): Map<string, stri
 }
 
 /**
- * Map key. Scoped by suite because `fullName` alone collides across suites —
- * engine and server can both hold `FUTA credit caps at 5.4%`, and a collision
- * would let one suite's run date vouch for the other's never-run test.
- * NUL separates: it cannot occur in a test title.
+ * Map key: suite + file + full name.
+ *
+ * `fullName` alone collides across suites — engine and server can both hold
+ * `FUTA credit caps at 5.4%` — and it collides across FILES within one suite
+ * too, because vitest's fullName is just the ancestor titles plus the title,
+ * with no path. Either collision lets one test's run date vouch for another's
+ * never-run test. NUL separates: it cannot occur in a title or a filename.
  */
 function executionKey(suiteKey: SuiteKey, test: TestResult): string {
-  return `${suiteKey}\u0000${test.fullName}`;
+  return `${suiteKey}\u0000${fileKey(test.file)}\u0000${test.fullName}`;
+}
+
+/**
+ * Basename only. The raw `file` is NOT usable as an identity component across
+ * sources: vitest reports an absolute path that differs per runner
+ * (`/home/runner/work/...` on GitHub-hosted vs `/__w/...` on the self-hosted
+ * qa-e2e box), while Playwright reports a bare `journeys.spec.ts`. The
+ * basename is stable in both and is what actually disambiguates.
+ */
+function fileKey(file: string | undefined): string {
+  if (!file) return "";
+  return file.split("/").pop() ?? file;
 }
 
 /** When this test last executed, per the retained history; undefined = never. */
@@ -95,6 +110,34 @@ export function lastExecutionOf(
   lastExecuted: Map<string, string>,
 ): string | undefined {
   return lastExecuted.get(executionKey(suiteKey, test));
+}
+
+export interface Execution {
+  test: TestResult;
+  source: Source;
+  generatedAt: string;
+}
+
+/**
+ * Per (suite, fullName): the most recent run that actually EXECUTED it, and
+ * which source that was. Spans every source deliberately — a live-QA-only
+ * journey has been proven if the nightly ran it, however many times `ci`
+ * skipped it (spec 19).
+ */
+export function latestExecutions(history: VerifySummary[]): Map<string, Execution> {
+  const seen = new Map<string, Execution>();
+  for (const summary of history) {
+    for (const suite of summary.suites) {
+      for (const test of suite.tests) {
+        if (test.status === "skipped") continue;
+        const key = executionKey(suite.key, test);
+        if (isNewer(summary.generatedAt, seen.get(key)?.generatedAt)) {
+          seen.set(key, { test, source: summary.source, generatedAt: summary.generatedAt });
+        }
+      }
+    }
+  }
+  return seen;
 }
 
 /** A test skipped in this run that no retained run has ever executed. */
@@ -122,13 +165,35 @@ function demoted(status: Outcome, neverRun: number): { badge: string; cls: strin
   };
 }
 
+/**
+ * Parsed instant, or undefined when the string is not a date.
+ *
+ * Ordering used to be a lexical string compare, which silently assumes every
+ * producer emits the same ISO shape in UTC. It does not hold: a `+02:00`
+ * offset sorts after an earlier `Z` timestamp, and `…00Z` vs `…00.000Z` order
+ * arbitrarily because `'Z' > '.'`. Compare epochs instead.
+ */
+function instantOf(iso: string): number | undefined {
+  const ms = Date.parse(iso);
+  return Number.isNaN(ms) ? undefined : ms;
+}
+
 export function sortByGeneratedAtDesc(history: VerifySummary[]): VerifySummary[] {
-  // ISO-8601 UTC strings sort lexically; no localeCompare (repo bans it).
-  return [...history].sort((a, b) => {
-    if (a.generatedAt < b.generatedAt) return 1;
-    if (a.generatedAt > b.generatedAt) return -1;
-    return 0;
-  });
+  // Newest first; an unparseable instant sorts last rather than winning.
+  return [...history].sort(
+    (a, b) =>
+      (instantOf(b.generatedAt) ?? Number.NEGATIVE_INFINITY) -
+      (instantOf(a.generatedAt) ?? Number.NEGATIVE_INFINITY),
+  );
+}
+
+/** Is `candidate` newer than `incumbent`? Unparseable never displaces. */
+function isNewer(candidate: string, incumbent: string | undefined): boolean {
+  const c = instantOf(candidate);
+  if (c === undefined) return false;
+  if (incumbent === undefined) return true;
+  const i = instantOf(incumbent);
+  return i === undefined || c > i;
 }
 
 const OUTCOME_CLASS: Record<Outcome, string> = {
@@ -147,6 +212,113 @@ const OUTCOME_LABEL: Record<Outcome, string> = {
   not_run: "NOT RUN",
 };
 
+// --- spec 19: the per-source view ----------------------------------------
+
+/**
+ * Every source the dashboard expects to hear from. A source is always shown,
+ * even with no history at all: an absent card is indistinguishable from a
+ * healthy one, which is exactly how a nightly that had been dead for 23 nights
+ * managed to look fine.
+ */
+interface SourceExpectation {
+  /** How the source is described on the page. */
+  label: string;
+  /** What produces it, named so a NEVER REPORTED card is actionable. */
+  produces: string;
+  /**
+   * Silence longer than this is a fault. The thresholds differ because the
+   * cadences do: `ci` fires on a push, and a fortnight of quiet is quiet, not
+   * broken. `nightly` is a cron — a missed day IS the fault, with one run of
+   * slack.
+   */
+  staleAfterHours: number;
+}
+
+const SOURCE_EXPECTATIONS: Record<Source, SourceExpectation> = {
+  ci: {
+    label: "CI (every push to main)",
+    produces: "the `ci` workflow",
+    staleAfterHours: 14 * 24,
+  },
+  nightly: {
+    label: "Nightly (live QA)",
+    produces: "the `e2e-nightly` workflow, on the self-hosted qa-e2e runner",
+    staleAfterHours: 36,
+  },
+};
+
+/**
+ * Derived from SOURCE_EXPECTATIONS, which is a `Record<Source, …>` and so is
+ * exhaustiveness-checked by the compiler. Writing the list out by hand would
+ * type-check happily while missing a member — and a source with no card is
+ * indistinguishable from a healthy one, which is the whole failure this guards.
+ */
+export const EXPECTED_SOURCES = Object.keys(SOURCE_EXPECTATIONS) as Source[];
+
+export interface SourceView {
+  source: Source;
+  /** undefined = this source has NEVER reported. */
+  latest: VerifySummary | undefined;
+  ageHours: number | undefined;
+  stale: boolean;
+}
+
+/**
+ * A source view narrowed to one that has actually reported.
+ *
+ * `ageHours` is a number here, not optional: a summary only becomes a source's
+ * `latest` by way of `isNewer`, which rejects an unparseable instant outright,
+ * so a reported view always has a computable age.
+ */
+export type ReportedSourceView = SourceView & { latest: VerifySummary; ageHours: number };
+
+export function hasReported(view: SourceView): view is ReportedSourceView {
+  return view.latest !== undefined && view.ageHours !== undefined;
+}
+
+/** The newest summary PER SOURCE, plus how long ago, for every expected source. */
+export function sourceViews(history: VerifySummary[], now: Date): SourceView[] {
+  const newest = new Map<Source, VerifySummary>();
+  for (const s of history) {
+    const prev = newest.get(s.source);
+    if (isNewer(s.generatedAt, prev?.generatedAt)) newest.set(s.source, s);
+  }
+  return EXPECTED_SOURCES.map((source) => {
+    const latest = newest.get(source);
+    if (!latest) return { source, latest: undefined, ageHours: undefined, stale: true };
+    const ms = now.getTime() - new Date(latest.generatedAt).getTime();
+    const ageHours = Number.isNaN(ms) ? undefined : ms / 3_600_000;
+    // FAIL CLOSED. An age we cannot compute, or one in the future (a skewed
+    // runner clock), is not evidence of freshness — and treating it as fresh
+    // would disable the very quiet-source detection this exists to provide.
+    const stale =
+      ageHours === undefined ||
+      ageHours < 0 ||
+      ageHours > SOURCE_EXPECTATIONS[source].staleAfterHours;
+    return { source, latest, ageHours, stale };
+  });
+}
+
+/** Worst-first ranking: a green badge must survive every source, not the best one. */
+const OUTCOME_RANK: Record<Outcome, number> = {
+  failed: 3,
+  not_run: 2,
+  passed_with_flakes: 1,
+  passed: 0,
+};
+
+export function worstOutcome(outcomes: Outcome[]): Outcome {
+  let worst: Outcome = "passed";
+  for (const o of outcomes) if (OUTCOME_RANK[o] > OUTCOME_RANK[worst]) worst = o;
+  return worst;
+}
+
+function formatAge(hours: number): string {
+  if (hours < 0) return "a negative interval (clock skew)";
+  if (hours < 48) return `${Math.floor(hours)}h`;
+  return `${Math.floor(hours / 24)} days`;
+}
+
 function outcomeClass(status: Outcome): string {
   return OUTCOME_CLASS[status];
 }
@@ -162,10 +334,11 @@ function formatInstant(iso: string): string {
     : `${d.toISOString().replace("T", " ").slice(0, 19)} UTC`;
 }
 
-function suiteRow(suite: SuiteResult, lastExecuted: Map<string, string>): string {
+function suiteRow(suite: SuiteResult, source: Source, lastExecuted: Map<string, string>): string {
   const c = suite.counts;
   return `<tr>
       <td>${escapeHtml(suite.name)}</td>
+      <td class="mono">${escapeHtml(source)}</td>
       <td>${demoted(suite.status, countNeverRun(suite, lastExecuted)).badge}</td>
       <td class="num">${c.passed}</td>
       <td class="num">${c.flaky ?? "—"}</td>
@@ -194,11 +367,15 @@ function historyRow(summary: VerifySummary): string {
     </tr>`;
 }
 
-function suiteTable(latest: VerifySummary, lastExecuted: Map<string, string>): string {
-  const rows = latest.suites.map((s) => suiteRow(s, lastExecuted)).join("\n");
+function suiteTable(views: SourceView[], lastExecuted: Map<string, string>): string {
+  const rows = views
+    .flatMap((v) =>
+      v.latest ? v.latest.suites.map((s) => suiteRow(s, v.source, lastExecuted)) : [],
+    )
+    .join("\n");
   return `<table class="suites">
-      <thead><tr><th>Suite</th><th>Status</th><th>Pass</th><th>Flaky</th><th>Fail</th><th>Skip</th><th>Total</th><th>Duration</th></tr></thead>
-      <tbody>${rows || `<tr><td colspan="8" class="muted">no suites reported</td></tr>`}</tbody>
+      <thead><tr><th>Suite</th><th>Source</th><th>Status</th><th>Pass</th><th>Flaky</th><th>Fail</th><th>Skip</th><th>Total</th><th>Duration</th></tr></thead>
+      <tbody>${rows || `<tr><td colspan="9" class="muted">no suites reported</td></tr>`}</tbody>
     </table>`;
 }
 
@@ -210,40 +387,170 @@ function historyTable(history: VerifySummary[]): string {
     </table>`;
 }
 
+/** Worst outcome across every reporting source AND every one of their suites. */
+function headlineOutcome(reported: ReportedSourceView[]): Outcome {
+  if (reported.length === 0) return "not_run";
+  // Per-SUITE statuses as well as each summary's own `overallStatus`. A run can
+  // report `passed` overall while one of its suites is `not_run`, and reading
+  // only the top-level value let the headline go green above a Suites table
+  // saying NOT RUN. It also means a summary whose stored `overallStatus`
+  // disagrees with its own suites cannot talk the page into a green badge.
+  return worstOutcome([
+    ...reported.map((v) => v.latest.overallStatus),
+    ...reported.flatMap((v) => v.latest.suites.map((su) => su.status)),
+  ]);
+}
+
+/**
+ * Per-source counts, summed. ci and the nightly both report the e2e suite, so
+ * a shared journey counts once per source — the label says so. Taken from each
+ * summary's own `counts`, which is authoritative; deriving them from `tests[]`
+ * would make the headline depend on that array always being complete, which
+ * nothing enforces.
+ */
+function summedTotals(reported: ReportedSourceView[]): {
+  passed: number;
+  failed: number;
+  skipped: number;
+  total: number;
+  flaky: string;
+} {
+  const t = reported.reduce(
+    (acc, v) => ({
+      passed: acc.passed + v.latest.counts.passed,
+      failed: acc.failed + v.latest.counts.failed,
+      skipped: acc.skipped + v.latest.counts.skipped,
+      total: acc.total + v.latest.counts.total,
+    }),
+    { passed: 0, failed: 0, skipped: 0, total: 0 },
+  );
+  // Only sum flakes when EVERY reporting source knows its own count; one
+  // upgraded v1 summary makes the total unknowable, and a partial number would
+  // read as fact (spec 18 §Counts).
+  const known = reported.every((v) => v.latest.counts.flaky !== undefined);
+  const sum = reported.reduce((n, v) => n + (v.latest.counts.flaky ?? 0), 0);
+  return { ...t, flaky: known ? ` <strong>${sum}</strong> flaky ·` : "" };
+}
+
+function quietSentence(quiet: SourceView[]): string {
+  return quiet
+    .map((v) => {
+      const meta = SOURCE_EXPECTATIONS[v.source];
+      return v.latest
+        ? `${escapeHtml(meta.label)} has not reported for ${formatAge(v.ageHours ?? 0)}`
+        : `${escapeHtml(meta.label)} has never reported`;
+    })
+    .join(" · ");
+}
+
 function headerCard(
-  latest: VerifySummary,
+  views: SourceView[],
   reportHref: string | undefined,
-  neverRun: number,
+  tests: { test: TestResult; neverRun: boolean }[],
 ): string {
-  const c = latest.counts;
+  const neverRun = tests.filter((t) => t.neverRun).length;
+  const reported = views.filter(hasReported);
+  const quiet = views.filter((v) => v.stale);
+  const base = headlineOutcome(reported);
+  const totals = summedTotals(reported);
+
+  // Both facts matter, so the badge carries both: a run can be green on what it
+  // executed AND have tests nothing has ever proven AND have a source that
+  // stopped reporting. Suppressing either is how this page lied before.
+  const reasons: string[] = [];
+  if (neverRun > 0) reasons.push(`${neverRun} NEVER RUN`);
+  if (quiet.length > 0) reasons.push(`${quiet.length} SOURCE${quiet.length > 1 ? "S" : ""} QUIET`);
+  const demote = reasons.length > 0 && base !== "failed";
+
   const report = reportHref
     ? `<a class="report" href="${escapeHtml(reportHref)}">View full test report →</a>`
     : "";
-  // A run can be green on everything it executed and still have left whole
-  // journeys unproven. The headline says so rather than making the reader find
-  // it further down the page — that omission is what made the old dashboard
-  // untrustworthy (spec 18).
-  const head = demoted(latest.overallStatus, neverRun);
-  // Absent flaky count means UNKNOWN (an upgraded v1 run), so print nothing —
-  // "0 flaky" would assert something the file cannot support.
-  const flaky = c.flaky === undefined ? "" : ` <strong>${c.flaky}</strong> flaky ·`;
-  const never = neverRun > 0 ? ` <strong>${neverRun}</strong> never run ·` : "";
-  return `<section class="card status ${head.cls}">
+  const neverLine =
+    neverRun > 0
+      ? `<p class="small stale"><strong>${neverRun}</strong> distinct test${neverRun === 1 ? "" : "s"} no retained run has ever executed.</p>`
+      : "";
+  const quietText = quietSentence(quiet);
+  return `<section class="card status ${demote ? "flake" : outcomeClass(base)}">
       <div class="status-head">
         <h1>payroll-app — QA verification</h1>
-        ${head.badge}
+        ${demote ? `<span class="badge flake">${[OUTCOME_LABEL[base], ...reasons].join(" · ")}</span>` : badge(base)}
       </div>
-      <p class="meta">
-        <span>${formatInstant(latest.generatedAt)}</span> ·
-        <span class="mono">${escapeHtml(latest.source)}</span> ·
-        <span class="mono">${escapeHtml(shortSha(latest.gitSha))}</span>
-      </p>
       <p class="counts">
-        <strong>${c.passed}</strong> passed ·${flaky} <strong>${c.failed}</strong> failed ·
-        <strong>${c.skipped}</strong> skipped ·${never} ${c.total} total
-        <span class="muted">(${c.executed} executed)</span>
+        <strong>${totals.passed}</strong> passed ·${totals.flaky} <strong>${totals.failed}</strong> failed ·
+        <strong>${totals.skipped}</strong> skipped · ${totals.total} total
+        <span class="muted">summed across ${reported.length} source${reported.length === 1 ? "" : "s"}${reported.length > 1 ? ", so shared journeys count once per source" : ""}</span>
       </p>
+      ${neverLine}
+      ${quietText ? `<p class="small stale">${quietText}</p>` : ""}
       ${report}
+    </section>`;
+}
+
+/**
+ * Every DISTINCT test the system currently has, across all reporting sources.
+ *
+ * Deduped by (suite, file, fullName), because ci and the nightly both report
+ * the e2e suite. This is the set the headline's never-run figure is computed
+ * over, and it spans ALL suites, not just the e2e journeys: narrowing it to
+ * journeys let a never-run unit test demote its suite row while the headline
+ * stayed green — the page contradicting itself one line apart.
+ */
+function systemTests(
+  views: SourceView[],
+  executions: Map<string, Execution>,
+): { key: string; suiteKey: SuiteKey; test: TestResult; neverRun: boolean }[] {
+  const byKey = new Map<string, { key: string; suiteKey: SuiteKey; test: TestResult }>();
+  for (const v of views) {
+    if (!hasReported(v)) continue;
+    for (const suite of v.latest.suites) {
+      for (const test of suite.tests) {
+        const key = executionKey(suite.key, test);
+        const prev = byKey.get(key);
+        // A test executed by ANY source represents the pair; a skip only wins
+        // if nothing better has been seen.
+        if (prev === undefined || (prev.test.status === "skipped" && test.status !== "skipped")) {
+          byKey.set(key, { key, suiteKey: suite.key, test });
+        }
+      }
+    }
+  }
+  return [...byKey.values()].map((e) => ({
+    ...e,
+    neverRun: isNeverRun(e.test, executions.get(e.key)?.generatedAt),
+  }));
+}
+
+function sourceCard(view: SourceView): string {
+  const meta = SOURCE_EXPECTATIONS[view.source];
+  if (!hasReported(view)) {
+    return `<article class="tcard never-edge">
+      <div class="tcard-head"><h3>${escapeHtml(meta.label)}</h3><span class="badge never">NEVER REPORTED</span></div>
+      <p class="muted small">No usable summary from this source has ever been ingested. It should come from ${escapeHtml(meta.produces)}.</p>
+    </article>`;
+  }
+  const c = view.latest.counts;
+  const flaky = c.flaky === undefined ? "" : ` · ${c.flaky} flaky`;
+  const freshness = view.stale
+    ? `<p class="small stale">Last reported ${formatAge(view.ageHours)} ago — expected at most ${formatAge(meta.staleAfterHours)}.</p>`
+    : `<p class="muted small">Last reported ${formatAge(view.ageHours)} ago.</p>`;
+  return `<article class="tcard ${view.stale ? "flake" : outcomeClass(view.latest.overallStatus)}-edge">
+      <div class="tcard-head"><h3>${escapeHtml(meta.label)}</h3>${badge(view.latest.overallStatus)}</div>
+      <p class="muted small">
+        ${c.passed} passed · ${c.failed} failed${flaky} · ${c.skipped} skipped · ${c.total} total
+      </p>
+      <p class="muted small">
+        <span class="mono">${escapeHtml(shortSha(view.latest.gitSha))}</span> ·
+        ${formatInstant(view.latest.generatedAt)}
+      </p>
+      ${freshness}
+    </article>`;
+}
+
+function sourcesSection(views: SourceView[]): string {
+  return `<section class="card">
+      <h2>Sources</h2>
+      <p class="prov">Each source runs a different suite: CI covers the engine, server and the ephemeral end-to-end journeys; the nightly covers the live-QA journeys only. Both must be reporting for this page to mean anything.</p>
+      <div class="cards">${views.map(sourceCard).join("\n")}</div>
     </section>`;
 }
 
@@ -364,33 +671,80 @@ function journeyDetail(test: TestResult, lastExecutedAt: string | undefined): st
   return `<p class="muted small">${formatDurationMs(test.durationMs)}${why}</p>`;
 }
 
-function journeyCard(
-  suiteKey: SuiteKey,
-  test: TestResult,
-  lastExecuted: Map<string, string>,
-): string {
-  const lastExecutedAt = lastExecutionOf(suiteKey, test, lastExecuted);
-  const never = isNeverRun(test, lastExecutedAt);
-  const edge = never ? "never" : TEST_CLASS[test.status];
-  const chip = never ? `<span class="badge never">NEVER RUN</span>` : testBadge(test.status);
+/**
+ * Did any source's LATEST run actually execute this journey? That is the
+ * difference between "green now" and "green once". A journey every source is
+ * currently skipping keeps a SKIP chip and states its last real result — it
+ * must not wear a pass it earned days ago.
+ */
+function executedInLatest(views: SourceView[], test: TestResult): boolean {
+  // Scoped to the e2e suite, because the execution lookup is keyed that way.
+  // `fullName` alone collides across suites (see executionKey), and a collision
+  // here would let a unit test vouch for a journey's freshness.
+  return views.some((v) =>
+    v.latest?.suites.some(
+      (s) =>
+        s.key === "e2e" &&
+        s.tests.some((t) => t.fullName === test.fullName && t.status !== "skipped"),
+    ),
+  );
+}
+
+function journeyCard(test: TestResult, execution: Execution | undefined, current: boolean): string {
+  const never = execution === undefined && test.status === "skipped";
+  if (never) {
+    return `<article class="tcard never-edge">
+      <div class="tcard-head"><h3>${escapeHtml(test.name)}</h3><span class="badge never">NEVER RUN</span></div>
+      ${journeyDetail(test, undefined)}
+    </article>`;
+  }
+  // Current: show what the latest run said, attributed to its source.
+  // Not current: SKIP, plus the last real result so the reader sees both that
+  // it is not running now AND how it last went.
+  const shown = current ? (execution?.test ?? test) : test;
+  const edge = current ? TEST_CLASS[shown.status] : "skip";
+  const chip = current ? testBadge(shown.status) : testBadge("skipped");
+  const attribution = execution
+    ? `<p class="muted small">${current ? "" : `last ran ${testBadge(execution.test.status)} · `}${escapeHtml(execution.source)} · ${formatInstant(execution.generatedAt)}</p>`
+    : "";
   return `<article class="tcard ${edge}-edge">
       <div class="tcard-head"><h3>${escapeHtml(test.name)}</h3>${chip}</div>
-      ${journeyDetail(test, lastExecutedAt)}
+      ${journeyDetail(shown, execution?.generatedAt)}
+      ${attribution}
     </article>`;
 }
 
-function journeyCardsSection(latest: VerifySummary, lastExecuted: Map<string, string>): string {
-  const e2e = latest.suites.find((s) => s.key === "e2e");
-  if (!e2e || e2e.tests.length === 0) return "";
-  const cards = e2e.tests.map((t) => journeyCard(e2e.key, t, lastExecuted)).join("\n");
+/**
+ * Every e2e test any source most recently reported, deduped by full name.
+ * Sources run different subsets, so the union — not one source's list — is the
+ * set of journeys this product actually has.
+ */
+function journeyUnion(views: SourceView[]): TestResult[] {
+  const byName = new Map<string, TestResult>();
+  for (const v of views) {
+    const e2e = v.latest?.suites.find((s) => s.key === "e2e");
+    for (const t of e2e?.tests ?? []) if (!byName.has(t.fullName)) byName.set(t.fullName, t);
+  }
+  return [...byName.values()];
+}
+
+function journeyCardsSection(views: SourceView[], executions: Map<string, Execution>): string {
+  const tests = journeyUnion(views);
+  if (tests.length === 0) return "";
+  const cards = tests
+    .map((t) => journeyCard(t, executions.get(executionKey("e2e", t)), executedInLatest(views, t)))
+    .join("\n");
+  const runs = views
+    .filter(hasReported)
+    .map((v) => `${escapeHtml(v.source)} ${escapeHtml(shortSha(v.latest.gitSha))}`)
+    .join(" · ");
   return `<section class="card">
       <h2>End-to-end journeys</h2>
-      <p class="prov">Each card is a Playwright user journey. Run ${provenance(latest)}.</p>
+      <p class="prov">Every journey either source reports, showing the most recent run that actually executed it. Runs: ${runs}.</p>
       <div class="cards">${cards}</div>
     </section>`;
 }
 
-// Muted, not green: a page with no ingested runs has proven nothing.
 const EMPTY_PAGE_BODY = `<section class="card status skip">
       <div class="status-head"><h1>payroll-app — QA verification</h1></div>
       <p class="muted">No verification runs ingested yet. The dashboard populates after the first CI or nightly run publishes a summary.</p>
@@ -403,31 +757,38 @@ export interface RenderOptions {
   historyLimit?: number | undefined;
   /** History files the generator could not parse — surfaced in the footer. */
   skippedSummaries?: number | undefined;
+  /** Clock override, so staleness is testable. Defaults to the real now. */
+  now?: Date | undefined;
 }
 
-/** Render the full dashboard document from newest-first history. */
+/** Render the full dashboard document from the ingested history. */
 export function renderPage(history: VerifySummary[], options: RenderOptions = {}): string {
+  const now = options.now ?? new Date();
   const sorted = sortByGeneratedAtDesc(history);
-  const latest = sorted[0];
   const limit = options.historyLimit ?? 30;
+  const views = sourceViews(sorted, now);
+  const executions = latestExecutions(sorted);
   const lastExecuted = lastExecutedAtByTest(sorted);
-  const neverRun = latest
-    ? latest.suites.reduce((n, suite) => n + countNeverRun(suite, lastExecuted), 0)
-    : 0;
-  const body = latest
-    ? `${headerCard(latest, options.reportHref, neverRun)}
+  const tests = systemTests(views, executions);
+  // Tax cards come from whichever source carries the non-e2e suites (ci); a
+  // nightly-only page would otherwise silently drop them.
+  const taxSource = views.find((v) => v.latest?.suites.some((s) => s.key !== "e2e"))?.latest;
+  const body =
+    sorted.length > 0
+      ? `${headerCard(views, options.reportHref, tests)}
+    ${sourcesSection(views)}
     <section class="card">
       <h2>Suites</h2>
-      ${suiteTable(latest, lastExecuted)}
+      ${suiteTable(views, lastExecuted)}
     </section>
-    ${journeyCardsSection(latest, lastExecuted)}
-    ${taxCardsSection(latest)}
+    ${journeyCardsSection(views, executions)}
+    ${taxSource ? taxCardsSection(taxSource) : ""}
     <section class="card">
       <h2>Recent runs</h2>
       ${historyTable(sorted.slice(0, limit))}
     </section>`
-    : EMPTY_PAGE_BODY;
-  return renderDocument(body, latest?.generatedAt, options.skippedSummaries ?? 0);
+      : EMPTY_PAGE_BODY;
+  return renderDocument(body, sorted[0]?.generatedAt, options.skippedSummaries ?? 0, now);
 }
 
 /** Hours between the newest ingested run and this page being generated. */
@@ -451,8 +812,8 @@ function renderDocument(
   body: string,
   newestRunAt: string | undefined,
   skippedSummaries: number,
+  now: Date,
 ): string {
-  const now = new Date();
   // A run the generator could not parse otherwise disappears from the page
   // with no signal at all — the warning only reaches the CI log.
   const dropped =
