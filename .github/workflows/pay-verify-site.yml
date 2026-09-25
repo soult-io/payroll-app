@@ -83,6 +83,9 @@ jobs:
     # publishes nothing: no sha-* tag without a result behind it.
     # Keep in step with the API re-check in "Resolve triggering run".
     #
+    # (Spec 21's backfill planner, packages/verify-site/src/backfill.ts
+    # FEEDING_EVENTS, applies a deliberately narrower per-workflow form of
+    # this rule — keep the two in step.)
     # A walkthrough run (spec 20 PR 7) counts only when it succeeded and was
     # itself started by workflow_run — i.e. it re-recorded a green ci push to
     # main. Its PR and manual recordings never feed the site.

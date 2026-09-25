@@ -38,16 +38,33 @@ export interface BackfillItem {
   headSha: string;
 }
 
-/** Events whose runs feed the site, per workflow (the site workflow's own gate). */
+/**
+ * Events whose runs feed the site, per workflow. Deliberately NARROWER than the
+ * site workflow's own gate (which accepts push / schedule / workflow_dispatch
+ * for any non-walkthrough workflow): only the events each workflow actually
+ * runs on main. Keep in step with pay-verify-site.yml's job `if`.
+ */
 const FEEDING_EVENTS: Record<RunInfo["workflow"], readonly string[]> = {
   ci: ["push", "workflow_dispatch"],
   "e2e-nightly": ["schedule", "workflow_dispatch"],
 };
 
+/** Same names as pay-verify-site.yml's "Download summary artifact" step. */
 const ARTIFACT: Record<RunInfo["workflow"], string> = {
   ci: "pay-verify-summary",
   "e2e-nightly": "pay-verify-summary-nightly",
 };
+
+/**
+ * History file names are `<YYYYMMDDTHHMMSSZ>-<runId>.json` — the same form the
+ * workflow's "Ingest summary" step writes and globs (`*-<runId>.json`).
+ */
+const INSTANT_LENGTH = "YYYYMMDDTHHMMSSZ".length;
+
+/** A history file name's instant, e.g. `20260925T130819Z`. */
+function instantOf(file: string): string {
+  return file.slice(0, INSTANT_LENGTH);
+}
 
 /** A history file name's run id, or undefined for a file that is not one. */
 export function runIdOf(file: string): string | undefined {
@@ -65,6 +82,17 @@ export function compactInstant(iso: string): string | undefined {
 }
 
 /**
+ * A run that fed the site a result: on main, from an event that workflow runs
+ * on, and finished having tested something (a failure is a result; a
+ * cancelled or skipped run is not).
+ */
+function fedAResult(run: RunInfo): boolean {
+  if (run.headBranch !== "main") return false;
+  if (!FEEDING_EVENTS[run.workflow].includes(run.event)) return false;
+  return run.conclusion !== null && run.conclusion !== "cancelled" && run.conclusion !== "skipped";
+}
+
+/**
  * The runs to backfill: completed, fed-to-the-site runs on main with no
  * history file, newer than the oldest retained history entry (an older one
  * would be pruned straight away — and would resurrect a run the window already
@@ -78,15 +106,10 @@ export function planBackfill(
 ): BackfillItem[] {
   const have = new Set(historyFiles.map(runIdOf).filter((id): id is string => id !== undefined));
   const oldest = [...historyFiles].sort()[0];
-  const windowStart = oldest?.slice(0, 16); // `YYYYMMDDTHHMMSSZ`
+  const windowStart = oldest === undefined ? undefined : instantOf(oldest);
   const out: BackfillItem[] = [];
   for (const run of runs) {
-    if (run.id === exclude || have.has(run.id)) continue;
-    if (run.headBranch !== "main") continue;
-    if (!FEEDING_EVENTS[run.workflow].includes(run.event)) continue;
-    if (run.conclusion === null || run.conclusion === "cancelled" || run.conclusion === "skipped") {
-      continue;
-    }
+    if (run.id === exclude || have.has(run.id) || !fedAResult(run)) continue;
     const at = compactInstant(run.updatedAt);
     if (!at || (windowStart && at < windowStart)) continue;
     out.push({
@@ -113,8 +136,10 @@ export function runCli(argv: string[]): string {
   let files: string[] = [];
   try {
     files = readdirSync(history).filter((f) => f.endsWith(".json"));
-  } catch {
+  } catch (err) {
     // No history yet: nothing to compare against, and no window to respect.
+    // Anything else is a real failure (the workflow turns it into a warning).
+    if ((err as NodeJS.ErrnoException).code !== "ENOENT") throw err;
   }
   const runs = JSON.parse(readFileSync(runsFile, "utf8")) as RunInfo[];
   return planBackfill(files, runs, arg(argv, "--exclude"))
