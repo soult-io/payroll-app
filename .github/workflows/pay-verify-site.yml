@@ -234,9 +234,18 @@ jobs:
         if: github.event_name == 'workflow_run'
         env:
           RID: ${{ github.event.workflow_run.id }}
+          WF_NAME: ${{ github.event.workflow_run.name }}
         run: |
           if [ ! -f _evidence_in/journey-evidence.json ]; then
-            echo "no journey evidence from this run — the assets branch is left as it is"
+            if [ "$WF_NAME" = ci ] && git ls-remote --exit-code --heads origin "$ASSETS_BRANCH" >/dev/null 2>&1; then
+              # A ci run with no bundle (a failed download, or a re-run attempt)
+              # must not leave the previous bundle in place: it carries the same
+              # run id and commit, and would be shown as this attempt's (R5).
+              echo "no journey evidence from this ci run — removing the previous bundle"
+              git push origin --delete "$ASSETS_BRANCH"
+            else
+              echo "no journey evidence from this run — the assets branch is left as it is"
+            fi
             exit 0
           fi
           bytes="$(du -sb _evidence_in | cut -f1)"

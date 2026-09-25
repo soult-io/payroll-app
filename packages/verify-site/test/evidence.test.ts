@@ -106,6 +106,22 @@ describe("loadEvidence", () => {
     expect(existsSync(join(out, "media/ci/j1/fake.jpg"))).toBe(false);
   });
 
+  it("refuses a JPEG under a non-.jpg name (nginx would serve it by extension)", () => {
+    vi.spyOn(console, "warn").mockImplementation(() => {});
+    const { dir, out } = bundle();
+    put(dir, "j1/x.html", JPEG);
+    writeEvidence(dir, ["j1/x.html"]);
+    expect(stillsOf(loadEvidence(dir, out))).toEqual([null]);
+    expect(existsSync(join(out, "media/ci/j1/x.html"))).toBe(false);
+  });
+
+  it("accepts a name that merely starts with two dots", () => {
+    const { dir, out } = bundle();
+    put(dir, "..shot.jpg", JPEG);
+    writeEvidence(dir, ["..shot.jpg"]);
+    expect(stillsOf(loadEvidence(dir, out))?.[0]?.href).toBe("media/ci/..shot.jpg");
+  });
+
   it("refuses a missing file", () => {
     vi.spyOn(console, "warn").mockImplementation(() => {});
     const { dir, out } = bundle();

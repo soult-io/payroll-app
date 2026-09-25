@@ -28,7 +28,7 @@ import {
   realpathSync,
   writeFileSync,
 } from "node:fs";
-import { dirname, isAbsolute, join, relative, resolve } from "node:path";
+import { dirname, isAbsolute, join, relative, resolve, sep } from "node:path";
 import { pathToFileURL } from "node:url";
 import {
   findPii,
@@ -135,6 +135,11 @@ function startsWithJpegMagic(path: string): boolean {
  * inside the bundle and name a regular file (no symlink), within the size
  * limit, that really is a JPEG.
  */
+/** A relative path that leaves its base (exact: "..foo.jpg" is a fine name). */
+function escapes(rel: string): boolean {
+  return rel === ".." || rel.startsWith(`..${sep}`) || isAbsolute(rel);
+}
+
 export interface MediaLimits {
   stillBytes: number;
   mediaBytes: number;
@@ -149,13 +154,16 @@ export function stillProblem(
 ): string | undefined {
   const abs = resolve(bundleDir, still.path);
   const rel = relative(bundleDir, abs);
-  if (rel === "" || rel.startsWith("..") || isAbsolute(rel)) return "path escapes the bundle";
+  if (rel === "" || escapes(rel)) return "path escapes the bundle";
+  // nginx types a file by its extension: only a .jpg/.jpeg name is served as
+  // the image the magic bytes below prove it to be.
+  if (!/\.jpe?g$/i.test(still.path)) return "not a .jpg name";
   if (!existsSync(abs)) return "file missing";
   const st = lstatSync(abs);
   if (!st.isFile()) return "not a regular file";
   // A symlinked DIRECTORY on the way can still lead outside: check the real path.
   const realRel = relative(realpathSync(bundleDir), realpathSync(abs));
-  if (realRel.startsWith("..") || isAbsolute(realRel)) return "path escapes the bundle";
+  if (escapes(realRel)) return "path escapes the bundle";
   if (st.size > maxBytes) return `over ${maxBytes} bytes`;
   if (!startsWithJpegMagic(abs)) return "not a JPEG";
   return undefined;
