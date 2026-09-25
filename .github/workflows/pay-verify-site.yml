@@ -356,7 +356,7 @@ jobs:
       # next ci publish replaces the branch with its own ci/ only, so a video
       # never outlives the gating run it belongs to.
       - name: Publish walkthrough to the assets branch
-        if: ${{ github.event.workflow_run.name == 'walkthrough' && steps.wt.outputs.publish == 'true' }}
+        if: github.event.workflow_run.name == 'walkthrough' && steps.wt.outputs.publish == 'true'
         env:
           RID: ${{ github.event.workflow_run.id }}
         run: |
@@ -366,7 +366,9 @@ jobs:
           # Only what the site serves: the evidence and the videos (the
           # pacing/ contact sheets are review aids, not dashboard media).
           cp _walkthrough_in/walkthrough-evidence.json _assets_wt/walkthrough/
-          cp -r _walkthrough_in/videos _assets_wt/walkthrough/
+          # Evidence without videos (none recorded) still publishes: every
+          # card then simply has no Video tab.
+          if [ -d _walkthrough_in/videos ]; then cp -r _walkthrough_in/videos _assets_wt/walkthrough/; fi
           bytes="$(du -sb _assets_wt --exclude=.git | cut -f1)"
           if [ "$bytes" -gt $((100 * 1024 * 1024)) ]; then
             echo "::error::journey media is $bytes bytes, over the 100 MB budget"

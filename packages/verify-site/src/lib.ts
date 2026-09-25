@@ -23,8 +23,8 @@ import {
   type EvidenceIndex,
   evidenceFor,
   noMediaNote,
-  SCREENS_SCRIPT,
-  SCREENS_STYLE,
+  MEDIA_VIEWER_SCRIPT,
+  MEDIA_VIEWER_STYLE,
   mediaViewer,
   type WalkthroughIndex,
   walkthroughFor,
@@ -706,11 +706,6 @@ function executedInLatest(views: SourceView[], test: TestResult): boolean {
   );
 }
 
-/**
- * Screens for a card whose result is current, from the evidence bundle bound
- * to that exact run (spec 20). A result from any other run gets a note, never
- * another run's screens.
- */
 /** Everything a journey card's media needs from the render options. */
 interface MediaContext {
   evidence: EvidenceIndex | undefined;
@@ -718,6 +713,11 @@ interface MediaContext {
   runUrlBase: string | undefined;
 }
 
+/**
+ * Screens for a card whose result is current, from the evidence bundle bound
+ * to that exact run (spec 20). A result from any other run gets a note, never
+ * another run's screens.
+ */
 function journeyMedia(
   shown: TestResult,
   execution: Execution | undefined,
@@ -913,7 +913,7 @@ ${body}
       Synthetic data only — no employee PII. Generated ${formatInstant(now.toISOString())} · summary schema v2${stalenessNote(newestRunAt, now)}${dropped}.
     </footer>
 </main>
-<script>${SCREENS_SCRIPT}</script>
+<script>${MEDIA_VIEWER_SCRIPT}</script>
 </body>
 </html>
 `;
@@ -989,4 +989,4 @@ td.num { text-align: right; font-variant-numeric: tabular-nums; }
 .check-meta { color: var(--muted); white-space: nowrap; }
 footer { margin-top: 24px; font-size: 0.82rem; text-align: center; }
 .stale { color: var(--flake); }
-${SCREENS_STYLE}`;
+${MEDIA_VIEWER_STYLE}`;

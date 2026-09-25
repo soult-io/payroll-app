@@ -134,9 +134,14 @@ export type WalkthroughEvidence = z.infer<typeof walkthroughEvidenceSchema>;
  * schema, carries no gating run (a PR / manual recording is never published),
  * or any string in it is PII-shaped — the whole file is refused.
  */
-export function parseWalkthrough(raw: unknown): WalkthroughEvidence | undefined {
+/** A walkthrough that re-recorded a gating run (the only kind ever published). */
+export type GatedWalkthrough = WalkthroughEvidence & { gatingRunId: string };
+
+export function parseWalkthrough(raw: unknown): GatedWalkthrough | undefined {
   const parsed = walkthroughEvidenceSchema.safeParse(raw);
-  if (!parsed.success || parsed.data.gatingRunId === null) return undefined;
+  if (!parsed.success) return undefined;
+  const { gatingRunId } = parsed.data;
+  if (gatingRunId === null) return undefined;
   if (findPii(parsed.data).length > 0) return undefined;
-  return parsed.data;
+  return { ...parsed.data, gatingRunId };
 }

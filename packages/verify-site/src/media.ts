@@ -221,7 +221,7 @@ export function mediaViewer(
  * The viewer's behaviour, inlined once per page. Reads only data attributes
  * the renderer escaped, and writes via properties / textContent — never HTML.
  */
-export const SCREENS_SCRIPT = `
+export const MEDIA_VIEWER_SCRIPT = `
 document.documentElement.classList.add("js");
 for (const d of document.querySelectorAll("details.screens")) {
   const btns = [...d.querySelectorAll(".step-btn")];
@@ -291,16 +291,17 @@ for (const d of document.querySelectorAll("details.screens")) {
       if (at !== cur) { cur = at; mark(); }
     });
   }
+  const render = () => { mark(); if (d.dataset.view === "video") armVideo(); else showStill(); };
   tabs.forEach((t) => t.addEventListener("click", () => setView(t.dataset.view)));
-  d.addEventListener("toggle", () => { if (d.open) { mark(); if (d.dataset.view === "video") armVideo(); else showStill(); } });
+  d.addEventListener("toggle", () => { if (d.open) render(); });
   btns.forEach((b, j) => b.addEventListener("click", () => show(j)));
   d.querySelector(".prev").addEventListener("click", () => show(cur - 1));
   d.querySelector(".next").addEventListener("click", () => show(cur + 1));
-  if (d.open) { mark(); if (d.dataset.view === "video") armVideo(); else showStill(); }
+  if (d.open) render();
 }
 `;
 
-export const SCREENS_STYLE = `
+export const MEDIA_VIEWER_STYLE = `
 .tcard:has(> details.screens[open]) { grid-column: 1 / -1; }
 details.screens { margin-top: 10px; border-top: 1px solid var(--border); padding-top: 8px; }
 details.screens > summary { cursor: pointer; font-size: 0.86rem; font-weight: 600; }

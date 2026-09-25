@@ -16,6 +16,7 @@ export { type PiiFinding, type PiiKind, assertPiiFree, findPii } from "./pii-gua
 export {
   EVIDENCE_SCHEMA,
   type EvidenceStep,
+  type GatedWalkthrough,
   type JourneyEvidence,
   JOURNEY_SPEC_FILES,
   type JourneyRecord,

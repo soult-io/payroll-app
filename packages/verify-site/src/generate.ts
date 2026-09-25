@@ -40,8 +40,6 @@ import {
   parseEvidence,
   parseSummary,
   parseWalkthrough,
-  type WalkthroughEvidence,
-  type JourneyEvidence,
   type StillRecord,
   type VerifySummary,
 } from "@payroll/verify-summary";
@@ -204,19 +202,27 @@ function servedHref(mediaDir: string, relPath: string): string {
   return [...mediaDir.split("/"), ...relPath.split("/")].map(encodeURIComponent).join("/");
 }
 
-/** The bundle's evidence file, parsed; undefined (with a warning) when unusable. */
-function readEvidenceFile(file: string): JourneyEvidence | undefined {
+/**
+ * A bundle's JSON file, parsed by `parse`; undefined (with a warning naming
+ * `what`) when absent, unparseable, or refused by the parser.
+ */
+function readBundleFile<T>(
+  file: string,
+  what: string,
+  parse: (raw: unknown) => T | undefined,
+): T | undefined {
   if (!existsSync(file)) return undefined;
   let raw: unknown;
   try {
     raw = JSON.parse(readFileSync(file, "utf8"));
   } catch (err) {
-    console.warn(`verify-site: skipping unparseable evidence ${file} (${String(err)})`);
+    console.warn(`verify-site: skipping unparseable ${what} ${file} (${String(err)})`);
     return undefined;
   }
-  const evidence = parseEvidence(raw);
-  if (!evidence) console.warn(`verify-site: skipping evidence ${file} — invalid or PII-shaped`);
-  return evidence;
+  const parsed = parse(raw);
+  if (!parsed)
+    console.warn(`verify-site: skipping ${what} ${file} — refused (invalid or PII-shaped)`);
+  return parsed;
 }
 
 interface CopyTally {
@@ -225,20 +231,24 @@ interface CopyTally {
 }
 
 /**
- * Validate one still and copy it into the site; null when refused. Media over
- * the site budget THROWS: the build fails rather than publish a partial or
- * oversized site.
+ * Validate one bundle file as `kind` and copy it into `<out>/<mediaDir>/`;
+ * its served href, or null when refused (with a warning). Media over the site
+ * budget THROWS: the build fails rather than publish a partial or oversized
+ * site. The one place the budget rule lives, for stills and videos alike.
  */
-function serveStill(
+function serveFile(
   root: string,
   outDir: string,
-  still: StillRecord,
+  mediaDir: string,
+  path: string,
+  kind: MediaKind,
+  maxBytes: number,
   limits: MediaLimits,
   tally: CopyTally,
-): ServedStill | null {
-  const check = checkFile(root, still.path, JPEG, limits.stillBytes);
+): string | null {
+  const check = checkFile(root, path, kind, maxBytes);
   if (!check.ok) {
-    console.warn(`verify-site: refusing still ${still.path} — ${check.reason}`);
+    console.warn(`verify-site: refusing ${kind.label} ${path} — ${check.reason}`);
     tally.refused += 1;
     return null;
   }
@@ -246,15 +256,32 @@ function serveStill(
   if (tally.bytes > limits.mediaBytes) {
     throw new Error(`verify-site: journey media exceeds ${limits.mediaBytes} bytes`);
   }
-  const dest = join(outDir, MEDIA_DIR, still.path);
+  const dest = join(outDir, mediaDir, path);
   mkdirSync(dirname(dest), { recursive: true });
-  copyFileSync(resolve(root, still.path), dest);
-  return {
-    href: servedHref(MEDIA_DIR, still.path),
-    width: still.width,
-    height: still.height,
-    truncated: still.truncated,
-  };
+  copyFileSync(resolve(root, path), dest);
+  return servedHref(mediaDir, path);
+}
+
+function serveStill(
+  root: string,
+  outDir: string,
+  still: StillRecord,
+  limits: MediaLimits,
+  tally: CopyTally,
+): ServedStill | null {
+  const href = serveFile(
+    root,
+    outDir,
+    MEDIA_DIR,
+    still.path,
+    JPEG,
+    limits.stillBytes,
+    limits,
+    tally,
+  );
+  return href
+    ? { href, width: still.width, height: still.height, truncated: still.truncated }
+    : null;
 }
 
 interface LoadedEvidence extends CopyTally {
@@ -273,7 +300,11 @@ export function loadEvidence(
   outDir: string,
   limits: MediaLimits = LIMITS,
 ): LoadedEvidence | undefined {
-  const evidence = readEvidenceFile(join(bundleDir, "journey-evidence.json"));
+  const evidence = readBundleFile(
+    join(bundleDir, "journey-evidence.json"),
+    "evidence",
+    parseEvidence,
+  );
   if (!evidence) return undefined;
   const root = resolve(bundleDir);
   const tally: CopyTally = { bytes: 0, refused: 0 };
@@ -292,22 +323,6 @@ export function loadEvidence(
 /** Where copied walkthrough videos live in the site. */
 const WALKTHROUGH_DIR = "media/walkthrough";
 
-function readWalkthroughFile(file: string): WalkthroughEvidence | undefined {
-  if (!existsSync(file)) return undefined;
-  let raw: unknown;
-  try {
-    raw = JSON.parse(readFileSync(file, "utf8"));
-  } catch (err) {
-    console.warn(`verify-site: skipping unparseable walkthrough ${file} (${String(err)})`);
-    return undefined;
-  }
-  const walkthrough = parseWalkthrough(raw);
-  if (!walkthrough) {
-    console.warn(`verify-site: skipping walkthrough ${file} — invalid, not gated, or PII-shaped`);
-  }
-  return walkthrough;
-}
-
 /**
  * Load, validate and copy a walkthrough bundle into `<out>/media/walkthrough/`.
  * Videos count against the same site budget as the stills (`tally`), and over
@@ -320,27 +335,29 @@ export function loadWalkthrough(
   tally: CopyTally = { bytes: 0, refused: 0 },
   limits: MediaLimits & { videoBytes: number } = { ...LIMITS, videoBytes: MAX_VIDEO_BYTES },
 ): WalkthroughIndex | undefined {
-  const evidence = readWalkthroughFile(join(bundleDir, "walkthrough-evidence.json"));
-  if (!evidence || evidence.gatingRunId === null) return undefined;
+  const evidence = readBundleFile(
+    join(bundleDir, "walkthrough-evidence.json"),
+    "walkthrough",
+    parseWalkthrough,
+  );
+  if (!evidence) return undefined;
   const root = resolve(bundleDir);
   const journeys = new Map<string, ServedWalkthrough>();
   for (const j of evidence.journeys) {
     if (!j.video) continue;
-    const check = checkFile(root, j.video.path, WEBM, limits.videoBytes);
-    if (!check.ok) {
-      console.warn(`verify-site: refusing video ${j.video.path} — ${check.reason}`);
-      tally.refused += 1;
-      continue;
-    }
-    tally.bytes += check.size;
-    if (tally.bytes > limits.mediaBytes) {
-      throw new Error(`verify-site: journey media exceeds ${limits.mediaBytes} bytes`);
-    }
-    const dest = join(outDir, WALKTHROUGH_DIR, j.video.path);
-    mkdirSync(dirname(dest), { recursive: true });
-    copyFileSync(resolve(root, j.video.path), dest);
+    const href = serveFile(
+      root,
+      outDir,
+      WALKTHROUGH_DIR,
+      j.video.path,
+      WEBM,
+      limits.videoBytes,
+      limits,
+      tally,
+    );
+    if (!href) continue;
     journeys.set(j.fullName, {
-      href: servedHref(WALKTHROUGH_DIR, j.video.path),
+      href,
       durationMs: j.video.durationMs,
       steps: j.steps.map((s) => ({ title: s.title, offsetMs: s.offsetMs })),
     });
