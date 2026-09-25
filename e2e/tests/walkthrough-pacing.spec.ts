@@ -25,7 +25,8 @@ test.describe("harness · walkthrough pacing", () => {
       // Same screen as registered: no hold.
       let t = Date.now();
       await page.locator("#again").click();
-      expect(Date.now() - t).toBeLessThan(WALKTHROUGH_HOLD_MS - 300);
+      // No hold: only the overlay's glide + highlight (~950ms); a hold adds 1.5s.
+      expect(Date.now() - t).toBeLessThan(WALKTHROUGH_HOLD_MS + 400);
 
       // A dialog opens (a new screen): the next action waits for the hold.
       await page.evaluate(() => {
@@ -41,7 +42,8 @@ test.describe("harness · walkthrough pacing", () => {
       // Held once: the following action on the same screen runs straight away.
       t = Date.now();
       await page.locator("#again").click();
-      expect(Date.now() - t).toBeLessThan(WALKTHROUGH_HOLD_MS - 300);
+      // No hold: only the overlay's glide + highlight (~950ms); a hold adds 1.5s.
+      expect(Date.now() - t).toBeLessThan(WALKTHROUGH_HOLD_MS + 400);
     } finally {
       await ctx.close();
     }
@@ -83,6 +85,7 @@ test.describe("harness · walkthrough pacing", () => {
     });
     const t = Date.now();
     await page.locator("#f").fill("ISSUE");
+    // Unregistered: no overlay, no hold, one plain fill.
     expect(Date.now() - t).toBeLessThan(WALKTHROUGH_HOLD_MS - 300);
     expect(await page.evaluate(() => (window as unknown as { __inputs: number }).__inputs)).toBe(1);
   });

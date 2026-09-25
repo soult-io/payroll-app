@@ -34,6 +34,7 @@ import {
   test,
 } from "@playwright/test";
 import type { StepStart } from "../../reporters/walkthrough-plan.js";
+import { type Point, pointAt } from "./overlay.js";
 
 export const WALKTHROUGH = process.env.E2E_WALKTHROUGH === "1";
 
@@ -52,6 +53,8 @@ const WALKTHROUGH_TARGET_WAIT_MS = 10_000;
 
 /** Annotation per journey step: {@link StepMark} as JSON. */
 export const STEP_MARK_ANNOTATION = "walkthrough-step";
+/** Annotation per pointed-at action: {@link ActionMark} as JSON. */
+export const ACTION_MARK_ANNOTATION = "walkthrough-action";
 /** Annotation per recorded page: {@link ClipMark} as JSON. */
 export const CLIP_MARK_ANNOTATION = "walkthrough-clip";
 /** Sidecar file (in the test's output dir) holding each clip's close instant. */
@@ -59,6 +62,17 @@ const CLIP_CLOSE_FILE = "walkthrough-clip-close.json";
 
 /** Where a step starts: which clip, and the wall-clock instant. */
 export type StepMark = StepStart;
+
+/**
+ * One action the overlay pointed at: which clip, and the wall-clock instant the
+ * action ran — the cursor is inside the ring then, which the CI contact sheet
+ * of these moments lets a reader check frame by frame.
+ */
+export interface ActionMark {
+  clip: number;
+  at: number;
+  verb: string;
+}
 
 /** One recorded page. */
 export interface ClipMark {
@@ -134,6 +148,8 @@ interface PageState {
   /** An action is running: one it calls itself (clear → fill) runs as is. */
   acting: boolean;
   clip: number;
+  /** Where the overlay's cursor last pointed; carried into the next document. */
+  cursor: Point | null;
 }
 
 const pages = new WeakMap<Page, PageState>();
@@ -216,6 +232,8 @@ const PAGE_ACTIONS = ["click", "fill", "goBack", "goForward", "goto", "press", "
 async function paced(
   page: Page,
   target: Locator | null,
+  action: string,
+  args: readonly unknown[],
   run: () => Promise<unknown>,
 ): Promise<unknown> {
   const state = pages.get(page);
@@ -230,6 +248,13 @@ async function paced(
   await holdIfNewScreen(page);
   state.acting = true;
   try {
+    if (target) {
+      const at = await pointAt(target, action, args, state.cursor);
+      if (at) {
+        state.cursor = at;
+        markAction({ clip: state.clip, at: Date.now(), verb: action });
+      }
+    }
     return await run();
   } finally {
     state.acting = false;
@@ -255,7 +280,7 @@ function wrapActionsOnce(page: Page): void {
         // Keep the caller's options (timeout) on both halves of the typing.
         const { timeout } = (args[1] ?? {}) as { timeout?: number };
         const bound = timeout === undefined ? {} : { timeout };
-        return paced(owner, this, async () => {
+        return paced(owner, this, name, args, async () => {
           await this.clear(bound);
           await this.pressSequentially(String(args[0] ?? ""), {
             delay: WALKTHROUGH_TYPE_DELAY_MS,
@@ -263,14 +288,14 @@ function wrapActionsOnce(page: Page): void {
           });
         });
       }
-      return paced(owner, this, () => original.apply(this, args));
+      return paced(owner, this, name, args, () => original.apply(this, args));
     };
   }
   const pageProto = Object.getPrototypeOf(page) as Record<string, unknown>;
   for (const name of PAGE_ACTIONS) {
     const original = pageProto[name] as (...a: unknown[]) => Promise<unknown>;
     pageProto[name] = function (this: Page, ...args: unknown[]) {
-      return paced(this, null, () => original.apply(this, args));
+      return paced(this, null, name, args, () => original.apply(this, args));
     };
   }
 }
@@ -293,7 +318,12 @@ export async function registerPage(page: Page, testInfo: TestInfo): Promise<numb
   wrapActionsOnce(page);
   const clip = clipCounters.get(testInfo) ?? 0;
   clipCounters.set(testInfo, clip + 1);
-  pages.set(page, { signature: await screenSignature(page), acting: false, clip });
+  pages.set(page, {
+    signature: await screenSignature(page),
+    acting: false,
+    clip,
+    cursor: null,
+  });
   const sidecar = testInfo.outputPath(CLIP_CLOSE_FILE);
   const mark: ClipMark = {
     clip,
@@ -312,6 +342,17 @@ export async function registerPage(page: Page, testInfo: TestInfo): Promise<numb
     writeFileSync(sidecar, JSON.stringify(closes));
   });
   return clip;
+}
+
+/** Record an action's instant on the running test (a no-op outside one). */
+function markAction(mark: ActionMark): void {
+  try {
+    test
+      .info()
+      .annotations.push({ type: ACTION_MARK_ANNOTATION, description: JSON.stringify(mark) });
+  } catch {
+    // Not inside a test (nothing to annotate): the pacing still happened.
+  }
 }
 
 /** Record where a step starts (called by `step` in walkthrough mode). */

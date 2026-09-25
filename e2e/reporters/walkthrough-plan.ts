@@ -42,7 +42,17 @@ export interface StepStart {
 
 export type Segment =
   | { kind: "card"; text: string; durationMs: number }
-  | { kind: "clip"; video: string; fromMs: number; durationMs: number };
+  | {
+      kind: "clip";
+      video: string;
+      fromMs: number;
+      durationMs: number;
+      /** Which recorded page, and its first frame on the wall clock. */
+      clip: number;
+      origin: number;
+      /** Where this cut starts in the joined video (ms). */
+      at: number;
+    };
 
 export interface StitchPlan {
   segments: Segment[];
@@ -89,6 +99,7 @@ function cutRun(
   run: StepStart[],
   clip: MeasuredClip,
   nextStart: number | undefined,
+  at: number,
 ): { segment: Segment & { kind: "clip" }; within: Map<number, number | null> } {
   const origin = recordedFrom(clip);
   const fromMs = clamp((run[0]?.startedAt ?? origin) - origin, 0, clip.durationMs);
@@ -102,7 +113,18 @@ function cutRun(
     const t = s.startedAt - origin - fromMs;
     within.set(s.index, t <= length ? Math.max(0, t) : null);
   }
-  return { segment: { kind: "clip", video: clip.video, fromMs, durationMs: length }, within };
+  return {
+    segment: {
+      kind: "clip",
+      video: clip.video,
+      fromMs,
+      durationMs: length,
+      clip: clip.clip,
+      origin,
+      at,
+    },
+    within,
+  };
 }
 
 /**
@@ -128,12 +150,26 @@ export function planStitch(
       segments.push({ kind: "card", text: `Next: ${run[0]?.title ?? ""}`, durationMs: CARD_MS });
       at += CARD_MS;
     }
-    const { segment, within } = cutRun(run, clip, runs[i + 1]?.[0]?.startedAt);
+    const { segment, within } = cutRun(run, clip, runs[i + 1]?.[0]?.startedAt, at);
     segments.push(segment);
     for (const [index, t] of within) offsets.set(index, t === null ? null : at + t);
     at += segment.durationMs;
   }
   return { segments, offsets, durationMs: at };
+}
+
+/**
+ * Where a wall-clock instant on a recorded page falls in the joined video (ms),
+ * or null when that moment was cut (before the page's first step, or while
+ * another page was on screen).
+ */
+export function videoTimeOf(plan: StitchPlan, clip: number, wallMs: number): number | null {
+  for (const seg of plan.segments) {
+    if (seg.kind !== "clip" || seg.clip !== clip) continue;
+    const within = wallMs - seg.origin - seg.fromMs;
+    if (within >= 0 && within <= seg.durationMs) return seg.at + within;
+  }
+  return null;
 }
 
 function clamp(n: number, lo: number, hi: number): number {

@@ -23,6 +23,8 @@ import { dirname, join, relative, resolve, sep } from "node:path";
 import { chromium } from "@playwright/test";
 import type { FullResult, Reporter, TestCase, TestResult } from "@playwright/test/reporter";
 import {
+  ACTION_MARK_ANNOTATION,
+  type ActionMark,
   CLIP_MARK_ANNOTATION,
   type ClipMark,
   STEP_MARK_ANNOTATION,
@@ -40,6 +42,7 @@ import {
   planStitch,
   type Segment,
   type StepStart,
+  videoTimeOf,
 } from "./walkthrough-plan.js";
 
 export const WALKTHROUGH_SCHEMA = "journey-walkthrough/1";
@@ -245,6 +248,52 @@ function pacingReport(video: string, name: string, title: string, dir: string): 
   );
 }
 
+/**
+ * Report-only overlay check (spec 20 R3: every click and type frame shows the
+ * cursor inside the ring). For each action the overlay pointed at, the frame
+ * just before the action runs is extracted and tiled into
+ * `pacing/<name>-actions-NN.jpg`, in order, with the times in
+ * `pacing/<name>-actions.json` — so a reader checks the ring frame by frame
+ * without decoding the video.
+ */
+function actionSheet(video: string, name: string, times: number[], dir: string): void {
+  if (times.length === 0) return;
+  const work = join(dir, "work", `${name}-actions`);
+  mkdirSync(work, { recursive: true });
+  times.forEach((ms, i) => {
+    // 60ms before the action: the ring is up, the click has not landed yet.
+    const t = Math.max(0, ms - 60) / 1000;
+    run("ffmpeg", [
+      "-y",
+      "-v",
+      "error",
+      "-ss",
+      t.toFixed(3),
+      "-i",
+      video,
+      "-frames:v",
+      "1",
+      "-vf",
+      "scale=480:-1",
+      join(work, `a${String(i).padStart(3, "0")}.jpg`),
+    ]);
+  });
+  run("ffmpeg", [
+    "-y",
+    "-v",
+    "error",
+    "-i",
+    join(work, "a%03d.jpg"),
+    "-vf",
+    "tile=3x4:padding=4:color=white",
+    join(dir, "pacing", `${name}-actions-%02d.jpg`),
+  ]);
+  writeFileSync(
+    join(dir, "pacing", `${name}-actions.json`),
+    `${JSON.stringify({ actionsAtMs: times }, null, 2)}\n`,
+  );
+}
+
 function slug(text: string): string {
   return (
     text
@@ -325,6 +374,10 @@ export default class WalkthroughReporter implements Reporter {
       return { ...base, video: null, steps: stepRecords() };
     }
     pacingReport(out, name, test.title, dir);
+    const actionTimes = marks<ActionMark>(result, ACTION_MARK_ANNOTATION)
+      .map((a) => videoTimeOf(plan, a.clip, a.at))
+      .filter((t): t is number => t !== null);
+    actionSheet(out, name, actionTimes, dir);
     const measured = durationMs(out);
     return {
       ...base,
