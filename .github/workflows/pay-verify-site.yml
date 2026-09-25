@@ -298,8 +298,55 @@ jobs:
           fi
           mkdir -p _data/history
 
-      # Append the new summary (named by its instant + run id) and prune the
-      # window. Skipped on workflow_dispatch (no new run to ingest).
+      # Spec 21 (PAY-79): ingest completed runs the history is missing. The
+      # concurrency group keeps ONE pending run: a third arrival cancels it, and
+      # that run's summary would otherwise never reach the site, silently. The
+      # planner (packages/verify-site/src/backfill.ts) picks completed ci /
+      # nightly runs on main with no history file, inside the history window;
+      # each is ingested only if its summary artifact still exists and names
+      # that run's commit.
+      - name: Backfill missed runs
+        if: steps.wt.outputs.publish == 'true'
+        env:
+          GH_TOKEN: ${{ github.token }}
+          REPO: ${{ github.repository }}
+          RID: ${{ github.event.workflow_run.id }}
+        run: |
+          : > _runs.jsonl
+          for wf in ci e2e-nightly; do
+            gh api "repos/${REPO}/actions/workflows/${wf}.yml/runs?branch=main&status=completed&per_page=30" \
+              --jq ".workflow_runs[] | {id: (.id|tostring), workflow: \"${wf}\", event, conclusion, headBranch: .head_branch, headSha: .head_sha, updatedAt: .updated_at}" \
+              >> _runs.jsonl
+          done
+          jq -s . _runs.jsonl > _runs.json
+          exclude=()
+          if [ -n "$RID" ]; then exclude=(--exclude "$RID"); fi
+          node packages/verify-site/dist/backfill.js --history _data/history --runs _runs.json "${exclude[@]}" > _backfill.tsv
+          n=0
+          while IFS=$'\t' read -r id artifact file sha; do
+            [ -n "$id" ] || continue
+            if ! gh api "repos/${REPO}/actions/runs/${id}/artifacts" \
+                --jq ".artifacts[] | select(.name == \"${artifact}\" and (.expired | not)) | .id" | grep -q .; then
+              echo "backfill: run ${id} has no ${artifact} artifact (never produced, or expired) — skipped"
+              continue
+            fi
+            if ! gh run download "$id" -R "$REPO" -n "$artifact" -D "_backfill/${id}"; then
+              echo "::warning::backfill: could not download ${artifact} from run ${id} — skipped"
+              continue
+            fi
+            got="$(jq -r '.gitSha // "missing"' "_backfill/${id}/summary.json" 2>/dev/null || echo missing)"
+            if [ "$got" != "$sha" ]; then
+              echo "::warning::backfill: run ${id}'s summary is of ${got}, not its commit ${sha} — skipped"
+              continue
+            fi
+            cp "_backfill/${id}/summary.json" "_data/history/${file}"
+            echo "backfill: ingested missed run ${id} (${artifact}) as ${file}"
+            n=$((n + 1))
+          done < _backfill.tsv
+          echo "backfill: ${n} missed run(s) ingested"
+
+      # Add the triggering run's summary (named by its instant + run id).
+      # Skipped on workflow_dispatch and for a walkthrough (no summary).
       - name: Ingest summary
         if: github.event_name == 'workflow_run' && github.event.workflow_run.name != 'walkthrough'
         env:
@@ -311,11 +358,23 @@ jobs:
           fi
           TS=$(date -u +%Y%m%dT%H%M%SZ)
           cp _incoming/summary.json "_data/history/${TS}-${RID}.json"
+
+      # Prune the window and publish the history: one commit for the backfill
+      # and the ingest together, only when something changed.
+      - name: Commit history
+        if: steps.wt.outputs.publish == 'true'
+        env:
+          RID: ${{ github.event.workflow_run.id }}
+        run: |
           # keep the newest HISTORY_KEEP files (names sort chronologically)
           mapfile -t old < <(find _data/history -maxdepth 1 -name '*.json' | sort | head -n "-${HISTORY_KEEP}")
           if [ "${#old[@]}" -gt 0 ]; then rm -f "${old[@]}"; fi
-          git -C _data add history
-          git -C _data commit -m "chore(pay-verify): ingest summary from run ${RID} [skip ci]" || echo "nothing to commit"
+          git -C _data add -A history
+          if git -C _data diff --cached --quiet; then
+            echo "history unchanged"
+            exit 0
+          fi
+          git -C _data commit -q -m "chore(pay-verify): history update from run ${RID:-dispatch} [skip ci]"
           git -C _data push origin "$DATA_BRANCH"
 
       # Replace the assets branch with this run's bundle: an orphan commit,
