@@ -3,107 +3,87 @@
  */
 
 import { expect, test } from "@playwright/test";
-import { CARD_MS, planStitch } from "../reporters/walkthrough-plan.js";
+import { CARD_MS, planStitch, type Segment } from "../reporters/walkthrough-plan.js";
 
-// Wall-clock instants in ms; clip 0 recorded 10_000..40_000, clip 1 50_000..70_000.
-const clip0 = {
-  clip: 0,
-  video: "a.webm",
-  firstStep: "Admin signs in",
-  durationMs: 30_000,
-  closedAt: 40_000,
-};
-const clip1 = {
-  clip: 1,
-  video: "b.webm",
-  firstStep: "Employee opens the payslip",
-  durationMs: 20_000,
-  closedAt: 70_000,
-};
+// Wall-clock instants in ms. Clip 0 (employee) recorded 10_000..90_000,
+// clip 1 (admin) recorded 30_000..70_000.
+const emp = { clip: 0, video: "emp.webm", durationMs: 80_000, closedAt: 90_000 };
+const admin = { clip: 1, video: "admin.webm", durationMs: 40_000, closedAt: 70_000 };
+
+function shape(segments: Segment[] | undefined): string[] {
+  return (segments ?? []).map((s) =>
+    s.kind === "card" ? `card:${s.text}` : `clip:${s.video}@${s.fromMs}+${s.durationMs}`,
+  );
+}
 
 test.describe("harness · walkthrough plan", () => {
-  test("one clip: title card, then the clip cut at its first step", () => {
+  test("one page: title card, then the clip cut at its first step", () => {
     const plan = planStitch(
       "journey 1",
-      [clip0],
+      [emp],
       [
-        { index: 0, title: "Admin signs in", clip: 0, startedAt: 12_000 },
-        { index: 1, title: "Approve", clip: 0, startedAt: 20_000 },
+        { index: 0, title: "Sign in", clip: 0, startedAt: 12_000 },
+        { index: 1, title: "Open payslip", clip: 0, startedAt: 20_000 },
       ],
     );
-    expect(plan?.segments).toEqual([
-      { kind: "card", text: "journey 1", durationMs: CARD_MS },
-      // recorded from 10_000; step one at 12_000 → cut the first 2s of setup
-      { kind: "clip", video: "a.webm", fromMs: 2_000, durationMs: 28_000 },
-    ]);
+    // recorded from 10_000; step one at 12_000 → the first 2s (setup) are cut
+    expect(shape(plan?.segments)).toEqual(["card:journey 1", "clip:emp.webm@2000+78000"]);
     expect(plan?.offsets.get(0)).toBe(CARD_MS);
     expect(plan?.offsets.get(1)).toBe(CARD_MS + 8_000);
-    expect(plan?.durationMs).toBe(CARD_MS + 28_000);
+    expect(plan?.durationMs).toBe(CARD_MS + 78_000);
   });
 
-  test("two sessions: a caption card names the step the next clip opens with", () => {
+  test("A → B → A follows the steps: each run cut to its stretch, a caption at every switch", () => {
+    // journey 3's shape: employee submits, admin approves, employee sees it.
     const plan = planStitch(
-      "journey 2",
-      [clip1, clip0],
+      "journey 3",
+      [emp, admin],
       [
-        { index: 0, title: "Admin signs in", clip: 0, startedAt: 11_000 },
-        { index: 1, title: "Employee opens the payslip", clip: 1, startedAt: 52_000 },
-        { index: 2, title: "PDF downloads", clip: 1, startedAt: 60_000 },
+        { index: 0, title: "Employee fills in", clip: 0, startedAt: 11_000 },
+        { index: 1, title: "Employee submits", clip: 0, startedAt: 20_000 },
+        { index: 2, title: "Admin reviews", clip: 1, startedAt: 35_000 },
+        { index: 3, title: "Admin approves", clip: 1, startedAt: 45_000 },
+        { index: 4, title: "Employee sees Approved", clip: 0, startedAt: 75_000 },
       ],
     );
-    expect(
-      plan?.segments.map((s) => (s.kind === "card" ? `card:${s.text}` : `clip:${s.video}`)),
-    ).toEqual([
-      "card:journey 2",
-      "clip:a.webm",
-      "card:Next: Employee opens the payslip",
-      "clip:b.webm",
+    expect(shape(plan?.segments)).toEqual([
+      "card:journey 3",
+      // employee from 11_000 to the admin's first step at 35_000
+      "clip:emp.webm@1000+24000",
+      "card:Next: Admin reviews",
+      // admin from 35_000 (recorded from 30_000) to employee's return at 75_000,
+      // capped at the admin clip's end (40_000 long)
+      "clip:admin.webm@5000+35000",
+      "card:Next: Employee sees Approved",
+      // employee again from 75_000 to its end at 90_000
+      "clip:emp.webm@65000+15000",
     ]);
-    const firstClip = 30_000 - 1_000; // cut at 11_000, recorded from 10_000
-    expect(plan?.offsets.get(1)).toBe(CARD_MS + firstClip + CARD_MS);
-    expect(plan?.offsets.get(2)).toBe(CARD_MS + firstClip + CARD_MS + 8_000);
-  });
-
-  test("clips follow the order the journey first used them, not their numbering", () => {
-    const plan = planStitch(
-      "j",
-      [clip0, clip1],
-      [
-        { index: 0, title: "first", clip: 1, startedAt: 51_000 },
-        { index: 1, title: "second", clip: 0, startedAt: 35_000 },
-      ],
-    );
-    const clips = plan?.segments
-      .filter((s) => s.kind === "clip")
-      .map((s) => s.kind === "clip" && s.video);
-    expect(clips).toEqual(["a.webm", "b.webm"]);
+    const o = plan?.offsets;
+    // Step order is preserved in the video.
+    const starts = [0, 1, 2, 3, 4].map((i) => o?.get(i) ?? Number.NaN);
+    expect([...starts].sort((a, b) => a - b)).toEqual(starts);
+    expect(o?.get(2)).toBe(CARD_MS + 24_000 + CARD_MS);
+    expect(o?.get(4)).toBe(CARD_MS + 24_000 + CARD_MS + 35_000 + CARD_MS);
   });
 
   test("a clip that could not be measured gives no plan — never a wrong video", () => {
-    const unmeasured = { ...clip0, durationMs: Number.NaN };
-    expect(
-      planStitch("j", [unmeasured], [{ index: 0, title: "s", clip: 0, startedAt: 12_000 }]),
-    ).toBeUndefined();
-    const unclosed = { ...clip0, closedAt: Number.NaN };
-    expect(
-      planStitch("j", [unclosed], [{ index: 0, title: "s", clip: 0, startedAt: 12_000 }]),
-    ).toBeUndefined();
-    expect(
-      planStitch("j", [], [{ index: 0, title: "s", clip: 0, startedAt: 12_000 }]),
-    ).toBeUndefined();
+    const one = [{ index: 0, title: "s", clip: 0, startedAt: 12_000 }];
+    expect(planStitch("j", [{ ...emp, durationMs: Number.NaN }], one)).toBeUndefined();
+    expect(planStitch("j", [{ ...emp, closedAt: Number.NaN }], one)).toBeUndefined();
+    expect(planStitch("j", [], one)).toBeUndefined();
   });
 
   test("no steps, no plan", () => {
-    expect(planStitch("j", [clip0], [])).toBeUndefined();
+    expect(planStitch("j", [emp], [])).toBeUndefined();
   });
 
   test("a step outside its clip's recording gets no offset rather than a wrong one", () => {
     const plan = planStitch(
       "j",
-      [clip0],
+      [admin],
       [
-        { index: 0, title: "s", clip: 0, startedAt: 12_000 },
-        { index: 1, title: "late", clip: 0, startedAt: 45_000 },
+        { index: 0, title: "s", clip: 1, startedAt: 32_000 },
+        { index: 1, title: "after close", clip: 1, startedAt: 80_000 },
       ],
     );
     expect(plan?.offsets.get(1)).toBeNull();

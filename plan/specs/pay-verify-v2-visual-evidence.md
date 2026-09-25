@@ -131,16 +131,19 @@ A separate, **non-gating** Playwright run, `E2E_WALKTHROUGH=1`:
   this mode; `step` refuses a page that is not being recorded, so a clip can
   never go missing silently;
 - after the run, the walkthrough reporter joins each journey's clips into one
-  webm with ffmpeg (re-encoded, VP8): a title card, then each clip **cut to
-  start at its first step** (what a page showed before — a blank first frame,
-  a setup login — is not paced and belongs to no step), with a 1.5 s caption
-  card "Next: <step>" before every clip after the first. Cards are recorded
+  webm with ffmpeg (re-encoded, VP8), **following the steps in the order they
+  ran**: a title card, then each run of consecutive steps on one page, cut
+  from its clip from the run's first step to the next run's start (or the
+  clip's end), with a 1.5 s caption card "Next: <step>" at every switch — so a
+  journey that goes employee → admin → employee shows the three stretches in
+  that order. What a page showed before its first step (a blank first frame,
+  a setup login) is not paced and belongs to no step, so it is left out. Cards are recorded
   with Playwright's own Chromium, so no font setup is needed. A clip is placed
   on the wall clock from the instant its page closed minus its duration; a
   journey whose clips cannot be measured gets `video: null`, never a guess;
 - it writes `walkthrough-evidence.json`, schema `journey-walkthrough/1`, a
   separate file from the gating evidence: `mode: "walkthrough"`, `commitSha`,
-  `runId`, `source: "ci"`, and per journey `fullName`, `status`,
+  `gatingRunId`, `runId`, `source: "ci"`, and per journey `fullName`, `status`,
   `video: {path, contentType: "video/webm", durationMs} | null`, and per step
   `{title, status, offsetMs | null}`;
 - a report-only pacing line per journey (ffmpeg scene detection: screen count,
@@ -150,9 +153,14 @@ A separate, **non-gating** Playwright run, `E2E_WALKTHROUGH=1`:
 - reuses saved sessions where the gating run does, so human pace stays inside
   the 10 req/min credential rate limit.
 
-The walkthrough runs in its own `walkthrough` job in `ci.yml` after `e2e`, on
-push to main or a manual run (so a branch can be recorded before merge),
-`continue-on-error`, and uploads `pay-verify-walkthrough`. A walkthrough whose
+The walkthrough is its own workflow, `walkthrough.yml` — not a ci job, which
+would hold back the site publish and be cancelled with a superseded ci run. It
+runs after a green ci run of a push to main (recording that run's commit, with
+`WALKTHROUGH_COMMIT_SHA` / `WALKTHROUGH_GATING_RUN_ID` stamped into the
+evidence as `commitSha` / `gatingRunId`), and on a pull request touching the
+walkthrough machinery or a manual run, so a change can be recorded before
+merge; those carry no gating run id and are never published. It uploads
+`pay-verify-walkthrough`. A walkthrough whose
 commit and run do not match the gating evidence it would sit beside is **not
 shown** (PR 7 wires it into the site).
 

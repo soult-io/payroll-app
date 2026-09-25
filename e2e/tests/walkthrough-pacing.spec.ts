@@ -20,7 +20,7 @@ test.describe("harness · walkthrough pacing", () => {
       await page.setContent(
         `<main><h1>List</h1><button id="go">Go</button><button id="again">Again</button></main>`,
       );
-      await registerPage(page, "start", testInfo);
+      await registerPage(page, testInfo);
 
       // Same screen as registered: no hold.
       let t = Date.now();
@@ -59,7 +59,7 @@ test.describe("harness · walkthrough pacing", () => {
           w.__inputs += 1;
         });
       });
-      await registerPage(page, "type", testInfo);
+      await registerPage(page, testInfo);
       await page.locator("#f").fill("ISSUE");
       await expect(page.locator("#f")).toHaveValue("ISSUE");
       // clear() = 1 input event, then one per character.
@@ -93,7 +93,7 @@ test.describe("harness · walkthrough pacing", () => {
     const ctx = await browser.newContext();
     const page = await ctx.newPage();
     try {
-      await expect(registerPage(page, "x", testInfo)).rejects.toThrow(/not being recorded/);
+      await expect(registerPage(page, testInfo)).rejects.toThrow(/not being recorded/);
     } finally {
       await ctx.close();
     }

@@ -134,62 +134,6 @@ jobs:
           if-no-files-found: warn
           retention-days: 7
 
-  # Spec 20 (PAY-78): the human-pace walkthrough — the journeys re-run slowly
-  # and recorded, one joined video per journey. NON-GATING: it never blocks a
-  # merge (continue-on-error) and runs only after the gating e2e passed, on a
-  # push to main or a manual run. The recording is of the ephemeral synthetic
-  # boot only (the config refuses E2E_BASE_URL).
-  walkthrough:
-    needs: [e2e]
-    if: github.event_name == 'push' || github.event_name == 'workflow_dispatch'
-    runs-on: ubuntu-latest
-    timeout-minutes: 30
-    continue-on-error: true
-    container:
-      image: mcr.microsoft.com/playwright:v1.62.0-noble
-    steps:
-      - uses: actions/checkout@v4
-
-      - uses: pnpm/action-setup@v6
-        with:
-          version: 11.17.0
-
-      - uses: actions/setup-node@v4
-        with:
-          node-version: 22
-          cache: pnpm
-
-      - name: Install
-        run: pnpm install --frozen-lockfile
-
-      - name: Build web + packages (SPA dist + workspace dists)
-        run: pnpm -r run build
-
-      # ffmpeg joins each journey's clips and measures the pacing. Bounded: a
-      # hung apt mirror must not hold the runner (see the e2e job's note).
-      - name: Install ffmpeg
-        timeout-minutes: 5
-        run: apt-get update && apt-get install -y --no-install-recommends ffmpeg
-
-      - name: Verify Playwright chromium
-        run: pnpm --filter @payroll/e2e exec playwright install chromium
-
-      - name: Walkthrough (human pace, recorded)
-        env:
-          E2E_WALKTHROUGH: "1"
-        run: pnpm --filter @payroll/e2e e2e
-
-      - name: Upload walkthrough
-        if: always()
-        uses: actions/upload-artifact@v7
-        with:
-          name: pay-verify-walkthrough
-          path: |
-            e2e/test-results-walkthrough/walkthrough-evidence.json
-            e2e/test-results-walkthrough/videos/*.webm
-          if-no-files-found: warn
-          retention-days: 7
-
   # Spec 17 §2 (PAY-43): assemble the versioned, PII-free result summary from
   # the verify + e2e reporter artifacts and publish it (with the html report)
   # on EVERY run — the ingest source of truth for the pay-verify site (PAY-44).

@@ -144,7 +144,7 @@ export async function step<T>(page: Page, title: string, body: () => Promise<T>)
     const index = stepCounters.get(testInfo) ?? 0;
     stepCounters.set(testInfo, index + 1);
     if (WALKTHROUGH) {
-      const clip = await registerPage(page, title, testInfo);
+      const clip = await registerPage(page, testInfo);
       markStep(testInfo, { index, title, clip, startedAt: Date.now() });
       try {
         return await body();

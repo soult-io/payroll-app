@@ -6,8 +6,11 @@
  * how), and writes `walkthrough-evidence.json` (schema `journey-walkthrough/1`):
  * each journey's video plus each step's offset into it.
  *
- * Bound like the gating evidence: `commitSha` + `runId` from GITHUB_SHA /
- * GITHUB_RUN_ID, so the site can refuse a recording of another commit.
+ * Bound to the gating run it re-records: `commitSha` is the TESTED commit and
+ * `gatingRunId` the ci run that gated it (WALKTHROUGH_COMMIT_SHA /
+ * WALKTHROUGH_GATING_RUN_ID, set by walkthrough.yml — under workflow_run,
+ * GITHUB_SHA is main's tip, not the tested commit). `runId` is this recording's
+ * own run. The site can then refuse a recording of another commit or run.
  *
  * Needs `ffmpeg` and `ffprobe` on PATH (the CI walkthrough job installs them).
  * A journey whose clips cannot be measured or joined gets `video: null` and a
@@ -52,6 +55,8 @@ interface WalkthroughEvidence {
   schema: typeof WALKTHROUGH_SCHEMA;
   mode: "walkthrough";
   commitSha: string;
+  /** The ci run whose gating result this recording sits beside; null off main. */
+  gatingRunId: string | null;
   runId: string;
   source: "ci";
   generatedAt: string;
@@ -257,7 +262,6 @@ export default class WalkthroughReporter implements Reporter {
       return {
         clip: c.clip,
         video: c.video,
-        firstStep: c.firstStep,
         durationMs: existsSync(c.video) ? durationMs(c.video) : Number.NaN,
         closedAt: closes[String(c.clip)] ?? Number.NaN,
       };
@@ -267,9 +271,11 @@ export default class WalkthroughReporter implements Reporter {
       console.warn(`walkthrough: ${test.title} — a clip could not be measured; no video`);
       return { ...base, video: null, steps: stepsWithout() };
     }
-    const work = join(dir, "work", slug(test.title));
+    // The test id keeps two similar titles from sharing (and overwriting) a file.
+    const name = `${slug(test.title)}-${test.id.slice(0, 12)}`;
+    const work = join(dir, "work", name);
     mkdirSync(work, { recursive: true });
-    const out = join(dir, "videos", `${slug(test.title)}.webm`);
+    const out = join(dir, "videos", `${name}.webm`);
     mkdirSync(dirname(out), { recursive: true });
     if (!(await stitch(plan.segments, out, work))) {
       return { ...base, video: null, steps: stepsWithout() };
@@ -296,7 +302,8 @@ export default class WalkthroughReporter implements Reporter {
     const evidence: WalkthroughEvidence = {
       schema: WALKTHROUGH_SCHEMA,
       mode: "walkthrough",
-      commitSha: process.env.GITHUB_SHA ?? "local",
+      commitSha: process.env.WALKTHROUGH_COMMIT_SHA || process.env.GITHUB_SHA || "local",
+      gatingRunId: process.env.WALKTHROUGH_GATING_RUN_ID || null,
       runId: process.env.GITHUB_RUN_ID ?? "local",
       source: "ci",
       generatedAt: new Date().toISOString(),

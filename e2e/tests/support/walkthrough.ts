@@ -64,12 +64,10 @@ export interface StepMark {
   startedAt: number;
 }
 
-/** One recorded page, in the order the journey first used it. */
+/** One recorded page. */
 export interface ClipMark {
   clip: number;
   video: string;
-  /** The first step shown on this clip — the caption before it says so. */
-  firstStep: string;
   /** Sidecar file the clip's close instant is written to. */
   closeFile: string;
 }
@@ -217,10 +215,14 @@ function wrapActionsOnce(page: Page): void {
       const self = this;
       const owner = self.page();
       if (name === "fill" && pages.has(owner) && !pages.get(owner)?.acting) {
+        // Keep the caller's options (timeout) on both halves of the typing.
+        const { timeout } = (args[1] ?? {}) as { timeout?: number };
+        const bound = timeout === undefined ? {} : { timeout };
         return paced(owner, self, async () => {
-          await self.clear();
+          await self.clear(bound);
           await self.pressSequentially(String(args[0] ?? ""), {
             delay: WALKTHROUGH_TYPE_DELAY_MS,
+            ...bound,
           });
         });
       }
@@ -241,11 +243,7 @@ function wrapActionsOnce(page: Page): void {
  * note its clip. Throws when the page is not being recorded (its context did
  * not come from {@link newContext}).
  */
-export async function registerPage(
-  page: Page,
-  firstStep: string,
-  testInfo: TestInfo,
-): Promise<number> {
+export async function registerPage(page: Page, testInfo: TestInfo): Promise<number> {
   const known = pages.get(page);
   if (known) return known.clip;
   const video = page.video();
@@ -259,7 +257,7 @@ export async function registerPage(
   clipCounters.set(testInfo, clip + 1);
   pages.set(page, { signature: await screenSignature(page), acting: false, clip });
   const sidecar = testInfo.outputPath(CLIP_CLOSE_FILE);
-  const mark: ClipMark = { clip, video: await video.path(), firstStep, closeFile: sidecar };
+  const mark: ClipMark = { clip, video: await video.path(), closeFile: sidecar };
   testInfo.annotations.push({ type: CLIP_MARK_ANNOTATION, description: JSON.stringify(mark) });
   // The recording of a page ends when it closes. That instant, with the file's
   // duration, places the clip's first frame on the wall clock — however long
