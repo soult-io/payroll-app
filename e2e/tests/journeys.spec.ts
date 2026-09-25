@@ -14,10 +14,11 @@
 import { readFileSync } from "node:fs";
 import { dirname, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
-import { expect, test, type Page } from "@playwright/test";
+import { expect, test, type Page, type Response } from "@playwright/test";
 import { createOTP } from "@better-auth/utils/otp";
 import { base32 } from "@better-auth/utils/base32";
 import { EPHEMERAL_EMPLOYEE_NAME } from "./qa.js";
+import { step } from "./support/journey.js";
 
 test.describe.configure({ mode: "serial" });
 
@@ -109,48 +110,59 @@ async function logout(page: Page): Promise<void> {
 test("journey 1: invite onboarding wizard → backup codes → fresh login with TOTP", async ({
   page,
 }) => {
-  await page.goto(STATE.employee.inviteUrl);
-
-  // Step 1 — password (token verified on load).
-  await expect(page.locator("#pw input")).toBeVisible();
-  await page.locator("#pw input").fill(EMPLOYEE_PASSWORD);
-  await page.locator("#pw2 input").fill(EMPLOYEE_PASSWORD);
-  const totpEnable = page.waitForResponse(
-    (r) => r.url().includes("/api/onboarding/totp-enable") && r.ok(),
-  );
-  await page.getByRole("button", { name: "Set password" }).click();
-
-  // Step 2 — TOTP enrollment: secret from the intercepted totpURI payload.
-  // NOTE: createOTP().url() base32-ENCODES the raw secret into the URI, while
-  // totp()/verify() HMAC the raw string — decode before computing codes.
-  const { totpURI } = (await (await totpEnable).json()) as { totpURI: string };
-  const uriSecret = new URL(totpURI).searchParams.get("secret");
-  if (!uriSecret) throw new Error(`no secret in totpURI: ${totpURI}`);
-  const secret = new TextDecoder().decode(base32.decode(uriSecret));
-
-  await expect(page.getByAltText("TOTP QR code")).toBeVisible();
-  await page.locator("#code").fill(await totp(secret));
-  await page.getByRole("button", { name: "Verify and finish setup" }).click();
-
-  // Step 3 — backup codes shown once (10, server-side default).
-  await expect(page.locator(".codes li").first()).toBeVisible();
-  await expect(page.locator(".codes li")).toHaveCount(10);
-
-  // Fresh login with password + TOTP → dashboard.
-  await page.getByRole("button", { name: "Continue to sign in" }).click();
-  await page.waitForURL("**/login");
-  await loginAs(page, {
-    email: STATE.employee.email,
-    password: EMPLOYEE_PASSWORD,
-    secret,
+  let totpEnable: Promise<Response> | undefined;
+  await step(page, "Set a password from the invite link", async () => {
+    await page.goto(STATE.employee.inviteUrl);
+    // Token verified on load.
+    await expect(page.locator("#pw input")).toBeVisible();
+    await page.locator("#pw input").fill(EMPLOYEE_PASSWORD);
+    await page.locator("#pw2 input").fill(EMPLOYEE_PASSWORD);
+    totpEnable = page.waitForResponse(
+      (r) => r.url().includes("/api/onboarding/totp-enable") && r.ok(),
+    );
+    await page.getByRole("button", { name: "Set password" }).click();
   });
 
-  // Log out and log in again — the session is genuinely re-establishable.
-  await logout(page);
-  await loginAs(page, {
-    email: STATE.employee.email,
-    password: EMPLOYEE_PASSWORD,
-    secret,
+  // TOTP enrollment: secret from the intercepted totpURI payload.
+  // NOTE: createOTP().url() base32-ENCODES the raw secret into the URI, while
+  // totp()/verify() HMAC the raw string — decode before computing codes.
+  let secret = "";
+  await step(page, "Enrol an authenticator app (TOTP)", async () => {
+    if (!totpEnable) throw new Error("totp-enable response was never awaited");
+    const { totpURI } = (await (await totpEnable).json()) as { totpURI: string };
+    const uriSecret = new URL(totpURI).searchParams.get("secret");
+    if (!uriSecret) throw new Error(`no secret in totpURI: ${totpURI}`);
+    secret = new TextDecoder().decode(base32.decode(uriSecret));
+
+    await expect(page.getByAltText("TOTP QR code")).toBeVisible();
+    await page.locator("#code").fill(await totp(secret));
+    await page.getByRole("button", { name: "Verify and finish setup" }).click();
+  });
+
+  await step(page, "Backup codes are shown once", async () => {
+    // 10, server-side default.
+    await expect(page.locator(".codes li").first()).toBeVisible();
+    await expect(page.locator(".codes li")).toHaveCount(10);
+  });
+
+  await step(page, "Sign in with password + TOTP", async () => {
+    await page.getByRole("button", { name: "Continue to sign in" }).click();
+    await page.waitForURL("**/login");
+    await loginAs(page, {
+      email: STATE.employee.email,
+      password: EMPLOYEE_PASSWORD,
+      secret,
+    });
+  });
+
+  await step(page, "Sign out and sign in again", async () => {
+    // The session is genuinely re-establishable.
+    await logout(page);
+    await loginAs(page, {
+      email: STATE.employee.email,
+      password: EMPLOYEE_PASSWORD,
+      secret,
+    });
   });
 
   // Save the session for journeys 2/3 (credential endpoints are rate-limited
@@ -162,52 +174,62 @@ test("journey 2: admin approves + issues payroll run; employee sees payslip + PD
   page,
   browser,
 }) => {
-  await loginAs(page, {
-    email: STATE.admin.email,
-    password: STATE.admin.password,
-    secret: STATE.admin.totpSecret,
+  await step(page, "Admin signs in", async () => {
+    await loginAs(page, {
+      email: STATE.admin.email,
+      password: STATE.admin.password,
+      secret: STATE.admin.totpSecret,
+    });
   });
   await page.context().storageState({ path: ADMIN_SESSION }); // journey 3 reuses it
 
-  // Open the run review from the runs list. The list defaults to the current
-  // year — our seeded run is 2025-11, so switch the year filter first.
-  await page.goto("/admin/payroll");
-  await page.locator(".p-select").first().click();
-  await page.getByRole("option", { name: "2025" }).click();
-  const row = page.locator("tr", { hasText: "Awaiting approval" }).first();
-  await expect(row).toBeVisible();
-  await row.click();
-  await page.waitForURL(`**/admin/payroll/${STATE.run.publicId}**`);
-  await expect(page.locator(".p-tag", { hasText: "Awaiting approval" })).toBeVisible();
-  await expect(page.getByText("$3,383.87")).toBeVisible(); // golden net pay, $4,000/mo
+  await step(page, "Open the run awaiting approval", async () => {
+    // The list defaults to the current year — our seeded run is 2025-11, so
+    // switch the year filter first.
+    await page.goto("/admin/payroll");
+    await page.locator(".p-select").first().click();
+    await page.getByRole("option", { name: "2025" }).click();
+    const row = page.locator("tr", { hasText: "Awaiting approval" }).first();
+    await expect(row).toBeVisible();
+    await row.click();
+    await page.waitForURL(`**/admin/payroll/${STATE.run.publicId}**`);
+    await expect(page.locator(".p-tag", { hasText: "Awaiting approval" })).toBeVisible();
+    await expect(page.getByText("$3,383.87")).toBeVisible(); // golden net pay, $4,000/mo
+  });
 
-  // Approve → confirm dialog.
-  await page.getByRole("button", { name: "Approve", exact: true }).click();
-  await page.locator(".p-confirmdialog").getByRole("button", { name: "Approve" }).click();
-  await expect(page.locator(".p-tag", { hasText: "Approved" })).toBeVisible();
+  await step(page, "Approve the run", async () => {
+    await page.getByRole("button", { name: "Approve", exact: true }).click();
+    await page.locator(".p-confirmdialog").getByRole("button", { name: "Approve" }).click();
+    await expect(page.locator(".p-tag", { hasText: "Approved" })).toBeVisible();
+  });
 
-  // Issue → type-to-confirm dialog.
-  await page.getByRole("button", { name: "Issue payslip" }).click();
-  await page.locator(".p-dialog input[placeholder='ISSUE']").fill("ISSUE");
-  await page.locator(".p-dialog").getByRole("button", { name: "Issue payslip" }).click();
-  await expect(page.locator(".p-tag", { hasText: "Issued" })).toBeVisible();
+  await step(page, "Issue the payslip (type-to-confirm)", async () => {
+    await page.getByRole("button", { name: "Issue payslip" }).click();
+    await page.locator(".p-dialog input[placeholder='ISSUE']").fill("ISSUE");
+    await page.locator(".p-dialog").getByRole("button", { name: "Issue payslip" }).click();
+    await expect(page.locator(".p-tag", { hasText: "Issued" })).toBeVisible();
+  });
 
   // Employee session (separate context, restored from journey 1's saved
   // storageState): issued payslip visible + PDF bytes.
   const ctx = await browser.newContext({ storageState: EMPLOYEE_SESSION });
   const emp = await ctx.newPage();
-  await emp.goto("/my/payslips");
-  const slip = emp.locator("tr", { hasText: "$3,383.87" }).first();
-  await expect(slip).toBeVisible();
-  await slip.click();
-  await emp.waitForURL(`**/my/payslips/${STATE.run.publicId}**`);
+  await step(emp, "Employee opens the issued payslip", async () => {
+    await emp.goto("/my/payslips");
+    const slip = emp.locator("tr", { hasText: "$3,383.87" }).first();
+    await expect(slip).toBeVisible();
+    await slip.click();
+    await emp.waitForURL(`**/my/payslips/${STATE.run.publicId}**`);
+  });
 
-  const pdf = await emp.request.get(`/api/payslips/${STATE.run.publicId}/pdf`);
-  expect(pdf.status()).toBe(200);
-  expect(pdf.headers()["content-type"]).toContain("application/pdf");
-  const body = await pdf.body();
-  expect(body.subarray(0, 5).toString()).toBe("%PDF-");
-  expect(body.length).toBeGreaterThan(2000);
+  await step(emp, "Payslip PDF downloads (%PDF, non-trivial size)", async () => {
+    const pdf = await emp.request.get(`/api/payslips/${STATE.run.publicId}/pdf`);
+    expect(pdf.status()).toBe(200);
+    expect(pdf.headers()["content-type"]).toContain("application/pdf");
+    const body = await pdf.body();
+    expect(body.subarray(0, 5).toString()).toBe("%PDF-");
+    expect(body.length).toBeGreaterThan(2000);
+  });
 
   await ctx.close();
 });
@@ -218,51 +240,62 @@ test("journey 3: address change request round-trip (employee → admin approve �
   // Employee session restored from journey 1's storageState (rate-limit budget).
   const empCtx = await browser.newContext({ storageState: EMPLOYEE_SESSION });
   const page = await empCtx.newPage();
-  await page.goto("/my/requests/new");
-  await page
-    .getByRole("button", { name: /Address/ })
-    .first()
-    .click();
-  await page.locator("#line1").fill(NEW_ADDRESS.line1);
-  await page.locator("#city").fill(NEW_ADDRESS.city);
-  await page.locator("#state").fill(NEW_ADDRESS.state);
-  await page.locator("#zip").fill(NEW_ADDRESS.zip);
-  await page.locator("#country").fill(NEW_ADDRESS.country);
-  await page.getByRole("button", { name: "Review", exact: true }).click();
-  await expect(page.getByText(NEW_ADDRESS.line1)).toBeVisible(); // review shows payload
-  await page.getByRole("button", { name: "Submit request" }).click();
+  await step(page, "Employee fills in a new address", async () => {
+    await page.goto("/my/requests/new");
+    await page
+      .getByRole("button", { name: /Address/ })
+      .first()
+      .click();
+    await page.locator("#line1").fill(NEW_ADDRESS.line1);
+    await page.locator("#city").fill(NEW_ADDRESS.city);
+    await page.locator("#state").fill(NEW_ADDRESS.state);
+    await page.locator("#zip").fill(NEW_ADDRESS.zip);
+    await page.locator("#country").fill(NEW_ADDRESS.country);
+    await page.getByRole("button", { name: "Review", exact: true }).click();
+    await expect(page.getByText(NEW_ADDRESS.line1)).toBeVisible(); // review shows payload
+  });
 
-  await page.waitForURL(/\/my\/requests\/[0-9a-f-]{36}/);
-  await expect(page.locator(".p-tag", { hasText: "Pending" })).toBeVisible();
-  const publicId = page.url().split("/").pop();
-  if (!publicId) throw new Error("no publicId in request URL");
+  const publicId = await step(page, "Employee submits the request (Pending)", async () => {
+    await page.getByRole("button", { name: "Submit request" }).click();
+    await page.waitForURL(/\/my\/requests\/[0-9a-f-]{36}/);
+    await expect(page.locator(".p-tag", { hasText: "Pending" })).toBeVisible();
+    const id = page.url().split("/").pop();
+    if (!id) throw new Error("no publicId in request URL");
+    return id;
+  });
 
   // Admin reviews the diff and approves (session from journey 2's storageState).
   const ctx = await browser.newContext({ storageState: ADMIN_SESSION });
   const admin = await ctx.newPage();
-  await admin.goto("/admin/requests");
-  // Scoped to this journey's own employee: the QA dataset seeds Carol's
-  // pending address change too, so "the first Address row" is only this one
-  // by accident of the list's descending submitted-at order.
-  const row = admin
-    .locator("tr", { hasText: "Address" })
-    .filter({ hasText: EPHEMERAL_EMPLOYEE_NAME })
-    .first();
-  await expect(row).toBeVisible();
-  await row.click();
-  await admin.waitForURL(`**/admin/requests/${publicId}**`);
-  await expect(admin.getByText(NEW_ADDRESS.line1)).toBeVisible(); // proposed
-  await expect(admin.getByText("Not on file")).toBeVisible(); // current
-  await admin.getByRole("button", { name: "Approve & apply" }).click();
-  await expect(admin.locator(".p-tag", { hasText: "Approved" })).toBeVisible();
+  await step(admin, "Admin reviews the proposed vs current address", async () => {
+    await admin.goto("/admin/requests");
+    // Scoped to this journey's own employee: the QA dataset seeds Carol's
+    // pending address change too, so "the first Address row" is only this one
+    // by accident of the list's descending submitted-at order.
+    const row = admin
+      .locator("tr", { hasText: "Address" })
+      .filter({ hasText: EPHEMERAL_EMPLOYEE_NAME })
+      .first();
+    await expect(row).toBeVisible();
+    await row.click();
+    await admin.waitForURL(`**/admin/requests/${publicId}**`);
+    await expect(admin.getByText(NEW_ADDRESS.line1)).toBeVisible(); // proposed
+    await expect(admin.getByText("Not on file")).toBeVisible(); // current
+  });
+
+  await step(admin, "Admin approves and applies", async () => {
+    await admin.getByRole("button", { name: "Approve & apply" }).click();
+    await expect(admin.locator(".p-tag", { hasText: "Approved" })).toBeVisible();
+  });
   await ctx.close();
 
-  // Employee sees the decision and the profile reflects the new address.
-  await page.reload();
-  await expect(page.locator(".p-tag", { hasText: "Approved" })).toBeVisible();
-  await page.goto("/my/profile");
-  await expect(page.getByText(NEW_ADDRESS.line1)).toBeVisible();
-  await expect(page.getByText(NEW_ADDRESS.city)).toBeVisible();
+  await step(page, "Employee sees Approved and the new address on the profile", async () => {
+    await page.reload();
+    await expect(page.locator(".p-tag", { hasText: "Approved" })).toBeVisible();
+    await page.goto("/my/profile");
+    await expect(page.getByText(NEW_ADDRESS.line1)).toBeVisible();
+    await expect(page.getByText(NEW_ADDRESS.city)).toBeVisible();
+  });
   await empCtx.close();
 });
 
@@ -271,18 +304,21 @@ test("journey 4: session expiry mid-session redirects to login (PAY-6)", async (
   // expiring (or being revoked) while the SPA is already open.
   const ctx = await browser.newContext({ storageState: EMPLOYEE_SESSION });
   const page = await ctx.newPage();
-  await page.goto("/my/dashboard");
-  await expect(page.getByRole("heading", { name: "Dashboard" })).toBeVisible();
+  await step(page, "Employee is on the dashboard", async () => {
+    await page.goto("/my/dashboard");
+    await expect(page.getByRole("heading", { name: "Dashboard" })).toBeVisible();
+  });
 
-  await ctx.clearCookies();
-
-  // SPA navigation fires an authed API call with the dead session → 401 →
-  // the handler redirects straight to /login instead of toasting errors.
-  await page.getByRole("link", { name: "Payslips", exact: true }).click();
-  await page.waitForURL("**/login**");
-  await expect(page.locator("#email")).toBeVisible();
-  // The attempted path is preserved for post-login return.
-  expect(page.url()).toContain("redirect=/my/payslips");
+  await step(page, "Session expires; next navigation lands on login", async () => {
+    await ctx.clearCookies();
+    // SPA navigation fires an authed API call with the dead session → 401 →
+    // the handler redirects straight to /login instead of toasting errors.
+    await page.getByRole("link", { name: "Payslips", exact: true }).click();
+    await page.waitForURL("**/login**");
+    await expect(page.locator("#email")).toBeVisible();
+    // The attempted path is preserved for post-login return.
+    expect(page.url()).toContain("redirect=/my/payslips");
+  });
   await ctx.close();
 });
 
@@ -291,43 +327,40 @@ test("journey 5: back navigation preserves the list filter state (PAY-17)", asyn
   // lives outside the default current-year filter.
   const ctx = await browser.newContext({ storageState: ADMIN_SESSION });
   const page = await ctx.newPage();
-  await page.goto("/admin/payroll");
-
-  // Pick a non-default year filter — the URL now carries it (bookmarkable).
-  await page.locator(".p-select").first().click();
-  await page.getByRole("option", { name: "2025" }).click();
-  await expect(page).toHaveURL(/\/admin\/payroll\?year=2025/);
-
-  // Open the run review — the filter query rides along on the detail URL.
   // Scoped to THIS journey's own employee: the boot now also seeds the QA
   // dataset (PAY-56), so "the first issued row" is some other persona's run.
   // A test that only passes against a near-empty database is not a test.
-  const row = page
-    .locator("tr", { hasText: "Issued" })
-    .filter({ hasText: EPHEMERAL_EMPLOYEE_NAME })
-    .first();
-  await expect(row).toBeVisible();
-  await row.click();
-  await expect(page).toHaveURL(new RegExp(`/admin/payroll/${STATE.run.publicId}\\?year=2025`));
+  const issuedRow = () =>
+    page.locator("tr", { hasText: "Issued" }).filter({ hasText: EPHEMERAL_EMPLOYEE_NAME }).first();
 
-  // The back button returns to the list with the same filter still applied.
-  await page.getByRole("button", { name: "Back to runs" }).click();
-  await expect(page).toHaveURL(/\/admin\/payroll\?year=2025/);
-  await expect(page.locator(".p-select").first()).toContainText("2025");
-  await expect(
-    page.locator("tr", { hasText: "Issued" }).filter({ hasText: EPHEMERAL_EMPLOYEE_NAME }).first(),
-  ).toBeVisible();
+  await step(page, "Filter the runs list to 2025 (the URL carries it)", async () => {
+    await page.goto("/admin/payroll");
+    await page.locator(".p-select").first().click();
+    await page.getByRole("option", { name: "2025" }).click();
+    await expect(page).toHaveURL(/\/admin\/payroll\?year=2025/);
+  });
 
-  // Browser-back behaves identically (query-param-driven filters make it free).
-  await page
-    .locator("tr", { hasText: "Issued" })
-    .filter({ hasText: EPHEMERAL_EMPLOYEE_NAME })
-    .first()
-    .click();
-  await expect(page).toHaveURL(new RegExp(`/admin/payroll/${STATE.run.publicId}\\?year=2025`));
-  await page.goBack();
-  await expect(page).toHaveURL(/\/admin\/payroll\?year=2025/);
-  await expect(page.locator(".p-select").first()).toContainText("2025");
+  await step(page, "Open the run; the filter rides along", async () => {
+    await expect(issuedRow()).toBeVisible();
+    await issuedRow().click();
+    await expect(page).toHaveURL(new RegExp(`/admin/payroll/${STATE.run.publicId}\\?year=2025`));
+  });
+
+  await step(page, "Back to runs keeps the 2025 filter", async () => {
+    await page.getByRole("button", { name: "Back to runs" }).click();
+    await expect(page).toHaveURL(/\/admin\/payroll\?year=2025/);
+    await expect(page.locator(".p-select").first()).toContainText("2025");
+    await expect(issuedRow()).toBeVisible();
+  });
+
+  await step(page, "Browser back keeps the 2025 filter too", async () => {
+    // Query-param-driven filters make it free.
+    await issuedRow().click();
+    await expect(page).toHaveURL(new RegExp(`/admin/payroll/${STATE.run.publicId}\\?year=2025`));
+    await page.goBack();
+    await expect(page).toHaveURL(/\/admin\/payroll\?year=2025/);
+    await expect(page.locator(".p-select").first()).toContainText("2025");
+  });
   await ctx.close();
 });
 
@@ -338,11 +371,15 @@ test("journey 6: admin user visiting /my/dashboard is redirected to /admin/dashb
   const ctx = await browser.newContext({ storageState: ADMIN_SESSION });
   const page = await ctx.newPage();
 
-  await page.goto("/my/dashboard");
-  await page.waitForURL("**/admin/dashboard");
+  await step(page, "Admin visiting /my/dashboard lands on /admin/dashboard", async () => {
+    await page.goto("/my/dashboard");
+    await page.waitForURL("**/admin/dashboard");
+  });
 
-  await page.goto("/");
-  await page.waitForURL("**/admin/dashboard");
+  await step(page, "Admin visiting / lands on /admin/dashboard", async () => {
+    await page.goto("/");
+    await page.waitForURL("**/admin/dashboard");
+  });
 
   await ctx.close();
 });
@@ -353,7 +390,6 @@ test("journey 7: deposit detail view (PAY-36/PAY-37/PAY-38)", async ({ browser }
   // pinned to 2025 via the query param (PAY-17 filter state).
   const ctx = await browser.newContext({ storageState: ADMIN_SESSION });
   const page = await ctx.newPage();
-  await page.goto("/admin/deposits?year=2025");
 
   // Scoped to THIS boot's own 2025-10 fixture. The QA dataset seeds a full year
   // of 2025 payroll for three personas (PAY-56), so ~12 federal 2025 deposits
@@ -367,41 +403,42 @@ test("journey 7: deposit detail view (PAY-36/PAY-37/PAY-38)", async ({ browser }
     .locator(".p-datatable-tbody tr", { hasText: "Oct 2025" })
     .filter({ hasText: "federal" })
     .first();
-  await expect(row).toBeVisible();
 
-  // PAY-38: three-letter month in the period column.
-  await expect(row.locator("td").first()).toContainText("Oct 2025");
+  await step(page, "Deposits list for 2025: readable, sortable, no EFTPS noise", async () => {
+    await page.goto("/admin/deposits?year=2025");
+    await expect(row).toBeVisible();
 
-  // PAY-38: the EFTPS string does not appear in the table body.
-  await expect(page.locator(".p-datatable-tbody")).not.toContainText("EFTPS");
+    // PAY-38: three-letter month in the period column.
+    await expect(row.locator("td").first()).toContainText("Oct 2025");
 
-  // PAY-38: sortable columns exist.
-  await expect(page.locator("th.p-datatable-sortable-column").first()).toBeVisible();
+    // PAY-38: the EFTPS string does not appear in the table body.
+    await expect(page.locator(".p-datatable-tbody")).not.toContainText("EFTPS");
 
-  await row.click();
+    // PAY-38: sortable columns exist.
+    await expect(page.locator("th.p-datatable-sortable-column").first()).toBeVisible();
+  });
 
-  // Should navigate to detail page.
-  await expect(page).toHaveURL(/\/admin\/deposits\/\d+/);
+  await step(page, "Open the October federal deposit detail", async () => {
+    await row.click();
+    await expect(page).toHaveURL(/\/admin\/deposits\/\d+/);
 
-  // Assert deposit details are visible.
-  await expect(page.getByText("EFTPS reference")).toBeVisible();
-  await expect(page.getByText("Breakdown")).toBeVisible();
-  await expect(page.getByText("Contributing runs")).toBeVisible();
-  await expect(page.getByRole("heading", { name: "Attachments" })).toBeVisible();
+    await expect(page.getByText("EFTPS reference")).toBeVisible();
+    await expect(page.getByText("Breakdown")).toBeVisible();
+    await expect(page.getByText("Contributing runs")).toBeVisible();
+    await expect(page.getByRole("heading", { name: "Attachments" })).toBeVisible();
 
-  // Check that the breakdown contains the combined categories instead of employee/employer halves
-  await expect(page.getByText("Medicare (employee + employer)")).toBeVisible();
+    // The breakdown carries the combined categories, not employee/employer halves.
+    await expect(page.getByText("Medicare (employee + employer)")).toBeVisible();
 
-  // Check that tax year and quarter are visible
-  await expect(page.getByText("Tax year")).toBeVisible();
-  await expect(page.getByText("Quarter")).toBeVisible();
+    await expect(page.getByText("Tax year")).toBeVisible();
+    await expect(page.getByText("Quarter")).toBeVisible();
+    await expect(page.getByRole("button", { name: "Mark as deposited" })).toBeVisible();
+  });
 
-  // Check that the "Mark as deposited" button is visible
-  await expect(page.getByRole("button", { name: "Mark as deposited" })).toBeVisible();
-
-  // Go back to list view.
-  await page.getByRole("button", { name: "Back to deposits" }).click();
-  await expect(page).toHaveURL(/\/admin\/deposits/);
+  await step(page, "Back to the deposits list", async () => {
+    await page.getByRole("button", { name: "Back to deposits" }).click();
+    await expect(page).toHaveURL(/\/admin\/deposits/);
+  });
 
   await ctx.close();
 });

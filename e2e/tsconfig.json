@@ -5,5 +5,5 @@
     "types": ["node"],
     "lib": ["ES2022", "DOM"]
   },
-  "include": ["playwright.config.ts", "tests"]
+  "include": ["playwright.config.ts", "tests", "reporters"]
 }

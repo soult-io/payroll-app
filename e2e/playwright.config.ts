@@ -13,9 +13,12 @@
  * Chromium only; serial (journeys share the single in-memory database).
  */
 
+import { dirname, resolve } from "node:path";
+import { fileURLToPath } from "node:url";
 import { defineConfig, devices } from "@playwright/test";
 
 const liveBaseUrl = process.env.E2E_BASE_URL;
+const HERE = dirname(fileURLToPath(import.meta.url));
 
 export default defineConfig({
   testDir: "./tests",
@@ -25,8 +28,24 @@ export default defineConfig({
   retries: process.env.CI ? 1 : 0,
   // CI also writes a json report (spec 17 §2) — the verify-summary job and the
   // pay-verify site consume it. Output path is relative to this config's dir.
+  //
+  // The journey-evidence reporter (spec 20) runs only for the ephemeral CI
+  // boot, never against live QA (spec 20 D2). It writes next to the stills
+  // under test-results/, which the e2e job uploads as pay-verify-evidence.
   reporter: process.env.CI
-    ? [["github"], ["html", { open: "never" }], ["json", { outputFile: "playwright-results.json" }]]
+    ? [
+        ["github"],
+        ["html", { open: "never" }],
+        ["json", { outputFile: "playwright-results.json" }],
+        ...(liveBaseUrl
+          ? []
+          : [
+              [
+                "./reporters/evidence-reporter.ts",
+                { outputFile: resolve(HERE, "test-results/journey-evidence.json") },
+              ] as const,
+            ]),
+      ]
     : [["list"]],
   use: {
     baseURL: liveBaseUrl ?? "http://127.0.0.1:9898",

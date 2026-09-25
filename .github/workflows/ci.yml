@@ -119,6 +119,21 @@ jobs:
           if-no-files-found: warn
           retention-days: 7
 
+      # Spec 20 (PAY-78): journey evidence — journey-evidence.json + one still
+      # per step. Paths inside the json are relative to test-results/, which
+      # upload-artifact keeps as the artifact root (least common ancestor).
+      # Pass AND fail: a failed card opens on its failing step's still.
+      - name: Upload journey evidence
+        if: always()
+        uses: actions/upload-artifact@v7
+        with:
+          name: pay-verify-evidence
+          path: |
+            e2e/test-results/journey-evidence.json
+            e2e/test-results/**/attachments/step-still-*.jpg
+          if-no-files-found: warn
+          retention-days: 7
+
   # Spec 17 §2 (PAY-43): assemble the versioned, PII-free result summary from
   # the verify + e2e reporter artifacts and publish it (with the html report)
   # on EVERY run — the ingest source of truth for the pay-verify site (PAY-44).
