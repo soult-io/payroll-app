@@ -260,10 +260,13 @@ function actionSheet(video: string, name: string, times: number[], dir: string):
   if (times.length === 0) return;
   const work = join(dir, "work", `${name}-actions`);
   mkdirSync(work, { recursive: true });
-  times.forEach((ms, i) => {
+  // Numbered only as frames succeed: an image-sequence input stops at the first
+  // gap, which would silently drop every later action from the sheet.
+  let n = 0;
+  for (const ms of times) {
     // 60ms before the action: the ring is up, the click has not landed yet.
     const t = Math.max(0, ms - 60) / 1000;
-    run("ffmpeg", [
+    const got = run("ffmpeg", [
       "-y",
       "-v",
       "error",
@@ -275,9 +278,12 @@ function actionSheet(video: string, name: string, times: number[], dir: string):
       "1",
       "-vf",
       "scale=480:-1",
-      join(work, `a${String(i).padStart(3, "0")}.jpg`),
+      join(work, `a${String(n).padStart(3, "0")}.jpg`),
     ]);
-  });
+    if (got.ok) n += 1;
+    else console.warn(`walkthrough: no frame at ${ms}ms for ${name}`);
+  }
+  if (n === 0) return;
   run("ffmpeg", [
     "-y",
     "-v",

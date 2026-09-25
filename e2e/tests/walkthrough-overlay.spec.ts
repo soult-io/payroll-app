@@ -34,7 +34,7 @@ const RECORD_AT_CLICK = () => {
       (window as unknown as { __atClick: AtClick }).__atClick = {
         ringOpacity: ring?.style.opacity ?? "",
         ringKind: host?.dataset.ringKind,
-        caption: caption?.textContent ?? "",
+        caption: caption?.dataset.text ?? "",
         cursor: m ? { x: Number(m[1]), y: Number(m[2]) } : null,
         ring: {
           left: box?.left ?? 0,
@@ -97,10 +97,28 @@ test.describe("harness · walkthrough overlay", () => {
         const host = document.querySelector("walkthrough-overlay") as HTMLElement | null;
         return {
           kind: host?.dataset.ringKind,
-          caption: host?.shadowRoot?.querySelector('[part~="caption"]')?.textContent,
+          caption: host?.shadowRoot?.querySelector<HTMLElement>('[part~="caption"]')?.dataset.text,
         };
       });
       expect(state).toEqual({ kind: "focus", caption: "Type · Name" });
+    } finally {
+      await ctx.close();
+    }
+  });
+
+  test("the caption is invisible to text locators: no strict-mode double match", async ({
+    browser,
+  }, testInfo) => {
+    const ctx = await browser.newContext({ recordVideo: { dir: testInfo.outputPath("v") } });
+    const page = await ctx.newPage();
+    try {
+      await page.setContent(`<button>Save</button> <p>Total $3,383.87</p>`);
+      await registerPage(page, testInfo);
+      // The pointed-at action's own locator, and a later one, each match once.
+      await page.getByText("Save").click();
+      await page.getByText("Total $3,383.87").click();
+      await expect(page.getByText("Save")).toHaveCount(1);
+      await expect(page.getByText("$3,383.87")).toHaveCount(1);
     } finally {
       await ctx.close();
     }

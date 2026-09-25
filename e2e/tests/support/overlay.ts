@@ -13,6 +13,12 @@
  * z-index. It covers nothing for hit-testing, and the screen-change hold never
  * sees it (a shadow root is invisible to document.querySelectorAll).
  *
+ * The caption carries NO text node: it is drawn by CSS from a data attribute
+ * (`::before { content: attr(data-text) }`). Playwright's text locators pierce
+ * open shadow roots and count hidden elements, so a caption "Click · Save" held
+ * as text would make a later `getByText("Save")` — or the pointed-at action's
+ * own locator — match twice and fail in strict mode.
+ *
  * Ported from ta-verify (soult-io/teacher-assistant PR 72), where 0/58 gating
  * stills contained overlay pixels.
  */
@@ -124,6 +130,7 @@ export function overlayRuntime(target?: Element, req?: PointRequest): PointResul
         padding: 4px 10px; border-radius: 999px; background: rgba(17,24,39,.9); color: #fff;
         font: 600 13px/18px system-ui, sans-serif; white-space: nowrap; overflow: hidden;
         text-overflow: ellipsis; opacity: 0; }
+      [part~="caption"]::before { content: attr(data-text); }
       [part~="ripple"] { position: absolute; width: 44px; height: 44px; margin: -22px 0 0 -22px;
         border-radius: 50%; border: 3px solid #ec4899; background: rgba(236,72,153,.25);
         animation: ripple ${RIPPLE_MS}ms ease-out forwards; }
@@ -262,7 +269,7 @@ export function overlayRuntime(target?: Element, req?: PointRequest): PointResul
       height: `${now.height + pad * 2}px`,
       opacity: "1",
     });
-    o.caption.textContent = short ? `${req.verb} · ${short}` : req.verb;
+    o.caption.dataset.text = short ? `${req.verb} · ${short}` : req.verb;
     const cap = o.caption.getBoundingClientRect();
     const below = now.bottom + pad + 8;
     const top = below + cap.height <= innerHeight - 8 ? below : now.top - pad - 8 - cap.height;
@@ -280,9 +287,6 @@ export function overlayRuntime(target?: Element, req?: PointRequest): PointResul
 
   return { ...to, waitMs: glideMs + req.highlightMs };
 }
-
-/** The init-script source that installs the overlay in every new document. */
-export const OVERLAY_INIT_SCRIPT = `if (window === window.top) (${overlayRuntime.toString()})()`;
 
 /**
  * Show the viewer what the next action touches: glide, ring, caption, and wait
