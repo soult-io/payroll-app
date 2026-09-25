@@ -226,7 +226,23 @@ with a "Show screens" control (R4).
 - Light and dark themes; no horizontal scroll at 375 px; keyboard and
   screen-reader operable.
 
-`nginx.conf` serves `/media/` with the correct content types.
+`nginx.conf` serves `/media/` with the correct content types and `nosniff`.
+
+### Which cards carry media (PR 4)
+
+- Only the D4 journey files (`JOURNEY_SPEC_FILES` in `@payroll/verify-summary`,
+  kept equal to the reporter's `JOURNEY_FILES`; a test pins each). A utility
+  spec's card (mobile-login, qa-helpers) shows no media line at all.
+- Tests under a `harness · …` describe (the e2e tooling's own self-tests) get
+  no journey card. They still count in the e2e suite totals.
+- A journey card whose current result came from a ci run shows screens only
+  from the bundle bound to that run (`runId`) and commit (`gitSha`); otherwise
+  "No evidence for this run." A nightly-sourced result says screens are
+  captured on CI runs only.
+- Zero image requests on load holds for every card except a FAILED one, which
+  opens on its failing step (R4) and so loads that one still.
+- Tables scroll inside their own box on a phone; the page never scrolls
+  sideways (this fixed an existing overflow in the suites table).
 
 ## Build order (one PR each)
 

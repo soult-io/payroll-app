@@ -15,8 +15,17 @@ import {
   type TestResult,
   type TestStatus,
   type VerifySummary,
+  JOURNEY_SPEC_FILES,
   outcomeFromTests,
 } from "@payroll/verify-summary";
+import {
+  type EvidenceIndex,
+  evidenceFor,
+  noMediaNote,
+  SCREENS_SCRIPT,
+  SCREENS_STYLE,
+  screensViewer,
+} from "./media.js";
 
 export function escapeHtml(value: string): string {
   return value
@@ -116,6 +125,9 @@ export interface Execution {
   test: TestResult;
   source: Source;
   generatedAt: string;
+  /** The run that executed it — binds journey evidence to this result (spec 20). */
+  runId: string;
+  gitSha: string;
 }
 
 /**
@@ -132,7 +144,13 @@ export function latestExecutions(history: VerifySummary[]): Map<string, Executio
         if (test.status === "skipped") continue;
         const key = executionKey(suite.key, test);
         if (isNewer(summary.generatedAt, seen.get(key)?.generatedAt)) {
-          seen.set(key, { test, source: summary.source, generatedAt: summary.generatedAt });
+          seen.set(key, {
+            test,
+            source: summary.source,
+            generatedAt: summary.generatedAt,
+            runId: summary.runId,
+            gitSha: summary.gitSha,
+          });
         }
       }
     }
@@ -373,18 +391,18 @@ function suiteTable(views: SourceView[], lastExecuted: Map<string, string>): str
       v.latest ? v.latest.suites.map((s) => suiteRow(s, v.source, lastExecuted)) : [],
     )
     .join("\n");
-  return `<table class="suites">
+  return `<div class="table-wrap"><table class="suites">
       <thead><tr><th>Suite</th><th>Source</th><th>Status</th><th>Pass</th><th>Flaky</th><th>Fail</th><th>Skip</th><th>Total</th><th>Duration</th></tr></thead>
       <tbody>${rows || `<tr><td colspan="9" class="muted">no suites reported</td></tr>`}</tbody>
-    </table>`;
+    </table></div>`;
 }
 
 function historyTable(history: VerifySummary[]): string {
   const rows = history.map(historyRow).join("\n");
-  return `<table class="history">
+  return `<div class="table-wrap"><table class="history">
       <thead><tr><th>Run</th><th>Status</th><th>Source</th><th>Commit</th><th>Passed</th><th>Pass rate</th></tr></thead>
       <tbody>${rows}</tbody>
-    </table>`;
+    </table></div>`;
 }
 
 /** Worst outcome across every reporting source AND every one of their suites. */
@@ -690,7 +708,31 @@ function executedInLatest(views: SourceView[], test: TestResult): boolean {
   );
 }
 
-function journeyCard(test: TestResult, execution: Execution | undefined, current: boolean): string {
+/**
+ * Screens for a card whose result is current, from the evidence bundle bound
+ * to that exact run (spec 20). A result from any other run gets a note, never
+ * another run's screens.
+ */
+function journeyMedia(
+  shown: TestResult,
+  execution: Execution | undefined,
+  current: boolean,
+  evidence: EvidenceIndex | undefined,
+): string {
+  if (!current || !execution) return "";
+  // Utility specs (spec 20 D4) never carry evidence: no media line at all,
+  // rather than a "no evidence" note that suggests something went missing.
+  if (!JOURNEY_SPEC_FILES.has(fileKey(shown.file))) return "";
+  const journey = evidenceFor(evidence, execution, shown.fullName);
+  return journey ? screensViewer(journey, shown.status, execution.runId) : noMediaNote(execution);
+}
+
+function journeyCard(
+  test: TestResult,
+  execution: Execution | undefined,
+  current: boolean,
+  evidence: EvidenceIndex | undefined,
+): string {
   const never = execution === undefined && test.status === "skipped";
   if (never) {
     return `<article class="tcard never-edge">
@@ -711,7 +753,17 @@ function journeyCard(test: TestResult, execution: Execution | undefined, current
       <div class="tcard-head"><h3>${escapeHtml(test.name)}</h3>${chip}</div>
       ${journeyDetail(shown, execution?.generatedAt)}
       ${attribution}
+      ${journeyMedia(shown, execution, current, evidence)}
     </article>`;
+}
+
+/**
+ * Harness self-tests of the e2e tooling (spec 20's still capture and evidence
+ * reporter), grouped under a `harness · …` describe. They run in the e2e suite
+ * and count there, but they are not product journeys, so they get no card.
+ */
+export function isHarnessTest(test: TestResult): boolean {
+  return /(^|\s)harness · /.test(test.fullName);
 }
 
 /**
@@ -723,16 +775,24 @@ function journeyUnion(views: SourceView[]): TestResult[] {
   const byName = new Map<string, TestResult>();
   for (const v of views) {
     const e2e = v.latest?.suites.find((s) => s.key === "e2e");
-    for (const t of e2e?.tests ?? []) if (!byName.has(t.fullName)) byName.set(t.fullName, t);
+    for (const t of e2e?.tests ?? []) {
+      if (!isHarnessTest(t) && !byName.has(t.fullName)) byName.set(t.fullName, t);
+    }
   }
   return [...byName.values()];
 }
 
-function journeyCardsSection(views: SourceView[], executions: Map<string, Execution>): string {
+function journeyCardsSection(
+  views: SourceView[],
+  executions: Map<string, Execution>,
+  evidence: EvidenceIndex | undefined,
+): string {
   const tests = journeyUnion(views);
   if (tests.length === 0) return "";
   const cards = tests
-    .map((t) => journeyCard(t, executions.get(executionKey("e2e", t)), executedInLatest(views, t)))
+    .map((t) =>
+      journeyCard(t, executions.get(executionKey("e2e", t)), executedInLatest(views, t), evidence),
+    )
     .join("\n");
   const runs = views
     .filter(hasReported)
@@ -759,6 +819,8 @@ export interface RenderOptions {
   skippedSummaries?: number | undefined;
   /** Clock override, so staleness is testable. Defaults to the real now. */
   now?: Date | undefined;
+  /** The validated, copied journey-evidence bundle (spec 20), when there is one. */
+  evidence?: EvidenceIndex | undefined;
 }
 
 /** Render the full dashboard document from the ingested history. */
@@ -781,7 +843,7 @@ export function renderPage(history: VerifySummary[], options: RenderOptions = {}
       <h2>Suites</h2>
       ${suiteTable(views, lastExecuted)}
     </section>
-    ${journeyCardsSection(views, executions)}
+    ${journeyCardsSection(views, executions, options.evidence)}
     ${taxSource ? taxCardsSection(taxSource) : ""}
     <section class="card">
       <h2>Recent runs</h2>
@@ -836,6 +898,7 @@ ${body}
       Synthetic data only — no employee PII. Generated ${formatInstant(now.toISOString())} · summary schema v2${stalenessNote(newestRunAt, now)}${dropped}.
     </footer>
 </main>
+<script>${SCREENS_SCRIPT}</script>
 </body>
 </html>
 `;
@@ -876,6 +939,8 @@ h2 { font-size: 1.05rem; margin: 0 0 12px; }
 .badge.never { color: var(--never); background: var(--never-bg); }
 .report { display: inline-block; margin-top: 12px; color: var(--pass); font-weight: 600; text-decoration: none; }
 .report:hover { text-decoration: underline; }
+/* Tables scroll inside their own box on a phone; the page never scrolls sideways. */
+.table-wrap { overflow-x: auto; }
 table { width: 100%; border-collapse: collapse; font-size: 0.92rem; }
 th, td { text-align: left; padding: 8px 10px; border-bottom: 1px solid var(--border); }
 th { color: var(--muted); font-weight: 600; font-size: 0.8rem; text-transform: uppercase; letter-spacing: .03em; }
@@ -909,4 +974,4 @@ td.num { text-align: right; font-variant-numeric: tabular-nums; }
 .check-meta { color: var(--muted); white-space: nowrap; }
 footer { margin-top: 24px; font-size: 0.82rem; text-align: center; }
 .stale { color: var(--flake); }
-`;
+${SCREENS_STYLE}`;

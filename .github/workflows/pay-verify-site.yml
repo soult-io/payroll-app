@@ -41,6 +41,10 @@ env:
   REGISTRY: ghcr.io
   IMAGE: ghcr.io/soult-io/payroll-app-verify
   DATA_BRANCH: pay-verify-data
+  # Spec 20 D1: journey media lives on its own orphan branch, force-pushed as
+  # ONE commit holding only the latest ci bundle — binary history never piles
+  # up (the text-only data branch keeps its history).
+  ASSETS_BRANCH: pay-verify-assets
   HISTORY_KEEP: "60"
   # The commit this run builds from: the triggering run's tested commit, else
   # the dispatched ref's own commit.
@@ -135,6 +139,19 @@ jobs:
           github-token: ${{ secrets.GITHUB_TOKEN }}
           path: _incoming
 
+      # Spec 20: the ci run's journey evidence (json + step stills). ci only —
+      # the nightly never captures (D2). Tolerated when absent (an older run,
+      # an expired artifact): the cards then say "no evidence for this run".
+      - name: Download journey evidence
+        if: github.event_name == 'workflow_run' && github.event.workflow_run.name == 'ci'
+        continue-on-error: true
+        uses: actions/download-artifact@v7
+        with:
+          name: pay-verify-evidence
+          run-id: ${{ github.event.workflow_run.id }}
+          github-token: ${{ secrets.GITHUB_TOKEN }}
+          path: _evidence_in
+
       # Last gate before any push: the tag commit, the checked-out tree and the
       # ingested summary's commit must all be the same. A missing summary (the
       # tolerated skipped/expired case above) ingests nothing, so there is no
@@ -153,6 +170,26 @@ jobs:
           fi
           if [ "$evidence" != none ] && [ "$evidence" != "$COMMIT_SHA" ]; then
             echo "::error::summary commit $evidence != tag commit $COMMIT_SHA — refusing to publish"
+            exit 1
+          fi
+
+      # The journey bundle must come from the same commit AND the same run as
+      # the summary it sits beside (spec 20 R5).
+      - name: Assert same-run journey evidence
+        if: github.event_name == 'workflow_run'
+        env:
+          RID: ${{ github.event.workflow_run.id }}
+        run: |
+          f=_evidence_in/journey-evidence.json
+          if [ ! -f "$f" ]; then
+            echo "journey evidence none"
+            exit 0
+          fi
+          sha="$(jq -r '.commitSha // "missing"' "$f")"
+          run="$(jq -r '.runId // "missing"' "$f")"
+          echo "journey evidence commit $sha | run $run (tag $COMMIT_SHA | run $RID)"
+          if [ "$sha" != "$COMMIT_SHA" ] || [ "$run" != "$RID" ]; then
+            echo "::error::journey evidence is from another commit or run — refusing to publish"
             exit 1
           fi
 
@@ -190,6 +227,42 @@ jobs:
           git -C _data commit -m "chore(pay-verify): ingest summary from run ${RID} [skip ci]" || echo "nothing to commit"
           git -C _data push origin "$DATA_BRANCH"
 
+      # Replace the assets branch with this run's bundle: an orphan commit,
+      # force-pushed, so the branch only ever holds the latest ci bundle. Over
+      # the spec 20 media budget, nothing is pushed and the job fails.
+      - name: Publish journey evidence to the assets branch
+        if: github.event_name == 'workflow_run'
+        env:
+          RID: ${{ github.event.workflow_run.id }}
+        run: |
+          if [ ! -f _evidence_in/journey-evidence.json ]; then
+            echo "no journey evidence from this run — the assets branch is left as it is"
+            exit 0
+          fi
+          bytes="$(du -sb _evidence_in | cut -f1)"
+          if [ "$bytes" -gt $((100 * 1024 * 1024)) ]; then
+            echo "::error::journey evidence is $bytes bytes, over the 100 MB budget"
+            exit 1
+          fi
+          git worktree add --orphan -b _assets_new _assets_new
+          mkdir -p _assets_new/ci
+          cp -r _evidence_in/. _assets_new/ci/
+          git -C _assets_new add ci
+          git -C _assets_new commit -q -m "chore(pay-verify): journey evidence from run ${RID} @ ${COMMIT_SHA} [skip ci]"
+          git -C _assets_new push --force origin "HEAD:refs/heads/${ASSETS_BRANCH}"
+
+      # The bundle the site shows: the assets branch as it now stands (this
+      # run's, or the latest ci bundle on a nightly / dispatch rebuild). The
+      # generator binds it to cards by run + commit, and validates every still.
+      - name: Fetch journey evidence
+        run: |
+          if git ls-remote --exit-code --heads origin "$ASSETS_BRANCH" >/dev/null 2>&1; then
+            git fetch --depth 1 origin "$ASSETS_BRANCH"
+            git worktree add --detach _assets "origin/$ASSETS_BRANCH"
+          else
+            echo "no ${ASSETS_BRANCH} branch yet — no journey evidence"
+          fi
+
       # Generate the static site (to its own dir, kept apart from the compiled
       # JS in dist/). Fold in the latest run's Playwright report ONLY when it is
       # present, and only then link to it — no dead /report link otherwise.
@@ -200,6 +273,9 @@ jobs:
           if [ -d _incoming/playwright-report ]; then
             cp -r _incoming/playwright-report packages/verify-site/dist/site/report
             args+=(--report-href report/)
+          fi
+          if [ -f _assets/ci/journey-evidence.json ]; then
+            args+=(--evidence _assets/ci)
           fi
           node packages/verify-site/dist/generate.js "${args[@]}"
 
