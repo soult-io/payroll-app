@@ -13,3 +13,14 @@ export {
 // deliberately v1 and should be typed as such — a type is not a runtime contract.
 export { type VerifySummaryV1, parseSummary } from "./migrate.js";
 export { type PiiFinding, type PiiKind, assertPiiFree, findPii } from "./pii-guard.js";
+export {
+  EVIDENCE_SCHEMA,
+  type EvidenceStep,
+  type JourneyEvidence,
+  JOURNEY_SPEC_FILES,
+  type JourneyRecord,
+  journeyEvidenceSchema,
+  parseEvidence,
+  STILL_MAX_HEIGHT_PX,
+  type StillRecord,
+} from "./evidence.js";
