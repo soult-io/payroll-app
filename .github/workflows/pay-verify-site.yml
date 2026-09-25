@@ -25,16 +25,39 @@ name: pay-verify-site
 
 on:
   workflow_run:
-    workflows: [ci, e2e-nightly]
+    workflows: [ci, e2e-nightly, walkthrough]
     types: [completed]
+    # head_branch only — the job's `if` still checks the event and repository.
+    branches: [main]
   workflow_dispatch:
 
 # Jobs grant their own permissions; nothing is inherited.
 permissions: {}
 
 # Serialize: concurrent runs would race on the pay-verify-data branch push.
+# Concurrency applies BEFORE the job's `if`, and a run joining the group
+# cancels a run still pending in it. So a run that is going to be skipped (a
+# failed or pull_request run, a failed walkthrough) gets a group of its own:
+# it must never cancel a waiting run that would publish. Every publishing run
+# shares `pay-verify-site-publish` (a non-empty key: in an expression '' is
+# falsy and would send every run to the skip branch). Keep in step with the
+# job's `if`.
 concurrency:
-  group: pay-verify-site
+  group: >-
+    pay-verify-site-${{
+      (github.event_name == 'workflow_dispatch' || (
+        github.event.workflow_run.conclusion != 'cancelled' &&
+        github.event.workflow_run.head_branch == 'main' &&
+        github.event.workflow_run.head_repository.full_name == github.repository &&
+        (
+          (github.event.workflow_run.name != 'walkthrough' &&
+            contains(fromJSON('["push","schedule","workflow_dispatch"]'), github.event.workflow_run.event)) ||
+          (github.event.workflow_run.name == 'walkthrough' &&
+            github.event.workflow_run.event == 'workflow_run' &&
+            github.event.workflow_run.conclusion == 'success')
+        )
+      )) && 'publish' || format('skip-{0}', github.run_id)
+    }}
   cancel-in-progress: false
 
 env:
@@ -59,13 +82,23 @@ jobs:
     # A CANCELLED run (ci cancels superseded runs on main) tested nothing, so it
     # publishes nothing: no sha-* tag without a result behind it.
     # Keep in step with the API re-check in "Resolve triggering run".
+    #
+    # A walkthrough run (spec 20 PR 7) counts only when it succeeded and was
+    # itself started by workflow_run — i.e. it re-recorded a green ci push to
+    # main. Its PR and manual recordings never feed the site.
     if: >-
       github.repository == 'soult-io/payroll-app' &&
       (github.event_name == 'workflow_dispatch' || (
         github.event.workflow_run.conclusion != 'cancelled' &&
         github.event.workflow_run.head_branch == 'main' &&
         github.event.workflow_run.head_repository.full_name == github.repository &&
-        contains(fromJSON('["push","schedule","workflow_dispatch"]'), github.event.workflow_run.event)
+        (
+          (github.event.workflow_run.name != 'walkthrough' &&
+            contains(fromJSON('["push","schedule","workflow_dispatch"]'), github.event.workflow_run.event)) ||
+          (github.event.workflow_run.name == 'walkthrough' &&
+            github.event.workflow_run.event == 'workflow_run' &&
+            github.event.workflow_run.conclusion == 'success')
+        )
       ))
     runs-on: ubuntu-latest
     permissions:
@@ -88,10 +121,17 @@ jobs:
               repo: context.repo.repo,
               run_id: t.id,
             });
-            const workflows = [".github/workflows/ci.yml", ".github/workflows/e2e-nightly.yml"];
+            const workflows = [
+              ".github/workflows/ci.yml",
+              ".github/workflows/e2e-nightly.yml",
+              ".github/workflows/walkthrough.yml",
+            ];
+            const isWalkthrough = run.path.startsWith(".github/workflows/walkthrough.yml");
+            const events = isWalkthrough ? ["workflow_run"] : ["push", "schedule", "workflow_dispatch"];
             const problems = [
               !workflows.some((w) => run.path === w || run.path.startsWith(`${w}@`)) && `path ${run.path}`,
-              !["push", "schedule", "workflow_dispatch"].includes(run.event) && `event ${run.event}`,
+              !events.includes(run.event) && `event ${run.event}`,
+              isWalkthrough && run.conclusion !== "success" && `conclusion ${run.conclusion}`,
               run.head_branch !== "main" && `head_branch ${run.head_branch}`,
               run.head_repository?.full_name !== `${context.repo.owner}/${context.repo.repo}` &&
                 `head_repository ${run.head_repository?.full_name}`,
@@ -127,7 +167,7 @@ jobs:
       # Pull the summary + html report the triggering run published (chunk A).
       # ci → pay-verify-summary; nightly → pay-verify-summary-nightly.
       - name: Download summary artifact
-        if: github.event_name == 'workflow_run'
+        if: github.event_name == 'workflow_run' && github.event.workflow_run.name != 'walkthrough'
         # Tolerate a missing artifact: a skipped/queued nightly (self-hosted
         # qa-e2e runner asleep) or an expired artifact legitimately has none.
         # The Ingest step warns and rebuilds the site from existing history.
@@ -151,6 +191,18 @@ jobs:
           run-id: ${{ github.event.workflow_run.id }}
           github-token: ${{ secrets.GITHUB_TOKEN }}
           path: _evidence_in
+
+      # Spec 20 PR 7: the walkthrough run's recording (json + one webm per
+      # journey). Tolerated when absent: nothing is then published.
+      - name: Download walkthrough
+        if: github.event_name == 'workflow_run' && github.event.workflow_run.name == 'walkthrough'
+        continue-on-error: true
+        uses: actions/download-artifact@v7
+        with:
+          name: pay-verify-walkthrough
+          run-id: ${{ github.event.workflow_run.id }}
+          github-token: ${{ secrets.GITHUB_TOKEN }}
+          path: _walkthrough_in
 
       # Last gate before any push: the tag commit, the checked-out tree and the
       # ingested summary's commit must all be the same. A missing summary (the
@@ -193,8 +245,47 @@ jobs:
             exit 1
           fi
 
+      # Whether this run publishes. Every ci / nightly / dispatch run does. A
+      # walkthrough run does only when its recording is of THIS commit and
+      # re-recorded the very ci run whose bundle the assets branch holds —
+      # runs queue in completion order, not commit order, so an older
+      # recording finishing late publishes nothing (and nothing else runs).
+      - name: Decide whether to publish
+        id: wt
+        env:
+          WF_NAME: ${{ github.event.workflow_run.name }}
+        run: |
+          if [ "$WF_NAME" != walkthrough ]; then
+            echo "publish=true" >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+          f=_walkthrough_in/walkthrough-evidence.json
+          if [ ! -f "$f" ]; then
+            echo "::notice::no walkthrough evidence in the triggering run — nothing to publish"
+            echo "publish=false" >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+          sha="$(jq -r '.commitSha // "missing"' "$f")"
+          gate="$(jq -r '.gatingRunId // "none"' "$f")"
+          ci_run=none
+          ci_sha=none
+          if git ls-remote --exit-code --heads origin "$ASSETS_BRANCH" >/dev/null 2>&1; then
+            git fetch --depth 1 origin "$ASSETS_BRANCH"
+            ci="$(git show "origin/${ASSETS_BRANCH}:ci/journey-evidence.json" 2>/dev/null || echo '{}')"
+            ci_run="$(jq -r '.runId // "none"' <<<"$ci")"
+            ci_sha="$(jq -r '.commitSha // "none"' <<<"$ci")"
+          fi
+          echo "walkthrough commit $sha | gating run $gate | tag $COMMIT_SHA | assets ci run $ci_run @ $ci_sha"
+          if [ "$sha" = "$COMMIT_SHA" ] && [ "$ci_sha" = "$COMMIT_SHA" ] && [ "$gate" = "$ci_run" ]; then
+            echo "publish=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "::notice::walkthrough is not of the gated commit on the assets branch — not published"
+            echo "publish=false" >> "$GITHUB_OUTPUT"
+          fi
+
       # Check out (or create) the rolling-history data branch as a worktree.
       - name: Prepare data branch
+        if: steps.wt.outputs.publish == 'true'
         run: |
           git config user.name "github-actions[bot]"
           git config user.email "github-actions[bot]@users.noreply.github.com"
@@ -210,7 +301,7 @@ jobs:
       # Append the new summary (named by its instant + run id) and prune the
       # window. Skipped on workflow_dispatch (no new run to ingest).
       - name: Ingest summary
-        if: github.event_name == 'workflow_run'
+        if: github.event_name == 'workflow_run' && github.event.workflow_run.name != 'walkthrough'
         env:
           RID: ${{ github.event.workflow_run.id }}
         run: |
@@ -231,7 +322,7 @@ jobs:
       # force-pushed, so the branch only ever holds the latest ci bundle. Over
       # the spec 20 media budget, nothing is pushed and the job fails.
       - name: Publish journey evidence to the assets branch
-        if: github.event_name == 'workflow_run'
+        if: github.event_name == 'workflow_run' && github.event.workflow_run.name == 'ci'
         env:
           RID: ${{ github.event.workflow_run.id }}
           WF_NAME: ${{ github.event.workflow_run.name }}
@@ -260,14 +351,42 @@ jobs:
           git -C _assets_new commit -q -m "chore(pay-verify): journey evidence from run ${RID} @ ${COMMIT_SHA} [skip ci]"
           git -C _assets_new push --force origin "HEAD:refs/heads/${ASSETS_BRANCH}"
 
+      # Add the recording beside the ci bundle it re-recorded: a new orphan
+      # commit holding that ci/ unchanged plus walkthrough/, force-pushed. The
+      # next ci publish replaces the branch with its own ci/ only, so a video
+      # never outlives the gating run it belongs to.
+      - name: Publish walkthrough to the assets branch
+        if: github.event.workflow_run.name == 'walkthrough' && steps.wt.outputs.publish == 'true'
+        env:
+          RID: ${{ github.event.workflow_run.id }}
+        run: |
+          git worktree add --orphan -b _assets_wt _assets_wt
+          git -C _assets_wt checkout "origin/${ASSETS_BRANCH}" -- ci
+          mkdir -p _assets_wt/walkthrough
+          # Only what the site serves: the evidence and the videos (the
+          # pacing/ contact sheets are review aids, not dashboard media).
+          cp _walkthrough_in/walkthrough-evidence.json _assets_wt/walkthrough/
+          # Evidence without videos (none recorded) still publishes: every
+          # card then simply has no Video tab.
+          if [ -d _walkthrough_in/videos ]; then cp -r _walkthrough_in/videos _assets_wt/walkthrough/; fi
+          bytes="$(du -sb _assets_wt --exclude=.git | cut -f1)"
+          if [ "$bytes" -gt $((100 * 1024 * 1024)) ]; then
+            echo "::error::journey media is $bytes bytes, over the 100 MB budget"
+            exit 1
+          fi
+          git -C _assets_wt add ci walkthrough
+          git -C _assets_wt commit -q -m "chore(pay-verify): walkthrough from run ${RID} @ ${COMMIT_SHA} [skip ci]"
+          git -C _assets_wt push --force origin "HEAD:refs/heads/${ASSETS_BRANCH}"
+
       # The bundle the site shows: the assets branch as it now stands (this
       # run's, or the latest ci bundle on a nightly / dispatch rebuild). The
       # generator binds it to cards by run + commit, and validates every still.
       - name: Fetch journey evidence
+        if: steps.wt.outputs.publish == 'true'
         run: |
           if git ls-remote --exit-code --heads origin "$ASSETS_BRANCH" >/dev/null 2>&1; then
             git fetch --depth 1 origin "$ASSETS_BRANCH"
-            git worktree add --detach _assets "origin/$ASSETS_BRANCH"
+            git worktree add --detach _assets FETCH_HEAD
           else
             echo "no ${ASSETS_BRANCH} branch yet — no journey evidence"
           fi
@@ -276,6 +395,9 @@ jobs:
       # JS in dist/). Fold in the latest run's Playwright report ONLY when it is
       # present, and only then link to it — no dead /report link otherwise.
       - name: Generate site
+        if: steps.wt.outputs.publish == 'true'
+        env:
+          RUN_URL_BASE: ${{ github.server_url }}/${{ github.repository }}/actions/runs/
         run: |
           mkdir -p packages/verify-site/dist/site
           args=(--history _data/history --out packages/verify-site/dist/site)
@@ -286,6 +408,10 @@ jobs:
           if [ -f _assets/ci/journey-evidence.json ]; then
             args+=(--evidence _assets/ci)
           fi
+          if [ -f _assets/walkthrough/walkthrough-evidence.json ]; then
+            args+=(--walkthrough _assets/walkthrough)
+          fi
+          args+=(--run-url-base "$RUN_URL_BASE")
           node packages/verify-site/dist/generate.js "${args[@]}"
 
       # Consecutive runs can finish out of order; only the image of main's
@@ -293,6 +419,7 @@ jobs:
       # (The stack pins by digest, so only :latest readers see a lost race.)
       - name: Check whether this commit is main's tip
         id: tip
+        if: steps.wt.outputs.publish == 'true'
         uses: actions/github-script@v7
         with:
           script: |
@@ -306,8 +433,10 @@ jobs:
             core.setOutput("move_latest", String(latest));
 
       - uses: docker/setup-buildx-action@v3
+        if: steps.wt.outputs.publish == 'true'
 
       - uses: docker/login-action@v4
+        if: steps.wt.outputs.publish == 'true'
         with:
           registry: ${{ env.REGISTRY }}
           username: ${{ github.actor }}
@@ -319,6 +448,7 @@ jobs:
       # (The history branch is already pushed by now; a failed scan leaves the
       # previous image serving while the history moves on. That is intended.)
       - name: Build image (local, for the scan)
+        if: steps.wt.outputs.publish == 'true'
         uses: docker/build-push-action@v7
         with:
           context: .
@@ -333,6 +463,7 @@ jobs:
       # Image vulnerability gate: fail on fixed CRITICAL findings (same posture
       # as the app image). nginx-unprivileged:alpine base, static content only.
       - name: Trivy image scan
+        if: steps.wt.outputs.publish == 'true'
         uses: aquasecurity/trivy-action@v0.36.0
         with:
           image-ref: payroll-app-verify:scan
@@ -343,12 +474,18 @@ jobs:
 
       # Push the exact image Trivy scanned (a rebuild could re-resolve the base
       # tag to a digest that was never scanned).
+      # A walkthrough publish re-images the same commit with its video. It is
+      # tagged sha-<commit>-walkthrough: the stack's pin-update follows the
+      # newest sha-* tag, and re-pushing the same sha-<commit> tag would not
+      # move its tag-only pin.
       - name: Push image
+        if: steps.wt.outputs.publish == 'true'
         env:
           MOVE_LATEST: ${{ steps.tip.outputs.move_latest }}
+          TAG: sha-${{ env.COMMIT_SHA }}${{ github.event.workflow_run.name == 'walkthrough' && '-walkthrough' || '' }}
         run: |
-          docker tag payroll-app-verify:scan "$IMAGE:sha-$COMMIT_SHA"
-          docker push "$IMAGE:sha-$COMMIT_SHA"
+          docker tag payroll-app-verify:scan "$IMAGE:$TAG"
+          docker push "$IMAGE:$TAG"
           if [ "$MOVE_LATEST" = "true" ]; then
             docker tag payroll-app-verify:scan "$IMAGE:latest"
             docker push "$IMAGE:latest"

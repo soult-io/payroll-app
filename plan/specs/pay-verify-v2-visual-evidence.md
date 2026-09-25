@@ -264,6 +264,33 @@ with a "Show screens" control (R4).
 
 `nginx.conf` serves `/media/` with the correct content types and `nosniff`.
 
+### Video | Screens (PR 7)
+
+- `walkthrough-evidence.json` is parsed by `parseWalkthrough` (schema
+  `journey-walkthrough/1`); a recording with no `gatingRunId` (a PR or manual
+  run) is refused. The generator's `--walkthrough <dir>` accepts a video only
+  inside the bundle, with a `.webm` name, as a regular file of at most 20 MB
+  starting with the WebM (EBML) signature; videos count against the same
+  100 MB site budget as the stills.
+- A card gets a Video tab only when the walkthrough re-recorded ITS gating run:
+  walkthrough `commitSha` = evidence `commitSha`, `gatingRunId` = evidence
+  `runId`, and the same step titles in the same order. Anything else: no Video
+  tab (never a misaligned or other-commit video).
+- Opening (owner override): a passed card with a Video tab opens on Video; a
+  failed card opens on Screens at its failing step; any other card stays
+  collapsed on Screens. The step list drives both views; switching views keeps
+  the step (Screens → Video seeks, paused, to that step's offset). The video
+  has `preload="none"` and loads metadata only when a seek is asked for, so a
+  page load fetches no media except each failed card's one screen. The label
+  reads "walkthrough · run #N" and links to the run.
+- `pay-verify-site.yml` also runs after `walkthrough.yml`. It publishes only
+  when that recording is of the tag commit AND its `gatingRunId` is the ci run
+  whose bundle the assets branch holds (runs finish out of order; an older
+  recording publishes nothing). It then adds `walkthrough/` beside the
+  unchanged `ci/` on the assets branch (one orphan commit) and pushes the image
+  as `sha-<commit>-walkthrough`: the stack's pin follows the newest `sha-*`
+  tag, and re-pushing `sha-<commit>` would not move its tag-only pin.
+
 ### Which cards carry media (PR 4)
 
 - Only the D4 journey files (`JOURNEY_SPEC_FILES` in `@payroll/verify-summary`,

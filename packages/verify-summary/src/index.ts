@@ -16,11 +16,16 @@ export { type PiiFinding, type PiiKind, assertPiiFree, findPii } from "./pii-gua
 export {
   EVIDENCE_SCHEMA,
   type EvidenceStep,
+  type GatedWalkthrough,
   type JourneyEvidence,
   JOURNEY_SPEC_FILES,
   type JourneyRecord,
   journeyEvidenceSchema,
   parseEvidence,
+  parseWalkthrough,
   STILL_MAX_HEIGHT_PX,
   type StillRecord,
+  WALKTHROUGH_SCHEMA,
+  type WalkthroughEvidence,
+  type WalkthroughJourney,
 } from "./evidence.js";

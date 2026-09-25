@@ -1,7 +1,14 @@
 import type { TestResult, VerifySummary } from "@payroll/verify-summary";
 import { describe, expect, it } from "vitest";
 import { isHarnessTest, renderPage } from "../src/lib.js";
-import { type EvidenceIndex, evidenceFor, openingStep, type ServedJourney } from "../src/media.js";
+import {
+  type EvidenceIndex,
+  evidenceFor,
+  openingStep,
+  type ServedJourney,
+  type WalkthroughIndex,
+  walkthroughFor,
+} from "../src/media.js";
 
 const SHA = "8d80bba1c2d3e4f5a6b7c8d9e0f1a2b3c4d5e6f7";
 const NOW = new Date("2026-09-25T10:00:00Z");
@@ -124,7 +131,7 @@ describe("journey card screens", () => {
       ]),
     });
     const card = cardFor(html, "journey 1");
-    expect(card).toContain('<details class="screens" data-initial="0">');
+    expect(card).toContain('<details class="screens" data-initial="0" data-view="screens">');
     expect(card).toContain('data-src="media/ci/j/step-still-1.jpg"');
     expect(html).not.toMatch(/<img[^>]*\ssrc=/i);
     // No-JS path: a plain link per captured step.
@@ -146,7 +153,7 @@ describe("journey card screens", () => {
       ]),
     });
     const card = cardFor(html, "journey 2");
-    expect(card).toContain('<details class="screens" data-initial="1" open>');
+    expect(card).toContain('<details class="screens" data-initial="1" data-view="screens" open>');
     expect(card).toContain("opened on the failing step");
   });
 
@@ -273,5 +280,102 @@ describe("harness tests get no journey card", () => {
     const html = renderPage([ciSummary([e2eTest("journey 1", "passed"), harness])], { now: NOW });
     expect(html).toContain("<h3>journey 1</h3>");
     expect(html).not.toContain("<h3>a short page gives one still</h3>");
+  });
+});
+
+describe("walkthrough video (spec 20 R1/R4, PR 7)", () => {
+  const steps = [
+    { title: "Open run", status: "passed" as const, still: still(1) },
+    { title: "Approve", status: "passed" as const, still: still(2) },
+  ];
+  function wt(
+    over: Partial<WalkthroughIndex> = {},
+    titles = ["Open run", "Approve"],
+  ): WalkthroughIndex {
+    return {
+      commitSha: SHA,
+      gatingRunId: "42",
+      runId: "77",
+      journeys: new Map([
+        [
+          "journeys.spec.ts journey W",
+          {
+            href: "media/walkthrough/videos/w.webm",
+            durationMs: 30_000,
+            steps: titles.map((title, i) => ({ title, offsetMs: 1500 + i * 5000 })),
+          },
+        ],
+      ]),
+      ...over,
+    };
+  }
+  const ev = index([["journeys.spec.ts journey W", journey(steps)]]);
+  const j = journey(steps);
+
+  it("binds only a recording of the same commit, re-running the same gating run, with the same steps", () => {
+    expect(walkthroughFor(wt(), ev, "journeys.spec.ts journey W", j)?.offsetsMs).toEqual([
+      1500, 6500,
+    ]);
+    expect(
+      walkthroughFor(wt({ commitSha: "f".repeat(40) }), ev, "journeys.spec.ts journey W", j),
+    ).toBeUndefined();
+    expect(
+      walkthroughFor(wt({ gatingRunId: "41" }), ev, "journeys.spec.ts journey W", j),
+    ).toBeUndefined();
+    expect(
+      walkthroughFor(wt({}, ["Open run"]), ev, "journeys.spec.ts journey W", j),
+    ).toBeUndefined();
+    expect(
+      walkthroughFor(wt({}, ["Open run", "Issue"]), ev, "journeys.spec.ts journey W", j),
+    ).toBeUndefined();
+    expect(walkthroughFor(undefined, ev, "journeys.spec.ts journey W", j)).toBeUndefined();
+  });
+
+  it("a passed card with a bound video opens on Video; the video fetches nothing on load", () => {
+    const t = e2eTest("journey W", "passed");
+    const html = renderPage([ciSummary([t])], {
+      now: NOW,
+      evidence: ev,
+      walkthrough: wt(),
+      runUrlBase: "https://github.com/soult-io/payroll-app/actions/runs/",
+    });
+    const card = cardFor(html, "journey W");
+    expect(card).toContain('data-view="video" open>');
+    expect(card).toMatch(
+      /<video [^>]*preload="none"[^>]*data-src="media\/walkthrough\/videos\/w\.webm"/,
+    );
+    expect(card).not.toMatch(/<video[^>]*\ssrc=/i);
+    expect(card).toContain('role="tab"');
+    expect(card).toContain('data-t="1.500"');
+    expect(card).toContain(
+      'walkthrough · run <a href="https://github.com/soult-io/payroll-app/actions/runs/77"',
+    );
+  });
+
+  it("a failed card with a video still opens on Screens at the failing step", () => {
+    const failing = [
+      steps[0],
+      { ...steps[1], status: "failed" as const },
+    ] as ServedJourney["steps"];
+    const t = e2eTest("journey W", "failed");
+    const html = renderPage([ciSummary([t])], {
+      now: NOW,
+      evidence: index([["journeys.spec.ts journey W", journey(failing)]]),
+      walkthrough: wt(),
+    });
+    expect(cardFor(html, "journey W")).toContain('data-initial="1" data-view="screens" open>');
+  });
+
+  it("no bound video: no Video tab, and a passed card stays collapsed on Screens", () => {
+    const t = e2eTest("journey W", "passed");
+    const html = renderPage([ciSummary([t])], {
+      now: NOW,
+      evidence: ev,
+      walkthrough: wt({ gatingRunId: "41" }),
+    });
+    const card = cardFor(html, "journey W");
+    expect(card).toContain('data-view="screens">');
+    expect(card).not.toContain("<video");
+    expect(card).not.toContain('role="tab"');
   });
 });

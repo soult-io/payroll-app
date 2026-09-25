@@ -23,9 +23,11 @@ import {
   type EvidenceIndex,
   evidenceFor,
   noMediaNote,
-  SCREENS_SCRIPT,
-  SCREENS_STYLE,
-  screensViewer,
+  MEDIA_VIEWER_SCRIPT,
+  MEDIA_VIEWER_STYLE,
+  mediaViewer,
+  type WalkthroughIndex,
+  walkthroughFor,
 } from "./media.js";
 
 // Shared with media.ts (which lib.ts imports, so it cannot import back);
@@ -704,6 +706,13 @@ function executedInLatest(views: SourceView[], test: TestResult): boolean {
   );
 }
 
+/** Everything a journey card's media needs from the render options. */
+interface MediaContext {
+  evidence: EvidenceIndex | undefined;
+  walkthrough: WalkthroughIndex | undefined;
+  runUrlBase: string | undefined;
+}
+
 /**
  * Screens for a card whose result is current, from the evidence bundle bound
  * to that exact run (spec 20). A result from any other run gets a note, never
@@ -713,21 +722,23 @@ function journeyMedia(
   shown: TestResult,
   execution: Execution | undefined,
   current: boolean,
-  evidence: EvidenceIndex | undefined,
+  { evidence, walkthrough, runUrlBase }: MediaContext,
 ): string {
   if (!current || !execution) return "";
   // Utility specs (spec 20 D4) never carry evidence: no media line at all,
   // rather than a "no evidence" note that suggests something went missing.
   if (!JOURNEY_SPEC_FILES.has(fileKey(shown.file))) return "";
   const journey = evidenceFor(evidence, execution, shown.fullName);
-  return journey ? screensViewer(journey, shown.status, execution.runId) : noMediaNote(execution);
+  if (!journey || !evidence) return noMediaNote(execution);
+  const video = walkthroughFor(walkthrough, evidence, shown.fullName, journey);
+  return mediaViewer(journey, shown.status, execution.runId, video, runUrlBase);
 }
 
 function journeyCard(
   test: TestResult,
   execution: Execution | undefined,
   current: boolean,
-  evidence: EvidenceIndex | undefined,
+  media: MediaContext,
 ): string {
   const never = execution === undefined && test.status === "skipped";
   if (never) {
@@ -749,7 +760,7 @@ function journeyCard(
       <div class="tcard-head"><h3>${escapeHtml(test.name)}</h3>${chip}</div>
       ${journeyDetail(shown, execution?.generatedAt)}
       ${attribution}
-      ${journeyMedia(shown, execution, current, evidence)}
+      ${journeyMedia(shown, execution, current, media)}
     </article>`;
 }
 
@@ -781,13 +792,13 @@ function journeyUnion(views: SourceView[]): TestResult[] {
 function journeyCardsSection(
   views: SourceView[],
   executions: Map<string, Execution>,
-  evidence: EvidenceIndex | undefined,
+  media: MediaContext,
 ): string {
   const tests = journeyUnion(views);
   if (tests.length === 0) return "";
   const cards = tests
     .map((t) =>
-      journeyCard(t, executions.get(executionKey("e2e", t)), executedInLatest(views, t), evidence),
+      journeyCard(t, executions.get(executionKey("e2e", t)), executedInLatest(views, t), media),
     )
     .join("\n");
   const runs = views
@@ -817,6 +828,10 @@ export interface RenderOptions {
   now?: Date | undefined;
   /** The validated, copied journey-evidence bundle (spec 20), when there is one. */
   evidence?: EvidenceIndex | undefined;
+  /** The validated, copied walkthrough bundle (spec 20), when there is one. */
+  walkthrough?: WalkthroughIndex | undefined;
+  /** Base URL a GitHub Actions run id is appended to, for run links. */
+  runUrlBase?: string | undefined;
 }
 
 /** Render the full dashboard document from the ingested history. */
@@ -839,7 +854,11 @@ export function renderPage(history: VerifySummary[], options: RenderOptions = {}
       <h2>Suites</h2>
       ${suiteTable(views, lastExecuted)}
     </section>
-    ${journeyCardsSection(views, executions, options.evidence)}
+    ${journeyCardsSection(views, executions, {
+      evidence: options.evidence,
+      walkthrough: options.walkthrough,
+      runUrlBase: options.runUrlBase,
+    })}
     ${taxSource ? taxCardsSection(taxSource) : ""}
     <section class="card">
       <h2>Recent runs</h2>
@@ -894,7 +913,7 @@ ${body}
       Synthetic data only — no employee PII. Generated ${formatInstant(now.toISOString())} · summary schema v2${stalenessNote(newestRunAt, now)}${dropped}.
     </footer>
 </main>
-<script>${SCREENS_SCRIPT}</script>
+<script>${MEDIA_VIEWER_SCRIPT}</script>
 </body>
 </html>
 `;
@@ -970,4 +989,4 @@ td.num { text-align: right; font-variant-numeric: tabular-nums; }
 .check-meta { color: var(--muted); white-space: nowrap; }
 footer { margin-top: 24px; font-size: 0.82rem; text-align: center; }
 .stale { color: var(--flake); }
-${SCREENS_STYLE}`;
+${MEDIA_VIEWER_STYLE}`;
