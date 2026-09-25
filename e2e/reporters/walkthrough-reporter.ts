@@ -287,7 +287,13 @@ export default class WalkthroughReporter implements Reporter {
     // With `video: on`, Playwright saves the FIXTURE page's recording as the
     // test's "video" attachment and deletes the file page.video() named. Only
     // that one clip can be missing, so it maps to the attachment.
-    const fixtureVideo = result.attachments.find((a) => a.name === "video" && a.path)?.path;
+    // Only when it is unambiguous: exactly one clip file missing and exactly one
+    // "video" attachment. Anything else fails closed (no video), never a
+    // recording of one page shown under another page's steps.
+    const videoAttachments = result.attachments.filter((a) => a.name === "video" && a.path);
+    const missing = clipMarks.filter((c) => !existsSync(c.video));
+    const fixtureVideo =
+      missing.length === 1 && videoAttachments.length === 1 ? videoAttachments[0]?.path : undefined;
     const clips: MeasuredClip[] = clipMarks.map((c) => {
       const video = existsSync(c.video) ? c.video : (fixtureVideo ?? c.video);
       const closes = existsSync(c.closeFile)
