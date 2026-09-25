@@ -3,7 +3,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import type { VerifySummaryV1 } from "@payroll/verify-summary";
 import { afterEach, describe, expect, it, vi } from "vitest";
-import { loadHistory } from "../src/generate.js";
+import { loadHistory, uniqueRuns } from "../src/generate.js";
 
 const tmp = mkdtempSync(join(tmpdir(), "verify-site-"));
 
@@ -93,5 +93,36 @@ describe("loadHistory", () => {
     // Counted, not just logged — the footer says so on the page (spec 18).
     expect(skipped).toBeGreaterThanOrEqual(1);
     expect(warn).toHaveBeenCalled();
+  });
+});
+
+describe("uniqueRuns (spec 21)", () => {
+  // Summaries only need source / runId / generatedAt here.
+  const s = (runId: string, source: "ci" | "nightly", generatedAt: string) =>
+    ({ runId, source, generatedAt }) as Parameters<typeof uniqueRuns>[0][number];
+
+  it("keeps one summary per run when a run reached the history twice", () => {
+    const out = uniqueRuns([
+      s("7", "ci", "2026-09-25T13:00:00Z"),
+      s("7", "ci", "2026-09-25T13:05:00Z"),
+      s("8", "ci", "2026-09-25T14:00:00Z"),
+    ]);
+    expect(out.map((x) => `${x.runId}@${x.generatedAt}`).sort()).toEqual([
+      "7@2026-09-25T13:05:00Z",
+      "8@2026-09-25T14:00:00Z",
+    ]);
+  });
+
+  it("treats the same run id from different sources as different runs", () => {
+    expect(
+      uniqueRuns([s("7", "ci", "2026-09-25T13:00:00Z"), s("7", "nightly", "2026-09-25T13:00:00Z")]),
+    ).toHaveLength(2);
+  });
+
+  it("loadHistory drops a duplicated run file", () => {
+    const dir = mkdtempSync(join(tmpdir(), "verify-dup-"));
+    writeFileSync(join(dir, "20260925T130000Z-42.json"), JSON.stringify(valid({ runId: "42" })));
+    writeFileSync(join(dir, "20260925T130500Z-42.json"), JSON.stringify(valid({ runId: "42" })));
+    expect(loadHistory(dir).summaries).toHaveLength(1);
   });
 });
