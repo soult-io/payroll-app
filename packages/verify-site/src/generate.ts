@@ -11,8 +11,13 @@
  * bundle (journey-evidence.json + step stills), validates every still, copies
  * the valid ones to `<out>/media/ci/`, and hands the index to the renderer.
  *
+ * With `--walkthrough <dir>` it also loads the human-pace walkthrough bundle
+ * (walkthrough-evidence.json + one webm per journey), validates every video,
+ * and copies the valid ones to `<out>/media/walkthrough/`.
+ *
  * Usage:
- *   verify-site --history history --out dist [--report-href report/] [--evidence dir]
+ *   verify-site --history history --out dist [--report-href report/]
+ *               [--evidence dir] [--walkthrough dir] [--run-url-base url]
  */
 
 import {
@@ -34,18 +39,28 @@ import {
   findPii,
   parseEvidence,
   parseSummary,
+  parseWalkthrough,
+  type WalkthroughEvidence,
   type JourneyEvidence,
   type StillRecord,
   type VerifySummary,
 } from "@payroll/verify-summary";
 import { renderPage } from "./lib.js";
-import type { EvidenceIndex, ServedJourney, ServedStill } from "./media.js";
+import type {
+  EvidenceIndex,
+  ServedJourney,
+  ServedStill,
+  ServedWalkthrough,
+  WalkthroughIndex,
+} from "./media.js";
 
 interface GenerateArgs {
   history: string;
   out: string;
   reportHref: string | undefined;
   evidence: string | undefined;
+  walkthrough: string | undefined;
+  runUrlBase: string | undefined;
 }
 
 function parseArgs(argv: string[]): GenerateArgs {
@@ -54,6 +69,8 @@ function parseArgs(argv: string[]): GenerateArgs {
     out: "dist",
     reportHref: undefined,
     evidence: undefined,
+    walkthrough: undefined,
+    runUrlBase: undefined,
   };
   for (let i = 0; i < argv.length; i += 2) {
     const flag = argv[i];
@@ -62,6 +79,8 @@ function parseArgs(argv: string[]): GenerateArgs {
     else if (flag === "--out") args.out = value;
     else if (flag === "--report-href") args.reportHref = value;
     else if (flag === "--evidence") args.evidence = value;
+    else if (flag === "--walkthrough") args.walkthrough = value;
+    else if (flag === "--run-url-base") args.runUrlBase = value;
   }
   return args;
 }
@@ -115,17 +134,21 @@ export function loadHistory(dir: string): History {
 /** Spec 20 limits: one still, and all media the site may carry. */
 export const MAX_STILL_BYTES = 2 * 1024 * 1024;
 export const MAX_MEDIA_BYTES = 100 * 1024 * 1024;
+/** Spec 20 limit for one walkthrough video. */
+export const MAX_VIDEO_BYTES = 20 * 1024 * 1024;
 /** Where copied media lives in the site, per source. */
 const MEDIA_DIR = "media/ci";
 
 const JPEG_MAGIC = [0xff, 0xd8, 0xff];
+/** EBML header: every WebM file starts with it. */
+const WEBM_MAGIC = [0x1a, 0x45, 0xdf, 0xa3];
 
-function startsWithJpegMagic(path: string): boolean {
+function startsWith(path: string, magic: readonly number[]): boolean {
   const fd = openSync(path, "r");
   try {
-    const head = Buffer.alloc(JPEG_MAGIC.length);
+    const head = Buffer.alloc(magic.length);
     const n = readSync(fd, head, 0, head.length, 0);
-    return n === head.length && JPEG_MAGIC.every((b, i) => head[i] === b);
+    return n === head.length && magic.every((b, i) => head[i] === b);
   } finally {
     closeSync(fd);
   }
@@ -143,20 +166,28 @@ interface MediaLimits {
 
 const LIMITS: MediaLimits = { stillBytes: MAX_STILL_BYTES, mediaBytes: MAX_MEDIA_BYTES };
 
-type StillCheck = { ok: true; size: number } | { ok: false; reason: string };
+type FileCheck = { ok: true; size: number } | { ok: false; reason: string };
+
+/** What a served media file must be: its extension and its leading bytes. */
+interface MediaKind {
+  name: RegExp;
+  magic: readonly number[];
+  label: string;
+}
+const JPEG: MediaKind = { name: /\.jpe?g$/i, magic: JPEG_MAGIC, label: "JPEG" };
+const WEBM: MediaKind = { name: /\.webm$/i, magic: WEBM_MAGIC, label: "WebM" };
 
 /**
- * Can this still be served? The path must stay inside the bundle (also by
- * real path), carry a .jpg/.jpeg name, and name a regular file (no symlink)
- * within the size limit that really is a JPEG. On success, its size.
+ * Can this bundle file be served? The path must stay inside the bundle (also
+ * by real path), carry the kind's extension (nginx types a file by it), and
+ * name a regular file (no symlink) within the size limit whose leading bytes
+ * prove the kind. On success, its size.
  */
-function checkStill(root: string, still: StillRecord, maxBytes: number): StillCheck {
-  const abs = resolve(root, still.path);
+function checkFile(root: string, path: string, kind: MediaKind, maxBytes: number): FileCheck {
+  const abs = resolve(root, path);
   const rel = relative(root, abs);
   if (rel === "" || escapes(rel)) return { ok: false, reason: "path escapes the bundle" };
-  // nginx types a file by its extension: only a .jpg/.jpeg name is served as
-  // the image the magic bytes below prove it to be.
-  if (!/\.jpe?g$/i.test(still.path)) return { ok: false, reason: "not a .jpg name" };
+  if (!kind.name.test(path)) return { ok: false, reason: `not a ${kind.label} name` };
   if (!existsSync(abs)) return { ok: false, reason: "file missing" };
   const st = lstatSync(abs);
   if (!st.isFile()) return { ok: false, reason: "not a regular file" };
@@ -165,12 +196,12 @@ function checkStill(root: string, still: StillRecord, maxBytes: number): StillCh
     return { ok: false, reason: "path escapes the bundle" };
   }
   if (st.size > maxBytes) return { ok: false, reason: `over ${maxBytes} bytes` };
-  if (!startsWithJpegMagic(abs)) return { ok: false, reason: "not a JPEG" };
+  if (!startsWith(abs, kind.magic)) return { ok: false, reason: `not a ${kind.label}` };
   return { ok: true, size: st.size };
 }
 
-function servedHref(relPath: string): string {
-  return [...MEDIA_DIR.split("/"), ...relPath.split("/")].map(encodeURIComponent).join("/");
+function servedHref(mediaDir: string, relPath: string): string {
+  return [...mediaDir.split("/"), ...relPath.split("/")].map(encodeURIComponent).join("/");
 }
 
 /** The bundle's evidence file, parsed; undefined (with a warning) when unusable. */
@@ -205,7 +236,7 @@ function serveStill(
   limits: MediaLimits,
   tally: CopyTally,
 ): ServedStill | null {
-  const check = checkStill(root, still, limits.stillBytes);
+  const check = checkFile(root, still.path, JPEG, limits.stillBytes);
   if (!check.ok) {
     console.warn(`verify-site: refusing still ${still.path} — ${check.reason}`);
     tally.refused += 1;
@@ -219,7 +250,7 @@ function serveStill(
   mkdirSync(dirname(dest), { recursive: true });
   copyFileSync(resolve(root, still.path), dest);
   return {
-    href: servedHref(still.path),
+    href: servedHref(MEDIA_DIR, still.path),
     width: still.width,
     height: still.height,
     truncated: still.truncated,
@@ -258,10 +289,84 @@ export function loadEvidence(
   return { index: { runId: evidence.runId, commitSha: evidence.commitSha, journeys }, ...tally };
 }
 
+/** Where copied walkthrough videos live in the site. */
+const WALKTHROUGH_DIR = "media/walkthrough";
+
+function readWalkthroughFile(file: string): WalkthroughEvidence | undefined {
+  if (!existsSync(file)) return undefined;
+  let raw: unknown;
+  try {
+    raw = JSON.parse(readFileSync(file, "utf8"));
+  } catch (err) {
+    console.warn(`verify-site: skipping unparseable walkthrough ${file} (${String(err)})`);
+    return undefined;
+  }
+  const walkthrough = parseWalkthrough(raw);
+  if (!walkthrough) {
+    console.warn(`verify-site: skipping walkthrough ${file} — invalid, not gated, or PII-shaped`);
+  }
+  return walkthrough;
+}
+
+/**
+ * Load, validate and copy a walkthrough bundle into `<out>/media/walkthrough/`.
+ * Videos count against the same site budget as the stills (`tally`), and over
+ * it the build fails. A video that fails validation is dropped (its journey
+ * gets no Video tab).
+ */
+export function loadWalkthrough(
+  bundleDir: string,
+  outDir: string,
+  tally: CopyTally = { bytes: 0, refused: 0 },
+  limits: MediaLimits & { videoBytes: number } = { ...LIMITS, videoBytes: MAX_VIDEO_BYTES },
+): WalkthroughIndex | undefined {
+  const evidence = readWalkthroughFile(join(bundleDir, "walkthrough-evidence.json"));
+  if (!evidence || evidence.gatingRunId === null) return undefined;
+  const root = resolve(bundleDir);
+  const journeys = new Map<string, ServedWalkthrough>();
+  for (const j of evidence.journeys) {
+    if (!j.video) continue;
+    const check = checkFile(root, j.video.path, WEBM, limits.videoBytes);
+    if (!check.ok) {
+      console.warn(`verify-site: refusing video ${j.video.path} — ${check.reason}`);
+      tally.refused += 1;
+      continue;
+    }
+    tally.bytes += check.size;
+    if (tally.bytes > limits.mediaBytes) {
+      throw new Error(`verify-site: journey media exceeds ${limits.mediaBytes} bytes`);
+    }
+    const dest = join(outDir, WALKTHROUGH_DIR, j.video.path);
+    mkdirSync(dirname(dest), { recursive: true });
+    copyFileSync(resolve(root, j.video.path), dest);
+    journeys.set(j.fullName, {
+      href: servedHref(WALKTHROUGH_DIR, j.video.path),
+      durationMs: j.video.durationMs,
+      steps: j.steps.map((s) => ({ title: s.title, offsetMs: s.offsetMs })),
+    });
+  }
+  return {
+    commitSha: evidence.commitSha,
+    gatingRunId: evidence.gatingRunId,
+    runId: evidence.runId,
+    journeys,
+  };
+}
+
 export function run(argv: string[]): { count: number; out: string } {
   const args = parseArgs(argv);
   const history = loadHistory(args.history);
   const evidence = args.evidence ? loadEvidence(args.evidence, args.out) : undefined;
+  // One budget for all media: the videos count on top of the stills.
+  const tally: CopyTally = { bytes: evidence?.bytes ?? 0, refused: 0 };
+  const walkthrough = args.walkthrough
+    ? loadWalkthrough(args.walkthrough, args.out, tally)
+    : undefined;
+  if (walkthrough) {
+    console.log(
+      `verify-site: walkthrough run ${walkthrough.runId} of ${walkthrough.commitSha} (gating run ${walkthrough.gatingRunId}) — ${walkthrough.journeys.size} video(s), ${tally.refused} refused`,
+    );
+  }
   if (evidence) {
     console.log(
       `verify-site: evidence run ${evidence.index.runId} @ ${evidence.index.commitSha} — ${evidence.index.journeys.size} journey(s), ${evidence.bytes} bytes of stills, ${evidence.refused} refused`,
@@ -271,6 +376,8 @@ export function run(argv: string[]): { count: number; out: string } {
     reportHref: args.reportHref,
     skippedSummaries: history.skipped,
     evidence: evidence?.index,
+    walkthrough,
+    runUrlBase: args.runUrlBase,
   });
   mkdirSync(args.out, { recursive: true });
   const out = join(args.out, "index.html");

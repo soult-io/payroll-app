@@ -21,6 +21,10 @@ export {
   type JourneyRecord,
   journeyEvidenceSchema,
   parseEvidence,
+  parseWalkthrough,
   STILL_MAX_HEIGHT_PX,
   type StillRecord,
+  WALKTHROUGH_SCHEMA,
+  type WalkthroughEvidence,
+  type WalkthroughJourney,
 } from "./evidence.js";

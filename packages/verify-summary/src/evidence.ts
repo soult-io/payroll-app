@@ -83,3 +83,60 @@ export function parseEvidence(raw: unknown): JourneyEvidence | undefined {
   if (findPii(parsed.data).length > 0) return undefined;
   return parsed.data;
 }
+
+// --- walkthrough (spec 20, PAY-78 PR 5–7) -----------------------------------
+
+export const WALKTHROUGH_SCHEMA = "journey-walkthrough/1";
+
+export const walkthroughStepSchema = z.object({
+  title: z.string(),
+  status: z.enum(["passed", "failed"]),
+  /** Start of the step in the journey's joined video (ms); null when unplaceable. */
+  offsetMs: z.number().nonnegative().nullable(),
+});
+export type WalkthroughStep = z.infer<typeof walkthroughStepSchema>;
+
+export const walkthroughJourneySchema = z.object({
+  testId: z.string(),
+  fullName: z.string(),
+  title: z.string(),
+  file: z.string(),
+  status: z.enum(["passed", "failed", "flaky", "skipped", "timedOut"]),
+  video: z
+    .object({
+      /** Relative to the evidence file's directory; forward slashes. */
+      path: z.string().min(1),
+      contentType: z.literal("video/webm"),
+      durationMs: z.number().positive(),
+    })
+    .nullable(),
+  steps: z.array(walkthroughStepSchema),
+});
+export type WalkthroughJourney = z.infer<typeof walkthroughJourneySchema>;
+
+export const walkthroughEvidenceSchema = z.object({
+  schema: z.literal(WALKTHROUGH_SCHEMA),
+  mode: z.literal("walkthrough"),
+  /** The TESTED commit the recording re-ran. */
+  commitSha: z.string(),
+  /** The ci run whose gating result it sits beside; null off main (never published). */
+  gatingRunId: z.string().nullable(),
+  /** The walkthrough's own run. */
+  runId: z.string(),
+  source: z.literal("ci"),
+  generatedAt: z.string(),
+  journeys: z.array(walkthroughJourneySchema),
+});
+export type WalkthroughEvidence = z.infer<typeof walkthroughEvidenceSchema>;
+
+/**
+ * Parse a walkthrough evidence file. `undefined` when it does not match the
+ * schema, carries no gating run (a PR / manual recording is never published),
+ * or any string in it is PII-shaped — the whole file is refused.
+ */
+export function parseWalkthrough(raw: unknown): WalkthroughEvidence | undefined {
+  const parsed = walkthroughEvidenceSchema.safeParse(raw);
+  if (!parsed.success || parsed.data.gatingRunId === null) return undefined;
+  if (findPii(parsed.data).length > 0) return undefined;
+  return parsed.data;
+}

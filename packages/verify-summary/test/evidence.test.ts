@@ -1,5 +1,10 @@
 import { describe, expect, it } from "vitest";
-import { JOURNEY_SPEC_FILES, type JourneyEvidence, parseEvidence } from "../src/evidence.js";
+import {
+  JOURNEY_SPEC_FILES,
+  type JourneyEvidence,
+  parseEvidence,
+  parseWalkthrough,
+} from "../src/evidence.js";
 
 /** Shaped like the e2e evidence reporter's real output (spec 20). */
 function evidence(over: Partial<JourneyEvidence> = {}): JourneyEvidence {
@@ -89,5 +94,49 @@ describe("JOURNEY_SPEC_FILES", () => {
       "qa.spec.ts",
       "state-taxes.spec.ts",
     ]);
+  });
+});
+
+describe("parseWalkthrough", () => {
+  const base = {
+    schema: "journey-walkthrough/1",
+    mode: "walkthrough",
+    commitSha: "8d80bba1c2d3e4f5a6b7c8d9e0f1a2b3c4d5e6f7",
+    gatingRunId: "36119179049",
+    runId: "36131806661",
+    source: "ci",
+    generatedAt: "2026-09-25T12:00:00.000Z",
+    journeys: [
+      {
+        testId: "a-b",
+        fullName: "journeys.spec.ts journey 1",
+        title: "journey 1",
+        file: "journeys.spec.ts",
+        status: "passed",
+        video: { path: "videos/j1.webm", contentType: "video/webm", durationMs: 43_600 },
+        steps: [{ title: "Set a password", status: "passed", offsetMs: 1500 }],
+      },
+    ],
+  };
+
+  it("accepts the reporter's shape", () => {
+    expect(parseWalkthrough(base)?.gatingRunId).toBe("36119179049");
+  });
+
+  it("refuses a recording with no gating run", () => {
+    expect(parseWalkthrough({ ...base, gatingRunId: null })).toBeUndefined();
+  });
+
+  it("refuses a non-webm video record", () => {
+    const bad = structuredClone(base);
+    (bad.journeys[0]?.video as { contentType: string }).contentType = "video/mp4";
+    expect(parseWalkthrough(bad)).toBeUndefined();
+  });
+
+  it("refuses the whole file when any string is PII-shaped", () => {
+    const bad = structuredClone(base);
+    const step = bad.journeys[0]?.steps[0];
+    if (step) step.title = "Enter SSN 123-45-6789";
+    expect(parseWalkthrough(bad)).toBeUndefined();
   });
 });
