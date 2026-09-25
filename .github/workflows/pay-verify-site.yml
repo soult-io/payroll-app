@@ -312,25 +312,32 @@ jobs:
           REPO: ${{ github.repository }}
           RID: ${{ github.event.workflow_run.id }}
         run: |
+          # A safety net: any failure here warns and backfills nothing — it
+          # must never stop the normal ingest and publish below.
           : > _runs.jsonl
           for wf in ci e2e-nightly; do
-            gh api "repos/${REPO}/actions/workflows/${wf}.yml/runs?branch=main&status=completed&per_page=30" \
-              --jq ".workflow_runs[] | {id: (.id|tostring), workflow: \"${wf}\", event, conclusion, headBranch: .head_branch, headSha: .head_sha, updatedAt: .updated_at}" \
-              >> _runs.jsonl
+            if ! gh api "repos/${REPO}/actions/workflows/${wf}.yml/runs?branch=main&status=completed&per_page=30" \
+                --jq ".workflow_runs[] | {id: (.id|tostring), workflow: \"${wf}\", event, conclusion, headBranch: .head_branch, headSha: .head_sha, updatedAt: .updated_at}" \
+                >> _runs.jsonl < /dev/null; then
+              echo "::warning::backfill: could not list ${wf} runs — not backfilled this time"
+            fi
           done
-          jq -s . _runs.jsonl > _runs.json
           exclude=()
           if [ -n "$RID" ]; then exclude=(--exclude "$RID"); fi
-          node packages/verify-site/dist/backfill.js --history _data/history --runs _runs.json "${exclude[@]}" > _backfill.tsv
+          if ! jq -s . _runs.jsonl > _runs.json ||
+             ! node packages/verify-site/dist/backfill.js --history _data/history --runs _runs.json "${exclude[@]}" > _backfill.tsv; then
+            echo "::warning::backfill: planning failed — not backfilled this time"
+            : > _backfill.tsv
+          fi
           n=0
           while IFS=$'\t' read -r id artifact file sha; do
             [ -n "$id" ] || continue
             if ! gh api "repos/${REPO}/actions/runs/${id}/artifacts" \
-                --jq ".artifacts[] | select(.name == \"${artifact}\" and (.expired | not)) | .id" | grep -q .; then
+                --jq ".artifacts[] | select(.name == \"${artifact}\" and (.expired | not)) | .id" < /dev/null | grep -q .; then
               echo "backfill: run ${id} has no ${artifact} artifact (never produced, or expired) — skipped"
               continue
             fi
-            if ! gh run download "$id" -R "$REPO" -n "$artifact" -D "_backfill/${id}"; then
+            if ! gh run download "$id" -R "$REPO" -n "$artifact" -D "_backfill/${id}" < /dev/null; then
               echo "::warning::backfill: could not download ${artifact} from run ${id} — skipped"
               continue
             fi
@@ -351,12 +358,20 @@ jobs:
         if: github.event_name == 'workflow_run' && github.event.workflow_run.name != 'walkthrough'
         env:
           RID: ${{ github.event.workflow_run.id }}
+          DONE_AT: ${{ github.event.workflow_run.updated_at }}
         run: |
           if [ ! -f _incoming/summary.json ]; then
             echo "::warning::no summary.json from the triggering run (skipped/queued nightly, or an expired artifact) — skipping ingest; the site still rebuilds from existing history"
             exit 0
           fi
-          TS=$(date -u +%Y%m%dT%H%M%SZ)
+          # Already there: another site run backfilled it while this one was
+          # pending. One file per run — never a duplicate.
+          if compgen -G "_data/history/*-${RID}.json" > /dev/null; then
+            echo "run ${RID} is already in the history (backfilled) — not ingested again"
+            exit 0
+          fi
+          # Named by the run's completion instant, like a backfilled file.
+          TS="$(date -u -d "$DONE_AT" +%Y%m%dT%H%M%SZ 2>/dev/null || date -u +%Y%m%dT%H%M%SZ)"
           cp _incoming/summary.json "_data/history/${TS}-${RID}.json"
 
       # Prune the window and publish the history: one commit for the backfill

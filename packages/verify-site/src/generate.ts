@@ -126,7 +126,27 @@ export function loadHistory(dir: string): History {
     }
     summaries.push(parsed);
   }
-  return { summaries, skipped };
+  return { summaries: uniqueRuns(summaries), skipped };
+}
+
+/**
+ * One summary per (source, run): a run that reached the history twice (spec
+ * 21's backfill racing the run's own ingest) must not count twice. The newest
+ * copy wins; summaries without a run id are kept as they are.
+ */
+export function uniqueRuns(summaries: VerifySummary[]): VerifySummary[] {
+  const byRun = new Map<string, VerifySummary>();
+  const loose: VerifySummary[] = [];
+  for (const s of summaries) {
+    if (!s.runId) {
+      loose.push(s);
+      continue;
+    }
+    const key = `${s.source}\u0000${s.runId}`;
+    const prev = byRun.get(key);
+    if (!prev || Date.parse(s.generatedAt) > Date.parse(prev.generatedAt)) byRun.set(key, s);
+  }
+  return [...byRun.values(), ...loose];
 }
 
 /** Spec 20 limits: one still, and all media the site may carry. */
