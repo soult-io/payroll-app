@@ -139,7 +139,21 @@ async function markRecordingStart(page: Page): Promise<void> {
   await page.setContent(
     '<!doctype html><title>walkthrough</title><body style="margin:0;background:#9ca3af"></body>',
   );
-  recordingStarts.set(page, Date.now());
+  // The instant the grey frame is actually produced, from the page's own clock
+  // after two animation frames — not when setContent returned, which comes
+  // before the recording's first frame (the CI action sheets showed clicks
+  // mapped a few hundred ms late with a Node-side stamp).
+  const painted = await page
+    .evaluate(
+      () =>
+        new Promise<number>((resolve) =>
+          requestAnimationFrame(() =>
+            requestAnimationFrame(() => resolve(performance.timeOrigin + performance.now())),
+          ),
+        ),
+    )
+    .catch(() => Date.now());
+  recordingStarts.set(page, painted);
 }
 
 interface PageState {

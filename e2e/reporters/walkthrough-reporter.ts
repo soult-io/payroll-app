@@ -30,6 +30,7 @@ import {
   STEP_MARK_ANNOTATION,
   VIDEO_SIZE,
 } from "../tests/support/walkthrough.js";
+import { OVERLAY_HIGHLIGHT_MS } from "../tests/support/overlay.js";
 import {
   type FinalAttempts,
   type JourneyStatus,
@@ -46,6 +47,9 @@ import {
 } from "./walkthrough-plan.js";
 
 export const WALKTHROUGH_SCHEMA = "journey-walkthrough/1";
+
+/** How far before an action the action sheet samples the video (ms). */
+const RING_SAMPLE_BEFORE_ACTION_MS = OVERLAY_HIGHLIGHT_MS / 2;
 
 interface WalkthroughStep {
   title: string;
@@ -270,8 +274,9 @@ function actionSheet(
   // gap, which would silently drop every later action from the sheet.
   let n = 0;
   for (const ms of times) {
-    // 60ms before the action: the ring is up, the click has not landed yet.
-    const t = Math.max(0, ms - 60) / 1000;
+    // The middle of the ring's hold before the action: the cursor has arrived
+    // and the ring is up, with margin either side for the mapping's error.
+    const t = Math.max(0, ms - RING_SAMPLE_BEFORE_ACTION_MS) / 1000;
     const got = run("ffmpeg", [
       "-y",
       "-v",
