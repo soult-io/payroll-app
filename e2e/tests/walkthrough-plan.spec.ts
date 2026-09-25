@@ -77,6 +77,13 @@ test.describe("harness · walkthrough plan", () => {
     expect(planStitch("j", [emp], [])).toBeUndefined();
   });
 
+  test("a step that began before its clip's first frame is placed at the cut's start", () => {
+    // emp's first frame is at 10_000; the step's navigation began at 9_400.
+    const plan = planStitch("j", [emp], [{ index: 0, title: "s", clip: 0, startedAt: 9_400 }]);
+    expect(plan?.offsets.get(0)).toBe(CARD_MS);
+    expect(shape(plan?.segments)).toEqual(["card:j", "clip:emp.webm@0+80000"]);
+  });
+
   test("a step outside its clip's recording gets no offset rather than a wrong one", () => {
     const plan = planStitch(
       "j",

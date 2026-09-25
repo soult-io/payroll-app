@@ -118,5 +118,6 @@ jobs:
           path: |
             e2e/test-results-walkthrough/walkthrough-evidence.json
             e2e/test-results-walkthrough/videos/*.webm
+            e2e/test-results-walkthrough/pacing/
           if-no-files-found: warn
           retention-days: 7

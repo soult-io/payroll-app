@@ -178,29 +178,58 @@ async function stitch(segments: Segment[], out: string, workDir: string): Promis
   return r.ok;
 }
 
+/** Scene-change score above which ffmpeg counts a new screen. */
+const SCENE_THRESHOLD = 0.08;
+
 /**
- * Report-only pacing check: how long each screen stays up in the joined video,
- * from ffmpeg's scene-change detector. Spec 20 wants every screen >= 1.5s; the
- * shortest ones are logged so a real CI run can be read without downloading.
+ * Report-only pacing check (spec 20 wants every screen >= 1.5s). From ffmpeg's
+ * scene-change detector it writes, next to the video:
+ * - `pacing/<name>.json`: every detected screen with its start and length;
+ * - `pacing/<name>-NN.jpg`: contact sheets of the first frame of each screen,
+ *   in order, so a reader can see WHAT each short screen was (an animation
+ *   step, a loading state, a real flash) without decoding the video.
+ * One summary line per journey goes to the log.
  */
-function pacingReport(video: string, title: string): void {
+function pacingReport(video: string, name: string, title: string, dir: string): void {
+  const pacingDir = join(dir, "pacing");
+  mkdirSync(pacingDir, { recursive: true });
+  // Quoted: the commas inside are part of the expression, not filter separators.
+  const select = `select='eq(n,0)+gt(scene,${SCENE_THRESHOLD})'`;
   const r = run("ffmpeg", [
     "-v",
     "info",
     "-i",
     video,
     "-vf",
-    "select='gt(scene,0.08)',showinfo",
+    `${select},showinfo`,
     "-f",
     "null",
     "-",
   ]);
-  const cuts = [...r.out.matchAll(/pts_time:(\d+(?:\.\d+)?)/g)].map((m) => Number(m[1]));
+  const starts = [...r.out.matchAll(/pts_time:(\d+(?:\.\d+)?)/g)].map((m) => Number(m[1]));
   const total = durationMs(video) / 1000;
-  const bounds = [0, ...cuts, total];
-  const screens = bounds.slice(1).map((t, i) => t - (bounds[i] ?? 0));
-  const short = screens.filter((s) => s < 1.5).length;
-  const min = screens.length ? Math.min(...screens) : 0;
+  const screens = starts.map((t, i) => ({
+    start: t,
+    seconds: Number(((starts[i + 1] ?? total) - t).toFixed(2)),
+  }));
+  writeFileSync(
+    join(pacingDir, `${name}.json`),
+    `${JSON.stringify({ title, screens }, null, 2)}\n`,
+  );
+  run("ffmpeg", [
+    "-y",
+    "-v",
+    "error",
+    "-i",
+    video,
+    "-vf",
+    `${select},scale=320:-1,tile=4x5:padding=4:color=white`,
+    "-fps_mode",
+    "vfr",
+    join(pacingDir, `${name}-%02d.jpg`),
+  ]);
+  const short = screens.filter((s) => s.seconds < 1.45).length;
+  const min = screens.length ? Math.min(...screens.map((s) => s.seconds)) : 0;
   console.log(
     `walkthrough pacing · ${title}: ${screens.length} screens, shortest ${min.toFixed(2)}s, ${short} under 1.5s`,
   );
@@ -255,14 +284,19 @@ export default class WalkthroughReporter implements Reporter {
       }));
     if (stepMarks.length === 0) return { ...base, video: null, steps: [] };
 
+    // With `video: on`, Playwright saves the FIXTURE page's recording as the
+    // test's "video" attachment and deletes the file page.video() named. Only
+    // that one clip can be missing, so it maps to the attachment.
+    const fixtureVideo = result.attachments.find((a) => a.name === "video" && a.path)?.path;
     const clips: MeasuredClip[] = clipMarks.map((c) => {
+      const video = existsSync(c.video) ? c.video : (fixtureVideo ?? c.video);
       const closes = existsSync(c.closeFile)
         ? (JSON.parse(readFileSync(c.closeFile, "utf8")) as Record<string, number>)
         : {};
       return {
         clip: c.clip,
-        video: c.video,
-        durationMs: existsSync(c.video) ? durationMs(c.video) : Number.NaN,
+        video,
+        durationMs: existsSync(video) ? durationMs(video) : Number.NaN,
         closedAt: closes[String(c.clip)] ?? Number.NaN,
       };
     });
@@ -281,7 +315,7 @@ export default class WalkthroughReporter implements Reporter {
     if (!(await stitch(plan.segments, out, work))) {
       return { ...base, video: null, steps: stepsWithout() };
     }
-    pacingReport(out, test.title);
+    pacingReport(out, name, test.title, dir);
     const measured = durationMs(out);
     return {
       ...base,

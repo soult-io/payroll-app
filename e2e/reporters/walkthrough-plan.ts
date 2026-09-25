@@ -88,8 +88,10 @@ function cutRun(
   const length = toMs - fromMs;
   const within = new Map<number, number | null>();
   for (const s of run) {
+    // A step that began before its clip's first frame (a page's first paint
+    // comes after the step's navigation starts) is shown from the cut's start.
     const t = s.startedAt - recordedFrom - fromMs;
-    within.set(s.index, t >= 0 && t <= length ? t : null);
+    within.set(s.index, t <= length ? Math.max(0, t) : null);
   }
   return { segment: { kind: "clip", video: clip.video, fromMs, durationMs: length }, within };
 }
