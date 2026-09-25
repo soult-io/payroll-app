@@ -367,10 +367,15 @@ jobs:
             echo "::warning::no summary.json from the triggering run (skipped/queued nightly, or an expired artifact) — skipping ingest; the site still rebuilds from existing history"
             exit 0
           fi
-          # Already there: another site run backfilled it while this one was
-          # pending. One file per run — never a duplicate.
-          if compgen -G "_data/history/*-${RID}.json" > /dev/null; then
-            echo "run ${RID} is already in the history (backfilled) — not ingested again"
+          # One file per run. If the run is already there — backfilled by
+          # another site run while this one was pending, or an earlier ATTEMPT
+          # of a re-run (same run id) — overwrite that file: the same attempt is
+          # identical (no git change), and a newer attempt replaces the old
+          # result, so its status and its evidence bundle always agree.
+          existing="$(compgen -G "_data/history/*-${RID}.json" | head -n 1 || true)"
+          if [ -n "$existing" ]; then
+            cp _incoming/summary.json "$existing"
+            echo "run ${RID} already in the history — updated in place (${existing##*/})"
             exit 0
           fi
           # Named by the run's completion instant, like a backfilled file.

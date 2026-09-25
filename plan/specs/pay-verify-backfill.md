@@ -44,6 +44,17 @@ backfills:
 The history file is named by the run's completion instant, so the rolling
 window stays in chronological order.
 
+One file per run id. The triggering run's own ingest overwrites a file that
+already exists for its run id instead of adding a second: that covers a run
+backfilled by another site run while its own was pending (identical content,
+no git change), and a re-run ATTEMPT (same run id), whose newer result must
+replace the old one so the card's status and its evidence bundle agree. The
+generator also keeps one summary per (source, run) as a second guard.
+
+Known narrow gap: a re-run whose OWN site run was cancelled is not backfilled
+(the planner skips a run id that has a file); the next re-run or push
+corrects the page.
+
 ## Out of scope
 
 The journey evidence (stills, walkthrough) is not backfilled: the assets
