@@ -458,7 +458,10 @@ jobs:
           push: false
           tags: payroll-app-verify:scan
           cache-from: type=gha
-          cache-to: type=gha,mode=max
+          # A failed cache WRITE ("failed to reserve cache": the Actions cache
+          # refusing a key another job holds) must not fail a publish — the
+          # image is already built; only the next build's speed is at stake.
+          cache-to: type=gha,mode=max,ignore-error=true
 
       # Image vulnerability gate: fail on fixed CRITICAL findings (same posture
       # as the app image). nginx-unprivileged:alpine base, static content only.
