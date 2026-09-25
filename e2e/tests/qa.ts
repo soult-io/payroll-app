@@ -13,6 +13,7 @@ import { dirname, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 import { expect, test, type Browser, type BrowserContext, type Page } from "@playwright/test";
 import { createOTP } from "@better-auth/utils/otp";
+import { newContext } from "./support/walkthrough.js";
 
 export const LIVE_QA = Boolean(process.env.E2E_BASE_URL);
 
@@ -144,7 +145,7 @@ const sessionCache = new Map<string, StoredState>();
 /** Fresh page authenticated as `user`, logging in only on first use. */
 export async function newAuthedPage(browser: Browser, user: QaUser): Promise<Page> {
   const cached = sessionCache.get(user.email);
-  const ctx = await browser.newContext(cached ? { storageState: cached } : {});
+  const ctx = await newContext(browser, cached ? { storageState: cached } : {});
   const page = await ctx.newPage();
   if (!cached) {
     await loginAs(page, user);

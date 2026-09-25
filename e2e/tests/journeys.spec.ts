@@ -19,6 +19,7 @@ import { createOTP } from "@better-auth/utils/otp";
 import { base32 } from "@better-auth/utils/base32";
 import { EPHEMERAL_EMPLOYEE_NAME } from "./qa.js";
 import { step } from "./support/journey.js";
+import { newContext } from "./support/walkthrough.js";
 
 test.describe.configure({ mode: "serial" });
 
@@ -212,7 +213,7 @@ test("journey 2: admin approves + issues payroll run; employee sees payslip + PD
 
   // Employee session (separate context, restored from journey 1's saved
   // storageState): issued payslip visible + PDF bytes.
-  const ctx = await browser.newContext({ storageState: EMPLOYEE_SESSION });
+  const ctx = await newContext(browser, { storageState: EMPLOYEE_SESSION });
   const emp = await ctx.newPage();
   await step(emp, "Employee opens the issued payslip", async () => {
     await emp.goto("/my/payslips");
@@ -238,7 +239,7 @@ test("journey 3: address change request round-trip (employee â†’ admin approve â
   browser,
 }) => {
   // Employee session restored from journey 1's storageState (rate-limit budget).
-  const empCtx = await browser.newContext({ storageState: EMPLOYEE_SESSION });
+  const empCtx = await newContext(browser, { storageState: EMPLOYEE_SESSION });
   const page = await empCtx.newPage();
   await step(page, "Employee fills in a new address", async () => {
     await page.goto("/my/requests/new");
@@ -265,7 +266,7 @@ test("journey 3: address change request round-trip (employee â†’ admin approve â
   });
 
   // Admin reviews the diff and approves (session from journey 2's storageState).
-  const ctx = await browser.newContext({ storageState: ADMIN_SESSION });
+  const ctx = await newContext(browser, { storageState: ADMIN_SESSION });
   const admin = await ctx.newPage();
   await step(admin, "Admin reviews the proposed vs current address", async () => {
     await admin.goto("/admin/requests");
@@ -302,7 +303,7 @@ test("journey 3: address change request round-trip (employee â†’ admin approve â
 test("journey 4: session expiry mid-session redirects to login (PAY-6)", async ({ browser }) => {
   // Employee session from journey 1; clearing cookies simulates the session
   // expiring (or being revoked) while the SPA is already open.
-  const ctx = await browser.newContext({ storageState: EMPLOYEE_SESSION });
+  const ctx = await newContext(browser, { storageState: EMPLOYEE_SESSION });
   const page = await ctx.newPage();
   await step(page, "Employee is on the dashboard", async () => {
     await page.goto("/my/dashboard");
@@ -325,7 +326,7 @@ test("journey 4: session expiry mid-session redirects to login (PAY-6)", async (
 test("journey 5: back navigation preserves the list filter state (PAY-17)", async ({ browser }) => {
   // Admin session from journey 2; the seeded run (2025-11, issued in journey 2)
   // lives outside the default current-year filter.
-  const ctx = await browser.newContext({ storageState: ADMIN_SESSION });
+  const ctx = await newContext(browser, { storageState: ADMIN_SESSION });
   const page = await ctx.newPage();
   // Scoped to THIS journey's own employee: the boot now also seeds the QA
   // dataset (PAY-56), so "the first issued row" is some other persona's run.
@@ -368,7 +369,7 @@ test("journey 6: admin user visiting /my/dashboard is redirected to /admin/dashb
   browser,
 }) => {
   // Fresh context with the admin session saved in journey 2.
-  const ctx = await browser.newContext({ storageState: ADMIN_SESSION });
+  const ctx = await newContext(browser, { storageState: ADMIN_SESSION });
   const page = await ctx.newPage();
 
   await step(page, "Admin visiting /my/dashboard lands on /admin/dashboard", async () => {
@@ -388,7 +389,7 @@ test("journey 7: deposit detail view (PAY-36/PAY-37/PAY-38)", async ({ browser }
   // Admin session from journey 2. The e2e fixture issues a 2025-10 run and
   // syncs deposits at boot; the list defaults to the current year, so open it
   // pinned to 2025 via the query param (PAY-17 filter state).
-  const ctx = await browser.newContext({ storageState: ADMIN_SESSION });
+  const ctx = await newContext(browser, { storageState: ADMIN_SESSION });
   const page = await ctx.newPage();
 
   // Scoped to THIS boot's own 2025-10 fixture. The QA dataset seeds a full year

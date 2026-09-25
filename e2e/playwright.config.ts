@@ -10,15 +10,58 @@
  *   Fixture-driven specs branch: journeys are ephemeral-only; the qa.spec
  *   specs use the documented seeded QA credentials/TOTP and stay read-only.
  *
+ * - WALKTHROUGH (E2E_WALKTHROUGH=1, spec 20): a separate, NON-gating re-run of
+ *   the journey files at human pace — slowMo, per-character typing, screen
+ *   holds (tests/support/walkthrough.ts) — recorded and joined into one video
+ *   per journey by reporters/walkthrough-reporter.ts. Ephemeral boot ONLY: it
+ *   refuses to start when E2E_BASE_URL is set. Its output lives apart, in
+ *   test-results-walkthrough/, so it never mixes with the gating evidence.
+ *
  * Chromium only; serial (journeys share the single in-memory database).
  */
 
 import { dirname, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
-import { defineConfig, devices } from "@playwright/test";
+import { defineConfig, devices, type ReporterDescription } from "@playwright/test";
+import { VIDEO_SIZE, WALKTHROUGH_SLOWMO_MS } from "./tests/support/walkthrough.js";
 
 const liveBaseUrl = process.env.E2E_BASE_URL;
 const HERE = dirname(fileURLToPath(import.meta.url));
+
+const walkthrough = process.env.E2E_WALKTHROUGH === "1";
+// The recording is published; it may only ever show the synthetic local boot.
+if (walkthrough && liveBaseUrl) {
+  throw new Error("E2E_WALKTHROUGH records the local synthetic boot only — unset E2E_BASE_URL");
+}
+
+/** Walkthrough overrides: journeys only, human pace, recorded, never retried. */
+const walkthroughMode = walkthrough
+  ? {
+      testMatch: /(journeys|qa|state-taxes)\.spec\.ts$/,
+      outputDir: "./test-results-walkthrough",
+      // Human pace is slow: a journey takes minutes, not seconds.
+      timeout: 300_000,
+      retries: 0,
+      reporter: [
+        ["list"],
+        [
+          "./reporters/walkthrough-reporter.ts",
+          { outputFile: resolve(HERE, "test-results-walkthrough/walkthrough-evidence.json") },
+        ],
+      ] satisfies ReporterDescription[],
+      projects: [
+        {
+          name: "walkthrough",
+          use: {
+            ...devices["Desktop Chrome"],
+            viewport: VIDEO_SIZE,
+            video: { mode: "on" as const, size: VIDEO_SIZE },
+            launchOptions: { slowMo: WALKTHROUGH_SLOWMO_MS },
+          },
+        },
+      ],
+    }
+  : {};
 
 export default defineConfig({
   testDir: "./tests",
@@ -69,4 +112,5 @@ export default defineConfig({
           stdout: "pipe",
         },
       }),
+  ...walkthroughMode,
 });

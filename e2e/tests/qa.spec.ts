@@ -33,6 +33,7 @@ import {
   QA_EXPORT_TOKEN,
 } from "./qa.js";
 import { step } from "./support/journey.js";
+import { newContext } from "./support/walkthrough.js";
 
 test("login: password + TOTP (fixed seeded credentials in live QA)", async ({ page }) => {
   const user = LIVE_QA ? QA_ADMIN : loadEphemeralState()?.admin;
@@ -75,7 +76,7 @@ test("payslip PDF download round-trip (%PDF magic, non-trivial bytes)", async ({
   // Ephemeral: journey 1 saves the employee session; journey 2 issues the run.
   const state = loadEphemeralState();
   test.skip(!state, "ephemeral state missing — journeys write it");
-  const ctx = await browser.newContext({ storageState: EMPLOYEE_SESSION_PATH });
+  const ctx = await newContext(browser, { storageState: EMPLOYEE_SESSION_PATH });
   try {
     const emp = await ctx.newPage();
     const publicId = must(state, "ephemeral state").run.publicId;

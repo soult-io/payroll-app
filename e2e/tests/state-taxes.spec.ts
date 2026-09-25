@@ -22,6 +22,7 @@ import {
   QA_EMPLOYEE_NAME,
 } from "./qa.js";
 import { step } from "./support/journey.js";
+import { newContext } from "./support/walkthrough.js";
 
 function adminUser() {
   return LIVE_QA ? QA_ADMIN : loadEphemeralState()?.admin;
@@ -134,7 +135,7 @@ test("ephemeral only: employee state election flows request → approval → pay
   const effMonth = effective.getMonth() + 1;
 
   // --- 1. Employee files the election through the change-request wizard ---
-  const empCtx = await browser.newContext({ storageState: EMPLOYEE_SESSION_PATH });
+  const empCtx = await newContext(browser, { storageState: EMPLOYEE_SESSION_PATH });
   try {
     const emp = await empCtx.newPage();
     await step(emp, "Employee fills in an IL withholding election", async () => {
@@ -221,7 +222,7 @@ test("ephemeral only: employee state election flows request → approval → pay
 
   // --- 5. The issued payslip shows the computed IL state withholding ---
   // IL 2026: 4.95% × (48000 − 2925 × 1 allowance) / 12 + $10 extra = $195.93.
-  const empCtx2 = await browser.newContext({ storageState: EMPLOYEE_SESSION_PATH });
+  const empCtx2 = await newContext(browser, { storageState: EMPLOYEE_SESSION_PATH });
   try {
     const emp = await empCtx2.newPage();
     await step(emp, "Issued payslip shows IL state withholding −$195.93", async () => {
