@@ -1,0 +1,123 @@
+name: walkthrough
+
+# Spec 20 (PAY-78): the human-pace walkthrough — the journeys re-run slowly on
+# the ephemeral synthetic boot and recorded, one joined video per journey.
+#
+# NON-GATING, and a workflow of its own rather than a ci job: it takes minutes,
+# and inside ci it would hold back the pay-verify site (workflow_run waits for
+# the whole ci run) and be cancelled with it when a newer push supersedes the
+# run. Here it re-records a commit ci already gated:
+#
+# - workflow_run: after a GREEN ci run of a push to this repo's main. It checks
+#   out and records THAT run's commit (workflow_run.head_sha — github.sha would
+#   be main's tip) and stamps it, plus the gating run's id, into the evidence.
+# - pull_request touching the walkthrough machinery, and workflow_dispatch: so
+#   a change to it can be recorded and inspected before merge. Those recordings
+#   carry no gating run id and are never published.
+#
+# The recording shows the synthetic local boot only: the Playwright config
+# refuses E2E_BASE_URL in this mode.
+
+on:
+  workflow_run:
+    workflows: [ci]
+    types: [completed]
+    branches: [main]
+  pull_request:
+    paths:
+      - "e2e/playwright.config.ts"
+      - "e2e/tests/support/**"
+      # The journeys themselves: a context opened without newContext() only
+      # fails in walkthrough mode.
+      - "e2e/tests/journeys.spec.ts"
+      - "e2e/tests/qa.spec.ts"
+      - "e2e/tests/qa.ts"
+      - "e2e/tests/state-taxes.spec.ts"
+      - "e2e/reporters/walkthrough-*.ts"
+      - ".github/workflows/walkthrough.yml"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+# One recording per ref at a time; a newer GREEN commit supersedes an older
+# one. Concurrency applies before the job's `if`, so a ci completion that will
+# be skipped (failed, cancelled, not a push) gets a group of its own — it must
+# never cancel the recording of a commit that passed.
+concurrency:
+  group: >-
+    walkthrough-${{
+      github.event_name != 'workflow_run' && github.ref ||
+      (github.event.workflow_run.conclusion == 'success' && github.event.workflow_run.event == 'push') && 'main-green' ||
+      github.run_id
+    }}
+  cancel-in-progress: true
+
+env:
+  # The commit this run records: the gated commit under workflow_run, else the
+  # event's own commit.
+  COMMIT_SHA: ${{ github.event.workflow_run.head_sha || github.sha }}
+
+jobs:
+  record:
+    # workflow_run: only a green ci run of a push to main in this repo (a fork
+    # PR from a branch named "main" also matches the trigger's branch filter).
+    if: >-
+      github.repository == 'soult-io/payroll-app' && (
+        github.event_name != 'workflow_run' || (
+          github.event.workflow_run.conclusion == 'success' &&
+          github.event.workflow_run.event == 'push' &&
+          github.event.workflow_run.head_repository.full_name == github.repository
+        )
+      )
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    container:
+      image: mcr.microsoft.com/playwright:v1.62.0-noble
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ env.COMMIT_SHA }}
+
+      - uses: pnpm/action-setup@v6
+        with:
+          version: 11.17.0
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: pnpm
+
+      - name: Install
+        run: pnpm install --frozen-lockfile
+
+      - name: Build web + packages (SPA dist + workspace dists)
+        run: pnpm -r run build
+
+      # ffmpeg joins each journey's clips and measures the pacing. Bounded: a
+      # hung apt mirror must not hold the runner.
+      - name: Install ffmpeg
+        timeout-minutes: 5
+        run: apt-get update && apt-get install -y --no-install-recommends ffmpeg
+
+      - name: Verify Playwright chromium
+        run: pnpm --filter @payroll/e2e exec playwright install chromium
+
+      - name: Walkthrough (human pace, recorded)
+        env:
+          E2E_WALKTHROUGH: "1"
+          WALKTHROUGH_COMMIT_SHA: ${{ env.COMMIT_SHA }}
+          WALKTHROUGH_GATING_RUN_ID: ${{ github.event.workflow_run.id }}
+        run: pnpm --filter @payroll/e2e e2e
+
+      - name: Upload walkthrough
+        if: always()
+        uses: actions/upload-artifact@v7
+        with:
+          name: pay-verify-walkthrough
+          path: |
+            e2e/test-results-walkthrough/walkthrough-evidence.json
+            e2e/test-results-walkthrough/videos/*.webm
+            e2e/test-results-walkthrough/pacing/
+          if-no-files-found: warn
+          retention-days: 7

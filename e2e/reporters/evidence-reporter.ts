@@ -166,30 +166,48 @@ export function journeyStatus(
   return status;
 }
 
+/** The final attempt of each journey test, keyed by test id. */
+export type FinalAttempts = Map<string, { test: TestCase; result: TestResult }>;
+
+/** Keep a journey test's latest attempt (the passing retry of a flaky test). */
+export function keepFinalAttempt(finals: FinalAttempts, test: TestCase, result: TestResult): void {
+  if (!JOURNEY_FILES.has(basename(test.location.file))) return;
+  const prev = finals.get(test.id);
+  if (!prev || result.retry >= prev.result.retry) finals.set(test.id, { test, result });
+}
+
+/**
+ * Who a journey is, the same way in every evidence file. `fullName` is the key
+ * the site joins on: titlePath() = ["", project, file, ...describes, title],
+ * and the Playwright json report (so the summary) names a test by file +
+ * describes + title.
+ */
+export function journeyIdentity(test: TestCase, result: TestResult) {
+  return {
+    testId: test.id,
+    fullName: test.titlePath().slice(2).join(" "),
+    title: test.title,
+    file: basename(test.location.file),
+    status: journeyStatus(test.outcome(), result.status),
+  };
+}
+
 export default class EvidenceReporter implements Reporter {
   private readonly outputFile: string;
-  private readonly finals = new Map<string, { test: TestCase; result: TestResult }>();
+  private readonly finals: FinalAttempts = new Map();
 
   constructor(options: { outputFile?: string } = {}) {
     this.outputFile = resolve(options.outputFile ?? "test-results/journey-evidence.json");
   }
 
   onTestEnd(test: TestCase, result: TestResult): void {
-    if (!JOURNEY_FILES.has(basename(test.location.file))) return;
-    const prev = this.finals.get(test.id);
-    if (!prev || result.retry >= prev.result.retry) this.finals.set(test.id, { test, result });
+    keepFinalAttempt(this.finals, test, result);
   }
 
   onEnd(_result: FullResult): void {
     const evidenceDir = dirname(this.outputFile);
     const journeys = [...this.finals.values()].map(({ test, result }) => ({
-      testId: test.id,
-      // titlePath() = ["", project, file, ...describes, title]; the Playwright
-      // json report (and so the summary) names a test by file + describes + title.
-      fullName: test.titlePath().slice(2).join(" "),
-      title: test.title,
-      file: basename(test.location.file),
-      status: journeyStatus(test.outcome(), result.status),
+      ...journeyIdentity(test, result),
       attempt: result.retry + 1,
       steps: collectSteps(result.steps, evidenceDir),
     }));

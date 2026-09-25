@@ -125,19 +125,44 @@ A separate, **non-gating** Playwright run, `E2E_WALKTHROUGH=1`:
   when the screen changed since the last hold (new route, dialog or sheet
   opened, rows added or removed). Without the second rule a screen reached
   mid-step flashes for ~0.3 s (the ta-verify PR 68 defect);
-- every context is created with `recordVideo`; after the run a script stitches
-  each journey's clips into one webm with ffmpeg, inserting a 1.5 s caption
-  card ("Now signed in as employee") at each context switch, and writes
-  `videoOffsetMs` per step;
+- every context is recorded. `use.video` only records the fixture page, never a
+  `browser.newContext` context, so all tests create contexts through
+  `newContext()` (tests/support/walkthrough.ts), which adds `recordVideo` in
+  this mode; `step` refuses a page that is not being recorded, so a clip can
+  never go missing silently;
+- after the run, the walkthrough reporter joins each journey's clips into one
+  webm with ffmpeg (re-encoded, VP8), **following the steps in the order they
+  ran**: a title card, then each run of consecutive steps on one page, cut
+  from its clip from the run's first step to the next run's start (or the
+  clip's end), with a 1.5 s caption card "Next: <step>" at every switch — so a
+  journey that goes employee → admin → employee shows the three stretches in
+  that order. What a page showed before its first step (a blank first frame,
+  a setup login) is not paced and belongs to no step, so it is left out. Cards are recorded
+  with Playwright's own Chromium, so no font setup is needed. A clip is placed
+  on the wall clock from the instant its page closed minus its duration; a
+  journey whose clips cannot be measured gets `video: null`, never a guess;
+- it writes `walkthrough-evidence.json`, schema `journey-walkthrough/1`, a
+  separate file from the gating evidence: `mode: "walkthrough"`, `commitSha`,
+  `gatingRunId`, `runId`, `source: "ci"`, and per journey `fullName`, `status`,
+  `video: {path, contentType: "video/webm", durationMs} | null`, and per step
+  `{title, status, offsetMs | null}`;
+- a report-only pacing line per journey (ffmpeg scene detection: screen count,
+  shortest screen, screens under 1.5 s) is printed in the job log;
 - **refuses to start** if `E2E_BASE_URL` is set: it runs only against the
   ephemeral CI app on localhost;
 - reuses saved sessions where the gating run does, so human pace stays inside
   the 10 req/min credential rate limit.
 
-The walkthrough runs in its own `walkthrough` job in `ci.yml` after `e2e`, on
-push to main only, `continue-on-error`. Its evidence carries `mode:
-"walkthrough"` and the same `commitSha` as the gating run. A walkthrough whose
-commit does not match the gating evidence it would sit beside is **not shown**.
+The walkthrough is its own workflow, `walkthrough.yml` — not a ci job, which
+would hold back the site publish and be cancelled with a superseded ci run. It
+runs after a green ci run of a push to main (recording that run's commit, with
+`WALKTHROUGH_COMMIT_SHA` / `WALKTHROUGH_GATING_RUN_ID` stamped into the
+evidence as `commitSha` / `gatingRunId`), and on a pull request touching the
+walkthrough machinery or a manual run, so a change can be recorded before
+merge; those carry no gating run id and are never published. It uploads
+`pay-verify-walkthrough`. A walkthrough whose
+commit and run do not match the gating evidence it would sit beside is **not
+shown** (PR 7 wires it into the site).
 
 ### Cursor overlay (walkthrough only)
 
@@ -160,8 +185,10 @@ pixels.
 
 ### Storage and publishing (D1)
 
-`ci.yml` uploads a `pay-verify-evidence` artifact (evidence JSON, stills,
-stitched videos) from `e2e` and, when present, from `walkthrough`.
+`ci.yml`'s `e2e` job uploads a `pay-verify-evidence` artifact (evidence JSON
+and stills). The walkthrough videos come from a separate workflow,
+`walkthrough.yml`, as `pay-verify-walkthrough` (see Walkthrough mode); PR 7
+wires them into the site, matched by `gatingRunId`.
 
 `pay-verify-site.yml`, on a ci `workflow_run`:
 
@@ -253,7 +280,7 @@ with a "Show screens" control (R4).
    steps; upload the evidence artifact.
 4. Evidence schema + validation in `verify-summary`; `pay-verify-assets`
    branch; generator copies media and renders a Screens-only viewer.
-5. Walkthrough mode, screen-change hold, ffmpeg stitch, `walkthrough` job.
+5. Walkthrough mode, screen-change hold, ffmpeg stitch, `walkthrough.yml`.
 6. Cursor overlay.
 7. Video | Screens tabs and the R4 open-state rules.
 

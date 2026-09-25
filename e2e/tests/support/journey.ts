@@ -30,6 +30,7 @@ import {
   type StillMeta,
 } from "../../reporters/evidence-reporter.js";
 import { LIVE_QA } from "../qa.js";
+import { holdStepEnd, markStep, registerPage, WALKTHROUGH } from "./walkthrough.js";
 
 /** A still never exceeds this height (CSS px), however long the page. */
 export const STILL_MAX_HEIGHT_PX = 4000;
@@ -51,8 +52,11 @@ const STILL_SCREENSHOT_TIMEOUT_MS = 10_000;
  */
 const STILL_CAPTURE_TIMEOUT_MS = 15_000;
 
-/** Stills only in the ephemeral boot — never against live QA (spec 20 D2). */
-export const STILLS_ENABLED = !LIVE_QA;
+/**
+ * Stills only in the ephemeral gating run — never against live QA (spec 20
+ * D2), and not in the walkthrough, which records video instead.
+ */
+export const STILLS_ENABLED = !LIVE_QA && !WALKTHROUGH;
 
 /**
  * In the page: how the screen scrolls. `document` is the document's own hidden
@@ -139,6 +143,15 @@ export async function step<T>(page: Page, title: string, body: () => Promise<T>)
     const testInfo = test.info();
     const index = stepCounters.get(testInfo) ?? 0;
     stepCounters.set(testInfo, index + 1);
+    if (WALKTHROUGH) {
+      const clip = await registerPage(page, testInfo);
+      markStep(testInfo, { index, title, clip, startedAt: Date.now() });
+      try {
+        return await body();
+      } finally {
+        await holdStepEnd(page);
+      }
+    }
     if (!STILLS_ENABLED) return body();
     const browserName = page.context().browser()?.browserType().name();
     if (browserName !== "chromium") {
