@@ -23,11 +23,14 @@ import { dirname, join, relative, resolve, sep } from "node:path";
 import { chromium } from "@playwright/test";
 import type { FullResult, Reporter, TestCase, TestResult } from "@playwright/test/reporter";
 import {
+  ACTION_MARK_ANNOTATION,
+  type ActionMark,
   CLIP_MARK_ANNOTATION,
   type ClipMark,
   STEP_MARK_ANNOTATION,
   VIDEO_SIZE,
 } from "../tests/support/walkthrough.js";
+import { OVERLAY_HIGHLIGHT_MS } from "../tests/support/overlay.js";
 import {
   type FinalAttempts,
   type JourneyStatus,
@@ -40,9 +43,13 @@ import {
   planStitch,
   type Segment,
   type StepStart,
+  videoTimeOf,
 } from "./walkthrough-plan.js";
 
 export const WALKTHROUGH_SCHEMA = "journey-walkthrough/1";
+
+/** How far before an action the action sheet samples the video (ms). */
+const RING_SAMPLE_BEFORE_ACTION_MS = OVERLAY_HIGHLIGHT_MS / 2;
 
 interface WalkthroughStep {
   title: string;
@@ -245,6 +252,65 @@ function pacingReport(video: string, name: string, title: string, dir: string): 
   );
 }
 
+/**
+ * Report-only overlay check (spec 20 R3: every click and type frame shows the
+ * cursor inside the ring). For each action the overlay pointed at, the frame
+ * just before the action runs is extracted and tiled into
+ * `pacing/<name>-actions-NN.jpg`, in order, with the times in
+ * `pacing/<name>-actions.json` — so a reader checks the ring frame by frame
+ * without decoding the video.
+ */
+function actionSheet(
+  video: string,
+  name: string,
+  actions: { atMs: number; verb: string }[],
+  dir: string,
+): void {
+  if (actions.length === 0) return;
+  const times = actions.map((a) => a.atMs);
+  const work = join(dir, "work", `${name}-actions`);
+  mkdirSync(work, { recursive: true });
+  // Numbered only as frames succeed: an image-sequence input stops at the first
+  // gap, which would silently drop every later action from the sheet.
+  let n = 0;
+  for (const ms of times) {
+    // The middle of the ring's hold before the action: the cursor has arrived
+    // and the ring is up, with margin either side for the mapping's error.
+    const t = Math.max(0, ms - RING_SAMPLE_BEFORE_ACTION_MS) / 1000;
+    const got = run("ffmpeg", [
+      "-y",
+      "-v",
+      "error",
+      "-ss",
+      t.toFixed(3),
+      "-i",
+      video,
+      "-frames:v",
+      "1",
+      "-vf",
+      "scale=480:-1",
+      join(work, `a${String(n).padStart(3, "0")}.jpg`),
+    ]);
+    if (got.ok) n += 1;
+    else console.warn(`walkthrough: no frame at ${ms}ms for ${name}`);
+  }
+  if (n === 0) return;
+  run("ffmpeg", [
+    "-y",
+    "-v",
+    "error",
+    "-i",
+    join(work, "a%03d.jpg"),
+    "-vf",
+    "tile=3x4:padding=4:color=white",
+    join(dir, "pacing", `${name}-actions-%02d.jpg`),
+  ]);
+  writeFileSync(
+    join(dir, "pacing", `${name}-actions.json`),
+    `${JSON.stringify({ actions }, null, 2)}\n`,
+  );
+}
+
 function slug(text: string): string {
   return (
     text
@@ -325,6 +391,11 @@ export default class WalkthroughReporter implements Reporter {
       return { ...base, video: null, steps: stepRecords() };
     }
     pacingReport(out, name, test.title, dir);
+    const actions = marks<ActionMark>(result, ACTION_MARK_ANNOTATION).flatMap((a) => {
+      const atMs = videoTimeOf(plan, a.clip, a.at);
+      return atMs === null ? [] : [{ atMs, verb: a.verb }];
+    });
+    actionSheet(out, name, actions, dir);
     const measured = durationMs(out);
     return {
       ...base,

@@ -166,8 +166,11 @@ shown** (PR 7 wires it into the site).
 
 ### Cursor overlay (walkthrough only)
 
-Injected by the test harness through `context.addInitScript`, never shipped in
-the app, and only when `E2E_WALKTHROUGH=1`:
+Injected by the test harness (`tests/support/overlay.ts`), never shipped in the
+app, and only on pages registered for the walkthrough (`E2E_WALKTHROUGH=1`). It
+installs itself in a document at the first action pointed at there (the click
+ripple listener is then in place before that click), rather than through an
+init script:
 
 - a cursor glides to the target (450 ms);
 - a pink ring (`#ec4899`, a colour apps/web does not use) holds on the target
@@ -182,6 +185,12 @@ the app, and only when `E2E_WALKTHROUGH=1`:
 
 The gating run never loads the overlay, so gating stills contain no overlay
 pixels.
+
+For review, every pointed action's wall-clock instant is recorded; CI maps it
+into the joined video and extracts the frame just before the action runs into
+`pacing/<journey>-actions-NN.jpg` (times in `-actions.json`), so "the cursor is
+inside the ring on every click and type" is checked frame by frame without
+decoding the video.
 
 ### Storage and publishing (D1)
 

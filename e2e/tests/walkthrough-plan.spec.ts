@@ -3,7 +3,7 @@
  */
 
 import { expect, test } from "@playwright/test";
-import { CARD_MS, planStitch, type Segment } from "../reporters/walkthrough-plan.js";
+import { CARD_MS, planStitch, type Segment, videoTimeOf } from "../reporters/walkthrough-plan.js";
 
 // Wall-clock instants in ms. Clip 0 (employee) recorded 10_000..90_000,
 // clip 1 (admin) recorded 30_000..70_000.
@@ -83,6 +83,30 @@ test.describe("harness · walkthrough plan", () => {
       [{ index: 0, title: "s", clip: 0, startedAt: 12_000 }],
     );
     expect(shape(plan?.segments)).toEqual(["card:j", "clip:emp.webm@2000+78000"]);
+  });
+
+  test("videoTimeOf maps an action's instant into the joined video, or null when cut", () => {
+    const plan = planStitch(
+      "journey 3",
+      [emp, admin],
+      [
+        { index: 0, title: "Employee fills in", clip: 0, startedAt: 11_000 },
+        { index: 1, title: "Admin reviews", clip: 1, startedAt: 35_000 },
+        { index: 2, title: "Employee sees it", clip: 0, startedAt: 75_000 },
+      ],
+    );
+    if (!plan) throw new Error("no plan");
+    // employee clicks at 20_000: 9s into the first cut, after the title card
+    expect(videoTimeOf(plan, 0, 20_000)).toBe(CARD_MS + 9_000);
+    // admin clicks at 40_000: 5s into its cut
+    expect(videoTimeOf(plan, 1, 40_000)).toBe(CARD_MS + 24_000 + CARD_MS + 5_000);
+    // employee at 50_000 was not on screen (admin was): cut
+    expect(videoTimeOf(plan, 0, 50_000)).toBeNull();
+    // employee again at 80_000: 5s into the third cut (the admin cut is 35s,
+    // capped at the admin clip's end)
+    expect(videoTimeOf(plan, 0, 80_000)).toBe(
+      CARD_MS + 24_000 + CARD_MS + 35_000 + CARD_MS + 5_000,
+    );
   });
 
   test("a clip that could not be measured gives no plan — never a wrong video", () => {
