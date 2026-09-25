@@ -267,8 +267,11 @@ for (const d of document.querySelectorAll("details.screens")) {
     // preload="none" loads nothing on its own: a seek asked for before any
     // metadata loads just enough of THIS video to seek (still no autoplay).
     video.addEventListener("loadedmetadata", go, { once: true });
-    video.preload = "metadata";
-    video.load();
+    // Only if nothing is loading yet: load() would abort a play already starting.
+    if (video.networkState === HTMLMediaElement.NETWORK_EMPTY) {
+      video.preload = "metadata";
+      video.load();
+    }
   };
   const setView = (view) => {
     d.dataset.view = view;
