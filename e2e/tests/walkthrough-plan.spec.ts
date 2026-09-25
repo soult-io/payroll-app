@@ -66,6 +66,25 @@ test.describe("harness · walkthrough plan", () => {
     expect(o?.get(4)).toBe(CARD_MS + 24_000 + CARD_MS + 35_000 + CARD_MS);
   });
 
+  test("an exact recording start wins over the close-based estimate", () => {
+    // Recording really began at 10_600; the close estimate would say 10_000.
+    const plan = planStitch(
+      "j",
+      [{ ...emp, startedAt: 10_600 }],
+      [{ index: 0, title: "s", clip: 0, startedAt: 12_000 }],
+    );
+    expect(shape(plan?.segments)).toEqual(["card:j", "clip:emp.webm@1400+78600"]);
+  });
+
+  test("a stamped start with no close time is still usable", () => {
+    const plan = planStitch(
+      "j",
+      [{ ...emp, closedAt: Number.NaN, startedAt: 10_000 }],
+      [{ index: 0, title: "s", clip: 0, startedAt: 12_000 }],
+    );
+    expect(shape(plan?.segments)).toEqual(["card:j", "clip:emp.webm@2000+78000"]);
+  });
+
   test("a clip that could not be measured gives no plan — never a wrong video", () => {
     const one = [{ index: 0, title: "s", clip: 0, startedAt: 12_000 }];
     expect(planStitch("j", [{ ...emp, durationMs: Number.NaN }], one)).toBeUndefined();

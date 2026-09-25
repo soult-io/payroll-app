@@ -26,8 +26,10 @@ export interface MeasuredClip {
   video: string;
   /** Length of the recorded file (ms). */
   durationMs: number;
-  /** Wall-clock instant the page closed, which is when its recording ended. */
+  /** Wall-clock instant the page closed (its recording ended just after). */
   closedAt: number;
+  /** Wall-clock instant of the first frame, when stamped exactly. */
+  startedAt?: number | null;
 }
 
 /** Where a step started: which clip, and the wall-clock instant. */
@@ -65,7 +67,17 @@ function runsOf(steps: readonly StepStart[]): StepStart[][] {
 }
 
 function usable(clip: MeasuredClip | undefined): clip is MeasuredClip {
-  return clip !== undefined && clip.durationMs > 0 && clip.closedAt > 0;
+  return (
+    clip !== undefined && clip.durationMs > 0 && ((clip.startedAt ?? 0) > 0 || clip.closedAt > 0)
+  );
+}
+
+/**
+ * The recording's first frame on the wall clock: the exact stamp when there is
+ * one, else estimated back from the close (which runs slightly late).
+ */
+function recordedFrom(clip: MeasuredClip): number {
+  return clip.startedAt && clip.startedAt > 0 ? clip.startedAt : clip.closedAt - clip.durationMs;
 }
 
 /**
@@ -78,19 +90,16 @@ function cutRun(
   clip: MeasuredClip,
   nextStart: number | undefined,
 ): { segment: Segment & { kind: "clip" }; within: Map<number, number | null> } {
-  // The recording's first frame on the wall clock.
-  const recordedFrom = clip.closedAt - clip.durationMs;
-  const fromMs = clamp((run[0]?.startedAt ?? recordedFrom) - recordedFrom, 0, clip.durationMs);
+  const origin = recordedFrom(clip);
+  const fromMs = clamp((run[0]?.startedAt ?? origin) - origin, 0, clip.durationMs);
   const toMs =
-    nextStart === undefined
-      ? clip.durationMs
-      : clamp(nextStart - recordedFrom, fromMs, clip.durationMs);
+    nextStart === undefined ? clip.durationMs : clamp(nextStart - origin, fromMs, clip.durationMs);
   const length = toMs - fromMs;
   const within = new Map<number, number | null>();
   for (const s of run) {
     // A step that began before its clip's first frame (a page's first paint
     // comes after the step's navigation starts) is shown from the cut's start.
-    const t = s.startedAt - recordedFrom - fromMs;
+    const t = s.startedAt - origin - fromMs;
     within.set(s.index, t <= length ? Math.max(0, t) : null);
   }
   return { segment: { kind: "clip", video: clip.video, fromMs, durationMs: length }, within };

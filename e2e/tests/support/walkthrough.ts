@@ -68,6 +68,12 @@ export interface StepMark {
 export interface ClipMark {
   clip: number;
   video: string;
+  /**
+   * Wall-clock instant of the recording's first frame, when known exactly
+   * (see markRecordingStart); null for a page that painted before it could be
+   * stamped, whose start is then estimated from its close.
+   */
+  recordingStartedAt: number | null;
   /** Sidecar file the clip's close instant is written to. */
   closeFile: string;
 }
@@ -83,11 +89,47 @@ export async function newContext(
 ): Promise<BrowserContext> {
   if (!WALKTHROUGH) return browser.newContext(options);
   const info = testInfo ?? test.info();
-  return browser.newContext({
+  const ctx = await browser.newContext({
     ...options,
     viewport: VIDEO_SIZE,
     recordVideo: { dir: info.outputPath("videos"), size: VIDEO_SIZE },
   });
+  // Stamp every page's recording start the moment it exists, before a test
+  // can navigate it (a login before the first step would otherwise leave the
+  // start unknown).
+  const newPage = ctx.newPage.bind(ctx);
+  ctx.newPage = async () => {
+    const page = await newPage();
+    await markRecordingStart(page);
+    return page;
+  };
+  return ctx;
+}
+
+/** Exact recording start per page, stamped by markRecordingStart. */
+const recordingStarts = new WeakMap<Page, number>();
+
+/**
+ * A page's video starts at its first PAINT — not at page creation, and a
+ * blank page paints nothing. So paint a plain grey frame now (white would not
+ * count as a paint) and stamp the instant. Only on a blank page: painting over
+ * a page that has content would lose its state.
+ *
+ * Anchoring at the start is exact. The fallback — close instant minus the
+ * file's duration — runs late: recording continues briefly after the page's
+ * close event, which cut the first screen of a clip short in the first CI run.
+ */
+async function markRecordingStart(page: Page): Promise<void> {
+  if (recordingStarts.has(page) || page.url() !== "about:blank") return;
+  // about:blank with content (page.setContent) has painted already.
+  const empty = await page
+    .evaluate(() => (document.body?.childElementCount ?? 0) === 0)
+    .catch(() => false);
+  if (!empty) return;
+  await page.setContent(
+    '<!doctype html><title>walkthrough</title><body style="margin:0;background:#9ca3af"></body>',
+  );
+  recordingStarts.set(page, Date.now());
 }
 
 interface PageState {
@@ -252,12 +294,18 @@ export async function registerPage(page: Page, testInfo: TestInfo): Promise<numb
       "walkthrough: this page is not being recorded — create its context with newContext() from support/walkthrough.ts",
     );
   }
+  await markRecordingStart(page);
   wrapActionsOnce(page);
   const clip = clipCounters.get(testInfo) ?? 0;
   clipCounters.set(testInfo, clip + 1);
   pages.set(page, { signature: await screenSignature(page), acting: false, clip });
   const sidecar = testInfo.outputPath(CLIP_CLOSE_FILE);
-  const mark: ClipMark = { clip, video: await video.path(), closeFile: sidecar };
+  const mark: ClipMark = {
+    clip,
+    video: await video.path(),
+    recordingStartedAt: recordingStarts.get(page) ?? null,
+    closeFile: sidecar,
+  };
   testInfo.annotations.push({ type: CLIP_MARK_ANNOTATION, description: JSON.stringify(mark) });
   // The recording of a page ends when it closes. That instant, with the file's
   // duration, places the clip's first frame on the wall clock — however long

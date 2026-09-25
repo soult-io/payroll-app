@@ -298,6 +298,7 @@ export default class WalkthroughReporter implements Reporter {
         video,
         durationMs: existsSync(video) ? durationMs(video) : Number.NaN,
         closedAt: closes[String(c.clip)] ?? Number.NaN,
+        startedAt: c.recordingStartedAt,
       };
     });
     const plan = planStitch(test.title, clips, stepMarks);
