@@ -19,18 +19,28 @@
 
 import { spawnSync } from "node:child_process";
 import { existsSync, mkdirSync, readFileSync, renameSync, writeFileSync } from "node:fs";
-import { basename, dirname, join, relative, resolve, sep } from "node:path";
+import { dirname, join, relative, resolve, sep } from "node:path";
 import { chromium } from "@playwright/test";
 import type { FullResult, Reporter, TestCase, TestResult } from "@playwright/test/reporter";
 import {
   CLIP_MARK_ANNOTATION,
   type ClipMark,
   STEP_MARK_ANNOTATION,
-  type StepMark,
   VIDEO_SIZE,
 } from "../tests/support/walkthrough.js";
-import { JOURNEY_FILES, type JourneyStatus, journeyStatus } from "./evidence-reporter.js";
-import { CARD_MS, type MeasuredClip, planStitch, type Segment } from "./walkthrough-plan.js";
+import {
+  type FinalAttempts,
+  type JourneyStatus,
+  journeyIdentity,
+  keepFinalAttempt,
+} from "./evidence-reporter.js";
+import {
+  CARD_MS,
+  type MeasuredClip,
+  planStitch,
+  type Segment,
+  type StepStart,
+} from "./walkthrough-plan.js";
 
 export const WALKTHROUGH_SCHEMA = "journey-walkthrough/1";
 
@@ -247,7 +257,7 @@ function slug(text: string): string {
 
 export default class WalkthroughReporter implements Reporter {
   private readonly outputFile: string;
-  private readonly finals = new Map<string, { test: TestCase; result: TestResult }>();
+  private readonly finals: FinalAttempts = new Map();
 
   constructor(options: { outputFile?: string } = {}) {
     this.outputFile = resolve(
@@ -256,9 +266,7 @@ export default class WalkthroughReporter implements Reporter {
   }
 
   onTestEnd(test: TestCase, result: TestResult): void {
-    if (!JOURNEY_FILES.has(basename(test.location.file))) return;
-    const prev = this.finals.get(test.id);
-    if (!prev || result.retry >= prev.result.retry) this.finals.set(test.id, { test, result });
+    keepFinalAttempt(this.finals, test, result);
   }
 
   private async journey(
@@ -266,17 +274,11 @@ export default class WalkthroughReporter implements Reporter {
     result: TestResult,
     dir: string,
   ): Promise<WalkthroughJourney> {
-    const stepMarks = marks<StepMark>(result, STEP_MARK_ANNOTATION);
+    const stepMarks = marks<StepStart>(result, STEP_MARK_ANNOTATION);
     const clipMarks = marks<ClipMark>(result, CLIP_MARK_ANNOTATION);
     const topSteps = result.steps.filter((s) => s.category === "test.step");
-    const base = {
-      testId: test.id,
-      fullName: test.titlePath().slice(2).join(" "),
-      title: test.title,
-      file: basename(test.location.file),
-      status: journeyStatus(test.outcome(), result.status),
-    };
-    const stepsWithout = (offsets?: Map<number, number | null>): WalkthroughStep[] =>
+    const base = journeyIdentity(test, result);
+    const stepRecords = (offsets?: Map<number, number | null>): WalkthroughStep[] =>
       stepMarks.map((m) => ({
         title: m.title,
         status: topSteps[m.index]?.error ? "failed" : "passed",
@@ -310,7 +312,7 @@ export default class WalkthroughReporter implements Reporter {
     const plan = planStitch(test.title, clips, stepMarks);
     if (!plan) {
       console.warn(`walkthrough: ${test.title} — a clip could not be measured; no video`);
-      return { ...base, video: null, steps: stepsWithout() };
+      return { ...base, video: null, steps: stepRecords() };
     }
     // The test id keeps two similar titles from sharing (and overwriting) a
     // file. Its TAIL: the head is the file's hash, the same for every test in it.
@@ -320,7 +322,7 @@ export default class WalkthroughReporter implements Reporter {
     const out = join(dir, "videos", `${name}.webm`);
     mkdirSync(dirname(out), { recursive: true });
     if (!(await stitch(plan.segments, out, work))) {
-      return { ...base, video: null, steps: stepsWithout() };
+      return { ...base, video: null, steps: stepRecords() };
     }
     pacingReport(out, name, test.title, dir);
     const measured = durationMs(out);
@@ -331,7 +333,7 @@ export default class WalkthroughReporter implements Reporter {
         contentType: "video/webm",
         durationMs: Number.isFinite(measured) ? measured : plan.durationMs,
       },
-      steps: stepsWithout(plan.offsets),
+      steps: stepRecords(plan.offsets),
     };
   }
 

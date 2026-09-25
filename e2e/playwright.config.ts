@@ -23,21 +23,21 @@
 import { dirname, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 import { defineConfig, devices, type ReporterDescription } from "@playwright/test";
-import { VIDEO_SIZE, WALKTHROUGH_SLOWMO_MS } from "./tests/support/walkthrough.js";
+import { JOURNEY_FILES } from "./reporters/evidence-reporter.js";
+import { VIDEO_SIZE, WALKTHROUGH, WALKTHROUGH_SLOWMO_MS } from "./tests/support/walkthrough.js";
 
 const liveBaseUrl = process.env.E2E_BASE_URL;
 const HERE = dirname(fileURLToPath(import.meta.url));
 
-const walkthrough = process.env.E2E_WALKTHROUGH === "1";
 // The recording is published; it may only ever show the synthetic local boot.
-if (walkthrough && liveBaseUrl) {
+if (WALKTHROUGH && liveBaseUrl) {
   throw new Error("E2E_WALKTHROUGH records the local synthetic boot only — unset E2E_BASE_URL");
 }
 
 /** Walkthrough overrides: journeys only, human pace, recorded, never retried. */
-const walkthroughMode = walkthrough
+const walkthroughMode = WALKTHROUGH
   ? {
-      testMatch: /(journeys|qa|state-taxes)\.spec\.ts$/,
+      testMatch: [...JOURNEY_FILES].map((f) => `**/${f}`),
       outputDir: "./test-results-walkthrough",
       // Human pace is slow: a journey takes minutes, not seconds.
       timeout: 300_000,

@@ -33,6 +33,7 @@ import {
   type TestInfo,
   test,
 } from "@playwright/test";
+import type { StepStart } from "../../reporters/walkthrough-plan.js";
 
 export const WALKTHROUGH = process.env.E2E_WALKTHROUGH === "1";
 
@@ -54,15 +55,10 @@ export const STEP_MARK_ANNOTATION = "walkthrough-step";
 /** Annotation per recorded page: {@link ClipMark} as JSON. */
 export const CLIP_MARK_ANNOTATION = "walkthrough-clip";
 /** Sidecar file (in the test's output dir) holding each clip's close instant. */
-export const CLIP_CLOSE_FILE = "walkthrough-clip-close.json";
+const CLIP_CLOSE_FILE = "walkthrough-clip-close.json";
 
 /** Where a step starts: which clip, and the wall-clock instant. */
-export interface StepMark {
-  index: number;
-  title: string;
-  clip: number;
-  startedAt: number;
-}
+export type StepMark = StepStart;
 
 /** One recorded page. */
 export interface ClipMark {
@@ -151,7 +147,7 @@ const closeTimes = new WeakMap<TestInfo, Record<number, number>>();
  * of these; a route, a dialog, a dropdown or a row added does. Toasts are not
  * screens. Null when the page cannot answer (closed, mid-navigation).
  */
-export async function screenSignature(page: Page): Promise<string | null> {
+async function screenSignature(page: Page): Promise<string | null> {
   return page
     .evaluate(() => {
       const w = window as unknown as { __walkthroughDoc?: string };
@@ -180,7 +176,7 @@ async function hold(page: Page): Promise<void> {
 }
 
 /** Before an action: hold any screen the recording has not held yet. */
-export async function holdIfNewScreen(page: Page): Promise<void> {
+async function holdIfNewScreen(page: Page): Promise<void> {
   const state = pages.get(page);
   if (!state) return;
   // Re-sampled after each hold: a screen that lands DURING a hold gets its own.
@@ -254,21 +250,20 @@ function wrapActionsOnce(page: Page): void {
   for (const name of LOCATOR_ACTIONS) {
     const original = locatorProto[name] as (...a: unknown[]) => Promise<unknown>;
     locatorProto[name] = function (this: Locator, ...args: unknown[]) {
-      const self = this;
-      const owner = self.page();
+      const owner = this.page();
       if (name === "fill" && pages.has(owner) && !pages.get(owner)?.acting) {
         // Keep the caller's options (timeout) on both halves of the typing.
         const { timeout } = (args[1] ?? {}) as { timeout?: number };
         const bound = timeout === undefined ? {} : { timeout };
-        return paced(owner, self, async () => {
-          await self.clear(bound);
-          await self.pressSequentially(String(args[0] ?? ""), {
+        return paced(owner, this, async () => {
+          await this.clear(bound);
+          await this.pressSequentially(String(args[0] ?? ""), {
             delay: WALKTHROUGH_TYPE_DELAY_MS,
             ...bound,
           });
         });
       }
-      return paced(owner, self, () => original.apply(self, args));
+      return paced(owner, this, () => original.apply(this, args));
     };
   }
   const pageProto = Object.getPrototypeOf(page) as Record<string, unknown>;
