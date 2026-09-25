@@ -256,8 +256,14 @@ function pacingReport(video: string, name: string, title: string, dir: string): 
  * `pacing/<name>-actions.json` — so a reader checks the ring frame by frame
  * without decoding the video.
  */
-function actionSheet(video: string, name: string, times: number[], dir: string): void {
-  if (times.length === 0) return;
+function actionSheet(
+  video: string,
+  name: string,
+  actions: { atMs: number; verb: string }[],
+  dir: string,
+): void {
+  if (actions.length === 0) return;
+  const times = actions.map((a) => a.atMs);
   const work = join(dir, "work", `${name}-actions`);
   mkdirSync(work, { recursive: true });
   // Numbered only as frames succeed: an image-sequence input stops at the first
@@ -296,7 +302,7 @@ function actionSheet(video: string, name: string, times: number[], dir: string):
   ]);
   writeFileSync(
     join(dir, "pacing", `${name}-actions.json`),
-    `${JSON.stringify({ actionsAtMs: times }, null, 2)}\n`,
+    `${JSON.stringify({ actions }, null, 2)}\n`,
   );
 }
 
@@ -380,10 +386,11 @@ export default class WalkthroughReporter implements Reporter {
       return { ...base, video: null, steps: stepRecords() };
     }
     pacingReport(out, name, test.title, dir);
-    const actionTimes = marks<ActionMark>(result, ACTION_MARK_ANNOTATION)
-      .map((a) => videoTimeOf(plan, a.clip, a.at))
-      .filter((t): t is number => t !== null);
-    actionSheet(out, name, actionTimes, dir);
+    const actions = marks<ActionMark>(result, ACTION_MARK_ANNOTATION).flatMap((a) => {
+      const atMs = videoTimeOf(plan, a.clip, a.at);
+      return atMs === null ? [] : [{ atMs, verb: a.verb }];
+    });
+    actionSheet(out, name, actions, dir);
     const measured = durationMs(out);
     return {
       ...base,

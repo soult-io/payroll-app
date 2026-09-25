@@ -8,7 +8,11 @@
  */
 
 import { expect, test } from "@playwright/test";
+import { OVERLAY_GLIDE_MS, OVERLAY_HIGHLIGHT_MS } from "./support/overlay.js";
 import { registerPage, WALKTHROUGH_HOLD_MS } from "./support/walkthrough.js";
+
+/** An action with no hold: only the overlay's glide + highlight, plus slack. */
+const NO_HOLD_MS = OVERLAY_GLIDE_MS + OVERLAY_HIGHLIGHT_MS + 400;
 
 test.describe("harness · walkthrough pacing", () => {
   test("a changed screen is held before the next action; an unchanged one is not", async ({
@@ -25,8 +29,7 @@ test.describe("harness · walkthrough pacing", () => {
       // Same screen as registered: no hold.
       let t = Date.now();
       await page.locator("#again").click();
-      // No hold: only the overlay's glide + highlight (~950ms); a hold adds 1.5s.
-      expect(Date.now() - t).toBeLessThan(WALKTHROUGH_HOLD_MS + 400);
+      expect(Date.now() - t).toBeLessThan(NO_HOLD_MS);
 
       // A dialog opens (a new screen): the next action waits for the hold.
       await page.evaluate(() => {
@@ -42,8 +45,7 @@ test.describe("harness · walkthrough pacing", () => {
       // Held once: the following action on the same screen runs straight away.
       t = Date.now();
       await page.locator("#again").click();
-      // No hold: only the overlay's glide + highlight (~950ms); a hold adds 1.5s.
-      expect(Date.now() - t).toBeLessThan(WALKTHROUGH_HOLD_MS + 400);
+      expect(Date.now() - t).toBeLessThan(NO_HOLD_MS);
     } finally {
       await ctx.close();
     }

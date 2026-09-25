@@ -26,7 +26,7 @@
 import type { Locator } from "@playwright/test";
 
 /** How long the cursor takes to glide to the next target (ms). */
-const OVERLAY_GLIDE_MS = 450;
+export const OVERLAY_GLIDE_MS = 450;
 /** How long the target stays ringed before the action starts (ms). */
 export const OVERLAY_HIGHLIGHT_MS = 500;
 /** Bound on drawing it — the target is already attached (ms). */
@@ -116,6 +116,8 @@ export function overlayRuntime(target?: Element, req?: PointRequest): PointResul
       return existing;
     }
     const host = document.createElement("walkthrough-overlay");
+    // Not part of the app for assistive tech (or accessibility audits) either.
+    host.setAttribute("aria-hidden", "true");
     host.style.cssText =
       "position:fixed;inset:0;display:block;pointer-events:none;z-index:2147483647;contain:strict;margin:0;padding:0;border:0;background:none";
     const root = host.attachShadow({ mode: "open" });
