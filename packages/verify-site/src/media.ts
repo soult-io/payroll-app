@@ -15,6 +15,7 @@
  */
 
 import type { Source, TestStatus } from "@payroll/verify-summary";
+import { escapeHtml } from "./escape.js";
 
 /** One step's still, as served by the site. */
 export interface ServedStill {
@@ -52,15 +53,6 @@ export interface ResultRun {
   gitSha: string;
 }
 
-function escapeAttr(value: string): string {
-  return value
-    .replaceAll("&", "&amp;")
-    .replaceAll("<", "&lt;")
-    .replaceAll(">", "&gt;")
-    .replaceAll('"', "&quot;")
-    .replaceAll("'", "&#39;");
-}
-
 /**
  * The bundle's journey for this card, but only when the bundle is bound to
  * the same run AND commit the card's result came from (R5).
@@ -93,13 +85,13 @@ export function noMediaNote(run: ResultRun): string {
 function stepItem(step: ServedStep, index: number): string {
   const still = step.still;
   const data = still
-    ? ` data-src="${escapeAttr(still.href)}" data-w="${still.width}" data-h="${still.height}" data-trunc="${still.truncated ? "1" : "0"}"`
+    ? ` data-src="${escapeHtml(still.href)}" data-w="${still.width}" data-h="${still.height}" data-trunc="${still.truncated ? "1" : "0"}"`
     : ` data-src=""`;
   // The raw link is the no-JS path, and "open full size" with JS.
   const raw = still
-    ? ` <a class="raw" href="${escapeAttr(still.href)}" target="_blank" rel="noopener">Screen ↗</a>`
+    ? ` <a class="raw" href="${escapeHtml(still.href)}" target="_blank" rel="noopener">Screen ↗</a>`
     : ` <span class="muted">no screen</span>`;
-  return `<li><button type="button" class="step-btn ${step.status === "failed" ? "fail" : ""}" data-i="${index}" data-title="${escapeAttr(step.title)}"${data}>${index + 1}. ${escapeAttr(step.title)}</button>${raw}</li>`;
+  return `<li><button type="button" class="step-btn ${step.status === "failed" ? "fail" : ""}" data-i="${index}" data-title="${escapeHtml(step.title)}"${data}>${index + 1}. ${escapeHtml(step.title)}</button>${raw}</li>`;
 }
 
 /**
@@ -117,7 +109,7 @@ export function screensViewer(journey: ServedJourney, status: TestStatus, runId:
   const attempt = journey.attempt > 1 ? ` · from attempt ${journey.attempt}` : "";
   return `<details class="screens" data-initial="${initial}"${failed ? " open" : ""}>
         <summary>Screens · ${journey.steps.length} step${journey.steps.length === 1 ? "" : "s"}${failed ? " · opened on the failing step" : ""}</summary>
-        <p class="muted small">stills · chromium · ci run ${escapeAttr(runId)}${attempt} · ${captured}/${journey.steps.length} captured</p>
+        <p class="muted small">stills · chromium · ci run ${escapeHtml(runId)}${attempt} · ${captured}/${journey.steps.length} captured</p>
         <div class="viewer">
           <ol class="steplist">${journey.steps.map(stepItem).join("")}</ol>
           <figure class="stage">

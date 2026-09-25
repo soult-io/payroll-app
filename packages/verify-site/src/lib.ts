@@ -18,6 +18,7 @@ import {
   JOURNEY_SPEC_FILES,
   outcomeFromTests,
 } from "@payroll/verify-summary";
+import { escapeHtml } from "./escape.js";
 import {
   type EvidenceIndex,
   evidenceFor,
@@ -27,14 +28,9 @@ import {
   screensViewer,
 } from "./media.js";
 
-export function escapeHtml(value: string): string {
-  return value
-    .replaceAll("&", "&amp;")
-    .replaceAll("<", "&lt;")
-    .replaceAll(">", "&gt;")
-    .replaceAll('"', "&quot;")
-    .replaceAll("'", "&#39;");
-}
+// Shared with media.ts (which lib.ts imports, so it cannot import back);
+// re-exported so the package API is unchanged.
+export { escapeHtml };
 
 /** Human duration: "820ms", "3.2s", "4m 05s". */
 export function formatDurationMs(ms: number): string {
