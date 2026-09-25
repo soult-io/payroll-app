@@ -114,7 +114,7 @@ an unprivileged-nginx static image — against payroll's own `verify-summary` sc
   rate; a link to the folded-in Playwright html report. Rich per-journey / tax-worksheet cards are
   chunk C.
 - **Image:** `packages/verify-site/Dockerfile` → `ghcr.io/soult-io/payroll-app-verify`, an
-  `nginxinc/nginx-unprivileged:1.27-alpine` (uid 101, port 8080, healthcheck) that serves the
+  `nginxinc/nginx-unprivileged:1.30-alpine` (uid 101, port 8080, healthcheck) that serves the
   pre-generated `dist/`. No build stage — the workflow hands it `dist/`. TLS + the LAN/VPN gate are
   chunk D.
 
