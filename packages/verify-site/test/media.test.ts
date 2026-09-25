@@ -126,7 +126,7 @@ describe("journey card screens", () => {
     const card = cardFor(html, "journey 1");
     expect(card).toContain('<details class="screens" data-initial="0">');
     expect(card).toContain('data-src="media/ci/j/step-still-1.jpg"');
-    expect(html).not.toMatch(/<img[^>]*\ssrc=/);
+    expect(html).not.toMatch(/<img[^>]*\ssrc=/i);
     // No-JS path: a plain link per captured step.
     expect(card).toContain('href="media/ci/j/step-still-1.jpg"');
   });
@@ -235,7 +235,8 @@ describe("journey card screens", () => {
 
   it("the viewer script is inlined once and writes no HTML", () => {
     const html = renderPage([ciSummary([e2eTest("j", "passed")])], { now: NOW });
-    expect(html.match(/<script>/g)).toHaveLength(1);
+    // Plain substring count: the page is our own output, not filtered input.
+    expect(html.split("<script>").length - 1).toBe(1);
     expect(html).not.toContain("innerHTML");
   });
 });
