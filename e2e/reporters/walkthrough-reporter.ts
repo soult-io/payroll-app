@@ -271,8 +271,9 @@ export default class WalkthroughReporter implements Reporter {
       console.warn(`walkthrough: ${test.title} — a clip could not be measured; no video`);
       return { ...base, video: null, steps: stepsWithout() };
     }
-    // The test id keeps two similar titles from sharing (and overwriting) a file.
-    const name = `${slug(test.title)}-${test.id.slice(0, 12)}`;
+    // The test id keeps two similar titles from sharing (and overwriting) a
+    // file. Its TAIL: the head is the file's hash, the same for every test in it.
+    const name = `${slug(test.title)}-${test.id.slice(-12)}`;
     const work = join(dir, "work", name);
     mkdirSync(work, { recursive: true });
     const out = join(dir, "videos", `${name}.webm`);

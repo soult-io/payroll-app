@@ -27,6 +27,12 @@ on:
     paths:
       - "e2e/playwright.config.ts"
       - "e2e/tests/support/**"
+      # The journeys themselves: a context opened without newContext() only
+      # fails in walkthrough mode.
+      - "e2e/tests/journeys.spec.ts"
+      - "e2e/tests/qa.spec.ts"
+      - "e2e/tests/qa.ts"
+      - "e2e/tests/state-taxes.spec.ts"
       - "e2e/reporters/walkthrough-*.ts"
       - ".github/workflows/walkthrough.yml"
   workflow_dispatch:
@@ -34,9 +40,17 @@ on:
 permissions:
   contents: read
 
-# One recording per ref at a time; a newer commit supersedes an older one.
+# One recording per ref at a time; a newer GREEN commit supersedes an older
+# one. Concurrency applies before the job's `if`, so a ci completion that will
+# be skipped (failed, cancelled, not a push) gets a group of its own — it must
+# never cancel the recording of a commit that passed.
 concurrency:
-  group: walkthrough-${{ github.event.workflow_run.head_branch || github.ref }}
+  group: >-
+    walkthrough-${{
+      github.event_name != 'workflow_run' && github.ref ||
+      (github.event.workflow_run.conclusion == 'success' && github.event.workflow_run.event == 'push') && 'main-green' ||
+      github.run_id
+    }}
   cancel-in-progress: true
 
 env:

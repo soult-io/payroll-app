@@ -185,8 +185,10 @@ pixels.
 
 ### Storage and publishing (D1)
 
-`ci.yml` uploads a `pay-verify-evidence` artifact (evidence JSON, stills,
-stitched videos) from `e2e` and, when present, from `walkthrough`.
+`ci.yml`'s `e2e` job uploads a `pay-verify-evidence` artifact (evidence JSON
+and stills). The walkthrough videos come from a separate workflow,
+`walkthrough.yml`, as `pay-verify-walkthrough` (see Walkthrough mode); PR 7
+wires them into the site, matched by `gatingRunId`.
 
 `pay-verify-site.yml`, on a ci `workflow_run`:
 
@@ -278,7 +280,7 @@ with a "Show screens" control (R4).
    steps; upload the evidence artifact.
 4. Evidence schema + validation in `verify-summary`; `pay-verify-assets`
    branch; generator copies media and renders a Screens-only viewer.
-5. Walkthrough mode, screen-change hold, ffmpeg stitch, `walkthrough` job.
+5. Walkthrough mode, screen-change hold, ffmpeg stitch, `walkthrough.yml`.
 6. Cursor overlay.
 7. Video | Screens tabs and the R4 open-state rules.
 
