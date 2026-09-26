@@ -32,13 +32,10 @@ import {
 import { round2 } from "@payroll/engine/money";
 import { effectiveFutaRate } from "@payroll/engine";
 import type { FormAddress, W2Input, W3Input } from "@payroll/documents";
-import {
-  EVENT_TYPE,
-  w2Available as tplW2Available,
-  type TemplateContext,
-} from "@payroll/notifications";
+import { EVENT_TYPE, w2Available as tplW2Available } from "@payroll/notifications";
 import type { Db } from "../db.js";
 import type { AppConfig } from "../config.js";
+import { templateContext } from "../notify/outbox.js";
 import { w2EmployeeAddressAt } from "../change-requests/address-history.js";
 import { decryptField } from "../crypto/field-encryption.js";
 import {
@@ -651,11 +648,7 @@ export async function sendW2AvailableNotices(
     .from(payrollRuns)
     .where(eq(payrollRuns.status, "issued"));
 
-  const companyRows = await db.select({ legalName: company.legalName }).from(company).limit(1);
-  const ctx: TemplateContext = {
-    companyName: companyRows[0]?.legalName ?? "Payroll",
-    appUrl: config.baseUrl,
-  };
+  const ctx = await templateContext(db, config);
 
   let sent = 0;
   for (const { year } of years) {

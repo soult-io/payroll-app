@@ -338,7 +338,7 @@ test("email capture: admin test email lands in Mailpit (via /api/qa/mailbox)", a
       await new Promise((resolve) => setTimeout(resolve, 5_000));
     }
     expect(found, "test email to appear in Mailpit within ~3 minutes").toBeTruthy();
-    expect(must(found, "test email in Mailpit").text).toContain("SMTP delivery is working");
+    expect(must(found, "test email in Mailpit").text).toContain("Email delivery is working");
   } finally {
     await page.context().close();
   }

@@ -11,10 +11,12 @@ import Message from "primevue/message";
 import { authClient } from "../lib/auth-client";
 import { useAuthStore } from "../stores/auth";
 import { pinia } from "../stores/pinia";
+import { useRuntimeConfig } from "../composables/useRuntimeConfig";
 
 const route = useRoute();
 const router = useRouter();
 const auth = useAuthStore(pinia);
+const { brandName } = useRuntimeConfig();
 
 const email = ref("");
 const password = ref("");
@@ -94,6 +96,9 @@ async function submitBackup() {
 
 <template>
   <section class="auth-card">
+    <!-- Product name as plain text, not a heading: "Sign in" stays the card's
+         heading (mobile-login.spec.ts finds it by role). -->
+    <p class="auth-brand">{{ brandName }}</p>
     <h2>Sign in</h2>
 
     <form v-if="step === 'password'" @submit.prevent="submitPassword">
@@ -152,6 +157,14 @@ async function submitBackup() {
   display: flex;
   flex-direction: column;
   gap: 0.75rem;
+}
+.auth-brand {
+  margin: 0;
+  font-size: 1.25rem;
+  font-weight: 600;
+}
+.auth-card h2 {
+  margin-top: 0;
 }
 form {
   display: flex;

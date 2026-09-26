@@ -14,7 +14,7 @@ import { emailOutbox, userDevices } from "@payroll/db";
 import { EVENT_TYPE, securityLoginNewDevice } from "@payroll/notifications";
 import type { Db } from "../db.js";
 import type { AppConfig } from "../config.js";
-import { companyName } from "./outbox.js";
+import { templateContext } from "./outbox.js";
 
 /** IPv4 /24 or IPv6 /64 prefix — small ISP/DHCP drift shouldn't re-alert. */
 export function ipPrefix(ip: string): string {
@@ -59,10 +59,11 @@ export async function trackDevice(
 
   await db.insert(userDevices).values({ userId: input.userId, fingerprint });
 
-  const rendered = securityLoginNewDevice(
-    { companyName: await companyName(db), appUrl: config.baseUrl },
-    { userAgent: input.userAgent, ip: input.ip, at: new Date().toISOString() },
-  );
+  const rendered = securityLoginNewDevice(await templateContext(db, config), {
+    userAgent: input.userAgent,
+    ip: input.ip,
+    at: new Date().toISOString(),
+  });
   await db.insert(emailOutbox).values({
     userId: input.userId,
     eventType: EVENT_TYPE.securityLoginNewDevice,

@@ -15,7 +15,7 @@ import {
   type SetupTokenPurpose,
 } from "./tokens.js";
 import { writeAuthEvent, AUTH_EVENT, type AuthEventContext } from "./audit.js";
-import { companyName } from "../notify/outbox.js";
+import { templateContext } from "../notify/outbox.js";
 
 export interface UserServiceDeps {
   auth: Auth;
@@ -44,7 +44,7 @@ async function queueSetupEmail(
   purpose: SetupTokenPurpose,
   link: string,
 ): Promise<void> {
-  const ctx = { companyName: await companyName(db), appUrl: config.baseUrl };
+  const ctx = await templateContext(db, config);
   const rendered =
     purpose === "invite"
       ? securityInvite(ctx, { setupLink: link })

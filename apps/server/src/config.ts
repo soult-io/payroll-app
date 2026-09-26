@@ -5,6 +5,7 @@
 
 import { readFileSync } from "node:fs";
 import { join } from "node:path";
+import { parseBrandName, parseDisplayName } from "@payroll/shared";
 
 export interface AppConfig {
   port: number;
@@ -21,7 +22,15 @@ export interface AppConfig {
   appTz: string;
   /** Public base URL of the app (behind NPM proxy in prod). */
   baseUrl: string;
-  /** TOTP issuer / app name shown in authenticator apps. */
+  /**
+   * Product name shown in the SPA, emails, and TOTP enrollment (spec 22):
+   * BRAND_NAME, default "Wagon Payroll". Validated at boot.
+   */
+  brandName: string;
+  /**
+   * TOTP issuer / app name shown in authenticator apps: TOTP_ISSUER when set
+   * and non-empty, else brandName (spec 22 D3).
+   */
   totpIssuer: string;
   /** Directory holding secret files: db-password, smtp-password, encryption-key, session-secret. */
   secretsDir: string;
@@ -76,7 +85,10 @@ export function readSecret(
 export function loadConfig(overrides: Partial<AppConfig> = {}): AppConfig {
   const secretsDir = env("SECRETS_DIR", "./secrets");
   const nodeEnv = env("NODE_ENV", "development");
-  const base: AppConfig = {
+  const brandName = parseBrandName(process.env.BRAND_NAME);
+  // Validated like BRAND_NAME (spec 22 D1/D3); an invalid value fails boot.
+  const envTotpIssuer = parseDisplayName(process.env.TOTP_ISSUER, "TOTP_ISSUER");
+  const base: Omit<AppConfig, "totpIssuer"> = {
     port: Number(env("PORT", "8927")),
     host: env("HOST", "0.0.0.0"),
     nodeEnv,
@@ -84,7 +96,7 @@ export function loadConfig(overrides: Partial<AppConfig> = {}): AppConfig {
     logLevel: env("LOG_LEVEL", "info"),
     appTz: env("APP_TZ", "Europe/Madrid"),
     baseUrl: env("BASE_URL", `http://localhost:${Number(env("PORT", "8927"))}`),
-    totpIssuer: env("TOTP_ISSUER", "Payroll"),
+    brandName,
     secretsDir,
     // In production the session secret MUST come from the secrets dir; in dev
     // a fixed fallback keeps local iteration sane (logged loudly at boot).
@@ -129,7 +141,10 @@ export function loadConfig(overrides: Partial<AppConfig> = {}): AppConfig {
       return env("SMTP_HOST") ? "smtp" : "log";
     })(),
   };
-  return { ...base, ...overrides };
+  const merged = { ...base, ...overrides };
+  // The issuer follows the MERGED brand name (so a brandName override moves it
+  // too) unless TOTP_ISSUER or an explicit totpIssuer override is set.
+  return { ...merged, totpIssuer: overrides.totpIssuer ?? envTotpIssuer ?? merged.brandName };
 }
 
 /** Assemble the postgres connection URL; password from the secrets dir (or dev default). */

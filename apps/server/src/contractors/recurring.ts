@@ -19,7 +19,6 @@ import { and, asc, eq, isNull, like, or } from "drizzle-orm";
 import {
   auditEvents,
   authUser,
-  company,
   contractorInvoices,
   contractorRecurringInvoices,
   emailOutbox,
@@ -33,6 +32,7 @@ import {
 } from "@payroll/notifications";
 import type { Db } from "../db.js";
 import type { AppConfig } from "../config.js";
+import { templateContext } from "../notify/outbox.js";
 import { ContractorServiceError } from "./service.js";
 
 export type RecurringTemplateRow = typeof contractorRecurringInvoices.$inferSelect;
@@ -109,11 +109,6 @@ function amountLabel(amount: string, currency: string): string {
     maximumFractionDigits: 2,
   });
   return currency === "USD" ? `$${formatted}` : `${formatted} ${currency}`;
-}
-
-async function templateCtx(db: Db, config: AppConfig): Promise<TemplateContext> {
-  const rows = await db.select({ legalName: company.legalName }).from(company).limit(1);
-  return { companyName: rows[0]?.legalName ?? "Payroll", appUrl: config.baseUrl };
 }
 
 async function adminUserIds(db: Db): Promise<string[]> {
@@ -540,7 +535,7 @@ export async function generateRecurringInvoices(
   const due = templates.filter((t) => invoiceDateFor(t.template, year, month) === today);
   if (due.length === 0) return { generated: 0, retired: 0 };
 
-  const ctx = await templateCtx(deps.db, deps.config);
+  const ctx = await templateContext(deps.db, deps.config);
   const admins = await adminUserIds(deps.db);
   const result = { generated: 0, retired: 0 };
   for (const { template, legalName } of due) {
@@ -579,7 +574,7 @@ export async function paymentDueSweep(
   const prevYear = month === 1 ? year - 1 : year;
   const period = periodKey(prevYear, prevMonth);
 
-  const ctx = await templateCtx(deps.db, deps.config);
+  const ctx = await templateContext(deps.db, deps.config);
   const admins = await adminUserIds(deps.db);
   let due = 0;
 

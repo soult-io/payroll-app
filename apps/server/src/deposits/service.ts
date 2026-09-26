@@ -29,7 +29,6 @@ import {
   appSettings,
   auditEvents,
   authUser,
-  company,
   emailOutbox,
   employees,
   payrollEntries,
@@ -45,6 +44,7 @@ import {
 } from "@payroll/notifications";
 import type { Db } from "../db.js";
 import type { AppConfig } from "../config.js";
+import { templateContext } from "../notify/outbox.js";
 
 export interface TaxDepositWithPeriodKind extends TaxDepositRow {
   periodKind: PeriodKind;
@@ -721,11 +721,6 @@ export async function markDeposited(
 // Due-date reminders (D1) — each configured offset fires at most once
 // ---------------------------------------------------------------------------
 
-async function templateCtx(db: Db, config: AppConfig): Promise<TemplateContext> {
-  const rows = await db.select({ legalName: company.legalName }).from(company).limit(1);
-  return { companyName: rows[0]?.legalName ?? "Payroll", appUrl: config.baseUrl };
-}
-
 async function adminUserIds(db: Db): Promise<string[]> {
   const rows = await db
     .select({ id: authUser.id })
@@ -809,7 +804,7 @@ export async function sendDepositReminders(
     .orderBy(taxDeposits.periodStart);
   if (deposits.length === 0) return { sent: 0 };
 
-  const ctx = await templateCtx(db, config);
+  const ctx = await templateContext(db, config);
   const admins = await adminUserIds(db);
   let totalSent = 0;
 

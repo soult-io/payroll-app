@@ -17,14 +17,14 @@ const MAILPIT_MESSAGES = {
   messages: [
     {
       ID: "msg2",
-      Subject: "Example Corp Payroll — test email",
+      Subject: "Example Corp — test email",
       From: { Address: "payroll@example.test" },
       To: [{ Address: "qa-admin@example.test" }],
       Created: "2026-08-20T10:00:00Z",
     },
     {
       ID: "msg1",
-      Subject: "Example Corp Payroll — payslip issued",
+      Subject: "Example Corp — payslip issued",
       From: { Address: "payroll@example.test" },
       To: [{ Address: "qa-employee@example.test" }],
       Created: "2026-08-19T09:00:00Z",
@@ -34,11 +34,11 @@ const MAILPIT_MESSAGES = {
 
 const MAILPIT_DETAIL = {
   ID: "msg2",
-  Subject: "Example Corp Payroll — test email",
-  From: { Address: "payroll@example.test", Name: "Payroll" },
+  Subject: "Example Corp — test email",
+  From: { Address: "payroll@example.test", Name: "Wagon Payroll" },
   To: [{ Address: "qa-admin@example.test" }],
   Date: "2026-08-20T10:00:01Z",
-  Text: "Test email from Example Corp Payroll admin settings. SMTP delivery is working.",
+  Text: "This is a test email from Wagon Payroll settings for Example Corp, requested by qa-admin@example.test. Email delivery is working.",
   HTML: "<p>Test email…</p>",
 };
 
@@ -135,9 +135,9 @@ describe("GET /api/qa/mailbox (APP_ENV=qa)", () => {
       text: string;
       date: string;
     };
-    expect(body.subject).toBe("Example Corp Payroll — test email");
+    expect(body.subject).toBe("Example Corp — test email");
     expect(body.to[0]?.Address).toBe("qa-admin@example.test");
-    expect(body.text).toContain("SMTP delivery is working");
+    expect(body.text).toContain("Email delivery is working");
   });
 
   it("404s when no mail exists for the address", async () => {

@@ -4,6 +4,25 @@ All notable changes to this project will be documented here. Format follows
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/); versioning follows
 [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [Unreleased]
+
+### Changed
+
+- **The app is now called Wagon Payroll (PAY-66, spec 22)** — the tab title,
+  header, login page, new authenticator enrollments, and emails use the
+  product name from one setting, `BRAND_NAME` (default "Wagon Payroll"),
+  served to the web app by `GET /api/runtime-config` (now
+  `{ appEnv, brandName }`). `TOTP_ISSUER` stays as an optional override and
+  otherwise follows `BRAND_NAME`. Emails lead with the employer's name
+  (subject `<company> — <topic>`) and name the product only as the sender:
+  "Sent by Wagon Payroll on behalf of <company>". Security emails now say
+  "contact <company>" instead of "contact your administrator". The pay-verify
+  page is titled "Wagon Payroll QA verification". Payslip and invoice PDFs
+  are unchanged.
+- **Authenticator apps:** accounts enrolled before this release keep the
+  label "Payroll" in the authenticator app. Their codes keep working; no
+  action or re-enrollment is needed.
+
 ## [1.24.0] - 2026-09-22
 
 ### Added

@@ -34,6 +34,8 @@ export interface OnboardedUser {
   userId: string;
   email: string;
   backupCodes: string[];
+  /** The otpauth:// enrollment URI returned by totp-enable. */
+  totpURI: string;
 }
 
 /** Invite (direct service call) + full onboarding via HTTP endpoints. */
@@ -88,7 +90,7 @@ export async function inviteAndOnboard(
   if (verifyTotp.statusCode !== 200) throw new Error(`totp-verify failed: ${verifyTotp.body}`);
   const { backupCodes } = verifyTotp.json() as { backupCodes: string[] };
 
-  return { userId: invite.userId, email: invite.email, backupCodes };
+  return { userId: invite.userId, email: invite.email, backupCodes, totpURI };
 }
 
 export interface LoginResult {

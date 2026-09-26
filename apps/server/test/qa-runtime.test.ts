@@ -1,7 +1,8 @@
 /**
  * Spec 14 runtime config: the public /api/runtime-config endpoint (appEnv
- * label only, unauthenticated) and the smtp-password secret being optional
- * when SMTP auth is not configured (QA's Mailpit takes no credentials).
+ * label + spec 22 brand name only, unauthenticated) and the smtp-password
+ * secret being optional when SMTP auth is not configured (QA's Mailpit takes
+ * no credentials).
  */
 
 import { mkdtempSync, rmSync, writeFileSync } from "node:fs";
@@ -24,14 +25,26 @@ describe("GET /api/runtime-config", () => {
     ctx = await createTestApp();
     const res = await ctx.app.inject({ method: "GET", url: "/api/runtime-config" });
     expect(res.statusCode).toBe(200);
-    expect(res.json()).toEqual({ appEnv: "production" });
+    // Exact key set (spec 22 D2): the env label and the display name, nothing else.
+    expect(res.json()).toEqual({ appEnv: "production", brandName: "Wagon Payroll" });
   });
 
   it("reports APP_ENV=qa when configured", async () => {
     qaCtx = await createTestApp({ appEnv: "qa" });
     const res = await qaCtx.app.inject({ method: "GET", url: "/api/runtime-config" });
     expect(res.statusCode).toBe(200);
-    expect(res.json()).toEqual({ appEnv: "qa" });
+    expect(res.json()).toEqual({ appEnv: "qa", brandName: "Wagon Payroll" });
+  });
+
+  it("reports an operator-set brand name (spec 22 D2)", async () => {
+    const brandCtx = await createTestApp({ brandName: "Acme Payroll" });
+    try {
+      const res = await brandCtx.app.inject({ method: "GET", url: "/api/runtime-config" });
+      expect(res.statusCode).toBe(200);
+      expect(res.json()).toEqual({ appEnv: "production", brandName: "Acme Payroll" });
+    } finally {
+      await brandCtx.close();
+    }
   });
 });
 

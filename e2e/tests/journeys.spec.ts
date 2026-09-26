@@ -382,6 +382,22 @@ test("journey 6: admin user visiting /my/dashboard is redirected to /admin/dashb
     await page.waitForURL("**/admin/dashboard");
   });
 
+  // Spec 22 (PAY-66): the header shows the product name; the "Payroll" nav
+  // item names the feature and still routes to the payroll list.
+  await step(
+    page,
+    "Header shows the product name; Payroll nav opens the payroll list",
+    async () => {
+      await expect(page.locator(".topbar .brand")).toHaveText("Wagon Payroll");
+      await expect(page).toHaveTitle("Wagon Payroll");
+      await page
+        .locator(".topbar .nav")
+        .getByRole("link", { name: "Payroll", exact: true })
+        .click();
+      await page.waitForURL(/\/admin\/payroll(\?|$)/);
+    },
+  );
+
   await ctx.close();
 });
 

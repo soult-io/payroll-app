@@ -1,4 +1,4 @@
-# Payroll
+# Wagon Payroll
 
 Stable, deterministic, authoritative payroll webapp for small business.
 **Feature-complete v1** — auth + TOTP onboarding, monthly payroll lifecycle

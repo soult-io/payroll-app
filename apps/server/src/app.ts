@@ -64,10 +64,14 @@ export async function buildApp(deps: BuildAppDeps = {}) {
 
   app.get("/health", async () => ({ ok: true }));
 
-  // Public runtime config (spec 14): the deployment environment label only —
-  // the web shell reads it to render the QA banner. Unauthenticated by design
-  // (it must be visible on the login page); it exposes nothing else.
-  app.get("/api/runtime-config", async () => ({ appEnv: config.appEnv }));
+  // Public runtime config (spec 14 + spec 22 D2): the deployment environment
+  // label (QA banner) and the operator-set product name (non-secret display
+  // text). Unauthenticated by design (it must be visible on the login page);
+  // it exposes nothing else.
+  app.get("/api/runtime-config", async () => ({
+    appEnv: config.appEnv,
+    brandName: config.brandName,
+  }));
 
   mountBetterAuth(app, { auth, config });
   registerOnboardingRoutes(app, { auth, db, config, guards });
