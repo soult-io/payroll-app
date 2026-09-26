@@ -577,7 +577,9 @@ jobs:
           MOVE_LATEST: ${{ steps.tip.outputs.move_latest }}
           TAG: sha-${{ env.COMMIT_SHA }}${{ github.event.workflow_run.name == 'walkthrough' && '-walkthrough' || '' }}
         run: |
-          for name in "$IMAGE" "$LEGACY_IMAGE"; do
+          # Legacy name first: stack-payroll pin-update tracks it today (PAY-68),
+          # so a partial failure never leaves the pinned name behind.
+          for name in "$LEGACY_IMAGE" "$IMAGE"; do
             docker tag payroll-app-verify:scan "$name:$TAG"
             docker push "$name:$TAG"
             if [ "$MOVE_LATEST" = "true" ]; then
