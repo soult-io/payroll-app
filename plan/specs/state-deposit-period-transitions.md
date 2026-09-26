@@ -280,7 +280,7 @@ rows: the same amounts, and due dates on the 15th with a weekend roll. T20 and T
 ```ts
 liability: string;            // the unit's liability for this row's period (month or quarter)
 credits: { depositId: number; periodStart: string; periodKind: "month"|"quarter";
-           depositedOn: string; amount: string; applied: string }[];   // deposited rows counted against this row
+           depositedOn: string; amount: string; applied: string }[];   // deposited rows counted against this row; `amount` = the whole payment, `applied` = the part counted toward THIS row (≤ amount)
 overpaid: string;             // unit overpayment (D6); "0.00" normally
 replacedBy: { id: number; periodStart: string; periodKind: "month"|"quarter" }[]; // superseded rows only
 ```
@@ -357,22 +357,23 @@ to their pre-sync state; Σ live amounts per unit = max(ΣL, ΣD).
 | T22 | d | T02 end (Q3 37,690 pending). Void R-Aug (DB), issue R-Aug2 SWH 11,000. Variant on T03 end | sync 2026-10-05 | Q3 **36,345**. Variant: Q3 **24,000** (36,345 − 12,345) |
 | T23 | d,f | T02 end; void all three runs | sync 2026-11-03 | Q3 **0 · 11-02 · pending** (not overdue although the due date has passed); reminders on 11-02 → 0 sent |
 | T24 | a | IL monthly dueDay 15; IL M Jul 5,000 deposited (due 08-17); M Aug 5,000 pending (due 09-15). Change IL-2026 dueDay to 20 | sync 2026-09-10 | M Jul unchanged 08-17; M Aug due **2026-09-21** (Sep 20 is a Sunday), pending |
-| T25 | f | T03 end; offsets [5,0]; 1 admin | `sendDepositReminders` on 2026-10-10, 10-15, 10-28, 11-02; T06 end on 10-28 | 0, 0, 1 (subject has "Q3 2026", amount $253.45), 1; T06: 0 |
+| T25 | f | T03 end; offsets [5,0]; 1 admin | `sendDepositReminders` on 2026-10-10, 10-15, 10-28, 11-02; T06 end on 10-28 | 0, 0, 1 (body has "Q3 2026", amount $253.45; the subject is "tax deposit due <date>"), 1; T06: 0 |
 | T26 | f | T03 end | calendar Oct, Nov, Aug 2026 | Oct: no CA due event (SUP Sep row due 10-15 absent); Nov: "CA deposit due — Q3 2026" on 11-02 "$253.45 · pending"; Aug: "CA deposit made — July 2026" on 08-14 |
 | T27 | f | T03 end | API: list; detail of SUP M Aug; POST deposit on SUP; POST deposit on T06 zero row; attachment upload on SUP | list excludes SUP (live rows only); detail 200 `status:'superseded'`, `replacedBy:[Q3]`; 409; 409; 409 |
 | T28 | b | T16 federal rows + T18 CA rows, migrated + synced | 941 Q3 2026 worksheet | line 13 = 1,721.28 (3 × 573.76), same as before migration |
-| T29 | b,g | `seed-qa` on an empty DB | existing qa-seed test | 20 federal + 20 IL rows, all `month`, amounts unchanged from main |
+| T29 | b,g | `seed-qa` on an empty DB | existing qa-seed test | with the qa-seed test's today (2026-08-20): 19 federal + 19 IL rows, all `month`, amounts unchanged from main |
 
 29 scenarios. T01–T09, T12–T15, T19, T21, T23 and T24 also run as **pure planner unit
 tests** (inputs as literals, `today` injected). All run as integration tests in
-`apps/server/test/deposit-transitions.test.ts` (T16–T18 use a
+`apps/server/test/state-deposit-transitions.test.ts` (T16–T18 use a
 migrate-to-0021 → insert → migrate-0022 harness, extending `migrate-fixture.ts`). All data
 is synthetic.
 
 **Must fail first on main c45c7b5:** T01 (the overdue Jul row is not rewritten, so there
 is no Q3 row at 24,690), T03 (the quarter amount is never written), T07, T08, T18
-(double count), T19, T25 (reminder for a replaced row), T26 (the "941" label). T16, T28 and
-T29 are guards that pass before and after.
+(double count), T19, T25 (reminder for a replaced row), T26 (the "941" label). T28 is a guard that passes before and after. T16 and T29 check the new `period_kind`
+column, so they fail until migration 0022 exists; their amount and date assertions pass
+today.
 
 ## 9. PR decomposition (in order, each through the code-pipeline)
 
