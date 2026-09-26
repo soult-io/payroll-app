@@ -50,3 +50,7 @@ pgdata/
 # pay-verify-site workflow scratch (spec 17 chunk B)
 _data/
 _incoming/
+
+# Mutation testing (PAY-93) — Stryker sandbox + reports
+.stryker-tmp/
+reports/

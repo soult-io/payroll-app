@@ -16,7 +16,7 @@
 import { PGlite } from "@electric-sql/pglite";
 import { drizzle } from "drizzle-orm/pglite";
 import { PGliteDialect } from "kysely";
-import { readFileSync } from "node:fs";
+import { existsSync, readFileSync } from "node:fs";
 import { dirname, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 import * as schema from "@payroll/db";
@@ -25,7 +25,23 @@ import { buildApp, type BuiltApp } from "../src/app.js";
 import type { Db } from "../src/db.js";
 
 const HERE = dirname(fileURLToPath(import.meta.url));
-const DRIZZLE_DIR = resolve(HERE, "../../../packages/db/drizzle");
+
+/**
+ * Walk up to the workspace root (the dir holding pnpm-workspace.yaml) rather
+ * than a fixed "../../.." — Stryker (PAY-93) runs these tests from a sandbox
+ * copy nested under apps/server/.stryker-tmp/, where a fixed hop count misses.
+ */
+function workspaceRoot(from: string): string {
+  let dir = from;
+  while (!existsSync(resolve(dir, "pnpm-workspace.yaml"))) {
+    const parent = dirname(dir);
+    if (parent === dir) throw new Error(`pnpm-workspace.yaml not found above ${from}`);
+    dir = parent;
+  }
+  return dir;
+}
+
+const DRIZZLE_DIR = resolve(workspaceRoot(HERE), "packages/db/drizzle");
 
 interface Journal {
   entries: { idx: number; tag: string }[];

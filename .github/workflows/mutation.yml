@@ -1,0 +1,107 @@
+name: mutation
+
+# Mutation testing (PAY-93): StrykerJS mutates the money-path code and checks
+# that a test fails for each change. The score measures test strength, not
+# coverage. Too slow for every PR, so it runs weekly and on demand.
+#
+#   engine — packages/engine/src (pure withholding math), seconds.
+#   server — apps/server/src/deposits + src/filings against the PGlite
+#            integration suites, tens of minutes.
+#
+# Each package's stryker.config.mjs sets thresholds.break a little below the
+# 2026-09 baseline (plan/mutation-baseline-2026-09.md): a score drop fails the
+# job. Runs are incremental: the previous result file is restored from the
+# actions cache, so only mutants whose code or tests changed are re-tested.
+#
+# Public repo: the uploaded report holds only source code, test names and
+# mutant diffs. No secrets are used and no env reaches the report.
+
+on:
+  schedule:
+    - cron: "23 4 * * 1"   # Mondays 04:23 UTC
+  workflow_dispatch:
+    inputs:
+      force:
+        description: "Ignore the incremental cache and re-test every mutant"
+        type: boolean
+        default: false
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: false
+
+jobs:
+  mutation:
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - target: engine
+            package: "@payroll/engine"
+            dir: packages/engine
+            timeout: 20
+          - target: server
+            package: "@payroll/server"
+            dir: apps/server
+            timeout: 150
+    timeout-minutes: ${{ matrix.timeout }}
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: pnpm/action-setup@v6
+        with:
+          version: 11.17.0
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: pnpm
+
+      - name: Install
+        run: pnpm install --frozen-lockfile
+
+      # The server imports @payroll/* from their dist/.
+      - name: Build workspace dependencies
+        if: matrix.target == 'server'
+        run: pnpm --filter "@payroll/server^..." run build
+
+      # Keyed per run so each run saves a fresh file; restore-keys picks the
+      # newest earlier one.
+      - name: Restore incremental results
+        uses: actions/cache/restore@v4
+        with:
+          path: ${{ matrix.dir }}/reports/stryker-incremental.json
+          key: stryker-incremental-${{ matrix.target }}-${{ github.run_id }}
+          restore-keys: stryker-incremental-${{ matrix.target }}-
+
+      - name: Stryker (${{ matrix.target }})
+        env:
+          PACKAGE: ${{ matrix.package }}
+          FORCE: ${{ inputs.force && 'true' || 'false' }}
+        run: |
+          args=()
+          if [ "$FORCE" = "true" ]; then args+=(--force); fi
+          pnpm --filter "$PACKAGE" exec stryker run "${args[@]}"
+
+      # Save even when the threshold failed the run: the results are still
+      # valid and the next run re-tests only what changed.
+      - name: Save incremental results
+        if: always() && hashFiles(format('{0}/reports/stryker-incremental.json', matrix.dir)) != ''
+        uses: actions/cache/save@v4
+        with:
+          path: ${{ matrix.dir }}/reports/stryker-incremental.json
+          key: stryker-incremental-${{ matrix.target }}-${{ github.run_id }}
+
+      # Upload on pass AND fail: a failed threshold is when the report matters.
+      - name: Upload mutation report
+        if: always()
+        uses: actions/upload-artifact@v7
+        with:
+          name: mutation-report-${{ matrix.target }}
+          path: ${{ matrix.dir }}/reports/mutation/
+          if-no-files-found: warn
+          retention-days: 30
