@@ -43,6 +43,9 @@ import {
   quarterEnd as filingsQuarterEnd,
 } from "../filings/service.js";
 import { annualDueDate, w2AvailableOn } from "../filings/annual.js";
+import { stateName } from "@payroll/shared";
+import { liveDeposit } from "../deposits/service.js";
+import { periodLabel as depositPeriodLabel } from "../deposits/periods.js";
 import { interpolateDescription, invoiceDateFor } from "../contractors/recurring.js";
 
 export type CalendarEventKind =
@@ -246,6 +249,22 @@ async function contractorEvents(db: Db, year: number, month: number): Promise<Ca
   return events;
 }
 
+/**
+ * Spec 23 §7: federal rows keep "941 deposit due — August 2026"; state rows
+ * read "California deposit due — Q3 2026" / "Illinois deposit due — July 2026", the label
+ * built from the stored period_kind.
+ */
+function depositLabel(
+  deposit: { jurisdiction: string; periodStart: string; periodKind: string },
+  what: "due" | "made",
+): string {
+  if (deposit.jurisdiction === "federal") {
+    return `941 deposit ${what} — ${periodLabel(deposit.periodStart)}`;
+  }
+  const kind = deposit.periodKind === "quarter" ? "quarter" : "month";
+  return `${stateName(deposit.jurisdiction)} deposit ${what} — ${depositPeriodLabel(deposit.periodStart, kind)}`;
+}
+
 /** Deposit obligations (due_date) and actuals (deposited_on) in the month. */
 async function depositEvents(
   db: Db,
@@ -256,14 +275,17 @@ async function depositEvents(
   const due = await db
     .select()
     .from(taxDeposits)
-    .where(inMonth(taxDeposits.dueDate, monthStart, monthEnd))
+    .where(and(inMonth(taxDeposits.dueDate, monthStart, monthEnd), liveDeposit))
     .orderBy(asc(taxDeposits.dueDate));
   for (const deposit of due) {
     events.push({
       date: deposit.dueDate,
       kind: "deposit_due",
-      label: `941 deposit due — ${periodLabel(deposit.periodStart)}`,
-      detail: `$${deposit.amount} · ${deposit.status}`,
+      label: depositLabel(deposit, "due"),
+      // A 0.00 row has nothing to pay (spec 23 D5): say so, not "$0.00 · pending".
+      detail: /^0+(\.0+)?$/.test(deposit.amount)
+        ? "Nothing left to pay"
+        : `$${deposit.amount} · ${deposit.status}`,
       link: { name: "admin-deposit-detail", params: { id: deposit.id } },
     });
   }
@@ -282,7 +304,7 @@ async function depositEvents(
     events.push({
       date: deposit.depositedOn,
       kind: "deposit_made",
-      label: `941 deposit made — ${periodLabel(deposit.periodStart)}`,
+      label: depositLabel(deposit, "made"),
       detail: deposit.eftpsConfirmation ? `EFTPS ${deposit.eftpsConfirmation}` : undefined,
       link: { name: "admin-deposit-detail", params: { id: deposit.id } },
     });

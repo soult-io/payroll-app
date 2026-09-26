@@ -709,12 +709,42 @@ export const taxDeposits = pgTable(
     remindersSent: jsonb("reminders_sent").notNull().default(sql`'[]'::jsonb`),
     /** 'scheduler' or user.id. */
     createdBy: text("created_by"),
+    /**
+     * PAY-91 (spec 23 D1): 'month' | 'quarter', stored at write time. Every
+     * row written before migration 0022 is 'month' (D7 backfill).
+     */
+    periodKind: text("period_kind").notNull().default("month"),
+    /** Set iff status = 'superseded' (the row was replaced by a period transition). */
+    supersededAt: timestamp("superseded_at", { withTimezone: true }),
     createdAt: createdAt(),
     updatedAt: updatedAt(),
   },
   (t) => [
-    unique("tax_deposits_jurisdiction_period_uniq").on(t.jurisdiction, t.periodStart),
-    check("tax_deposits_status_check", sql`${t.status} IN ('pending','deposited','overdue')`),
+    /**
+     * Spec 23 D2: one LIVE row per (jurisdiction, period_start, period_kind);
+     * superseded rows are kept for audit and may share a key.
+     */
+    uniqueIndex("tax_deposits_live_period_uniq")
+      .on(t.jurisdiction, t.periodStart, t.periodKind)
+      .where(sql`${t.status} <> 'superseded'`),
+    check(
+      "tax_deposits_status_check",
+      sql`${t.status} IN ('pending','deposited','overdue','superseded')`,
+    ),
+    check("tax_deposits_period_kind_check", sql`${t.periodKind} IN ('month','quarter')`),
+    check(
+      "tax_deposits_quarter_start_check",
+      sql`${t.periodKind} = 'month' OR extract(month from ${t.periodStart}) IN (1,4,7,10)`,
+    ),
+    check(
+      "tax_deposits_federal_month_check",
+      sql`${t.jurisdiction} <> 'federal' OR ${t.periodKind} = 'month'`,
+    ),
+    check(
+      "tax_deposits_superseded_check",
+      sql`(${t.status} = 'superseded') = (${t.supersededAt} IS NOT NULL) AND (${t.status} <> 'superseded' OR ${t.depositedOn} IS NULL)`,
+    ),
+    check("tax_deposits_amount_nonneg_check", sql`${t.amount} >= 0`),
   ],
 );
 

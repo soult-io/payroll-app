@@ -966,7 +966,8 @@ export const adminContractorsApi = {
 // PAY-9 — monthly federal tax deposits (admin, record-only)
 // ---------------------------------------------------------------------------
 
-export type TaxDepositStatus = "pending" | "deposited" | "overdue";
+export type TaxDepositStatus = "pending" | "deposited" | "overdue" | "superseded";
+export type DepositPeriodKind = "month" | "quarter";
 
 export interface TaxDepositRow {
   id: number;
@@ -976,12 +977,48 @@ export interface TaxDepositRow {
   amount: string;
   dueDate: string;
   status: TaxDepositStatus;
-  periodKind: "month" | "quarter";
+  /** Stored at write time (PAY-91); never derived from today's schedule. */
+  periodKind: DepositPeriodKind;
+  /** Set when the row was replaced by a monthly <-> quarterly change (PAY-91). */
+  supersededAt: string | null;
+  /** List rows only: the state-quarter's overpayment, on its anchor (latest-period) row only. */
+  overpaid?: string;
+  /** List rows only: the period's payments could not be worked out (data error). */
+  paymentsUnavailable?: boolean;
   depositedOn: string | null;
   eftpsConfirmation: string | null;
   remindersSent: number[];
   createdAt: string | null;
   updatedAt: string | null;
+}
+
+/** PAY-91: a deposited payment counted against a deposit's period. */
+export interface DepositCredit {
+  depositId: number;
+  periodStart: string;
+  periodKind: DepositPeriodKind;
+  depositedOn: string;
+  /** The whole payment. */
+  amount: string;
+  /** The part of the payment counted toward this deposit (≤ amount). */
+  applied: string;
+}
+
+export interface DepositDetail {
+  deposit: TaxDepositRow;
+  breakdown: DepositBreakdownRow[];
+  runs: DepositRunRow[];
+  /** The period's withholding (month or quarter). */
+  liability: string;
+  credits: DepositCredit[];
+  /** The state-quarter's overpayment (the note may show on any row). */
+  overpaid: string;
+  /** True on the one row per state-quarter that carries the "Overpaid" chip. */
+  overpaidAnchor: boolean;
+  /** The period's payments could not be worked out (data error). */
+  paymentsUnavailable: boolean;
+  /** Superseded rows only: the deposit(s) that replaced it. */
+  replacedBy: { id: number; periodStart: string; periodKind: DepositPeriodKind }[];
 }
 
 export interface DepositBreakdownRow {
@@ -1004,10 +1041,7 @@ export const adminDepositsApi = {
       jurisdiction?: string;
     } = {},
   ) => get<{ deposits: TaxDepositRow[] }>(`/api/admin/tax-deposits${qs(filter)}`),
-  detail: (id: number) =>
-    get<{ deposit: TaxDepositRow; breakdown: DepositBreakdownRow[]; runs: DepositRunRow[] }>(
-      `/api/admin/tax-deposits/${id}`,
-    ),
+  detail: (id: number) => get<DepositDetail>(`/api/admin/tax-deposits/${id}`),
   markDeposited: (id: number, input: { depositedOn: string; eftpsConfirmation: string }) =>
     post<{ deposit: TaxDepositRow }>(`/api/admin/tax-deposits/${id}/deposit`, input),
   reminderSchedule: () =>
