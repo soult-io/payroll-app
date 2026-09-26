@@ -111,7 +111,12 @@ describe("PAY-91 bad state data", () => {
       `SELECT subject, body_html FROM email_outbox WHERE event_type = 'tax_deposit_sync_failed'`,
     );
     expect(mails.rows).toHaveLength(admins);
-    expect(mails.rows[0]!.body_html).toContain("Illinois");
+    expect(mails.rows[0]!.subject).toContain("Illinois tax deposits for Q3 2026 need checking");
+    expect(mails.rows[0]!.body_html).toContain(
+      "Until this is fixed, the Illinois amount for Q3 2026 may not be right. Check it before you pay.",
+    );
+    expect(mails.rows[0]!.body_html).toContain('/admin/deposits"');
+    expect(mails.rows[0]!.body_html).not.toContain("<!--");
     expect(mails.rows[0]!.body_html).not.toContain("90.00");
     // Next day: reported again, once.
     await syncDeposits(deps, { today: "2026-08-21" });

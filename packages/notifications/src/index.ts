@@ -482,12 +482,15 @@ export function taxDepositSyncFailed(
   ctx: TemplateContext,
   data: { jurisdictionLabel: string; periodLabel: string },
 ): RenderedEmail {
-  const body = `<p>We couldn't work out the <strong>${escapeHtml(data.jurisdictionLabel)}</strong> tax deposits for <strong>${escapeHtml(data.periodLabel)}</strong>. The payroll data for that period needs checking; every other deposit was updated as usual.</p><p><a href="${ctx.appUrl}">Log in to see your deposits</a>, and contact support about this period.</p>`;
+  const state = escapeHtml(data.jurisdictionLabel);
+  const period = escapeHtml(data.periodLabel);
+  const depositsUrl = `${ctx.appUrl}/admin/deposits`;
+  const body = `<p>We couldn't work out the <strong>${state}</strong> tax deposits for <strong>${period}</strong>. Until this is fixed, the ${state} amount for ${period} may not be right. Check it before you pay.</p><p>The payroll data for that period needs checking; every other deposit was updated as usual. <a href="${depositsUrl}">Open your tax deposits</a>, and contact support about this period.</p>`;
   return email(
     ctx,
-    `tax deposits for ${data.periodLabel} need checking`,
+    `${data.jurisdictionLabel} tax deposits for ${data.periodLabel} need checking`,
     body,
-    `We couldn't work out the ${data.jurisdictionLabel} tax deposits for ${data.periodLabel}. The payroll data for that period needs checking; every other deposit was updated as usual. Log in to see your deposits, and contact support about this period: ${ctx.appUrl}`,
+    `We couldn't work out the ${data.jurisdictionLabel} tax deposits for ${data.periodLabel}. Until this is fixed, the ${data.jurisdictionLabel} amount for ${data.periodLabel} may not be right. Check it before you pay. The payroll data for that period needs checking; every other deposit was updated as usual. Open your tax deposits, and contact support about this period: ${depositsUrl}`,
   );
 }
 

@@ -673,7 +673,7 @@ async function reportFailedUnit(deps: Deps, f: FailedUnit, today: string): Promi
         userId,
         eventType: EVENT_TYPE.taxDepositSyncFailed,
         subject: rendered.subject,
-        bodyHtml: `${rendered.html}<!-- deposit-sync-failed:${entityId}:${today} -->`,
+        bodyHtml: rendered.html, // dedupe is the audit event, not a marker
       });
     }
   });
