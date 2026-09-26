@@ -46,7 +46,7 @@ both measured:
 1. **Vitest 5 incompatibility.** Stryker filters with a space-joined test
    name; Vitest 5 matches `testNamePattern` against `fullTestName`
    (`describe > test`). Nothing matched, every test was skipped, and every
-   non-static mutant "survived" (engine read 48.86% instead of 90.91%).
+   non-static mutant "survived" (engine read 48.86% instead of 90.91% in that early run, before the TypeScript checker was enabled; the recorded baseline with the checker is 88.14%).
 2. **Order-dependent integration tests.** With name filtering fixed, a first
    server run scored 82.24%, but 715 of its 1,407 kills came from test
    subsets that fail with **no mutant at all** (65 of 157 distinct subsets).

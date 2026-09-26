@@ -94,7 +94,7 @@ jobs:
         uses: actions/cache/save@v4
         with:
           path: ${{ matrix.dir }}/reports/stryker-incremental.json
-          key: stryker-incremental-${{ matrix.target }}-${{ github.run_id }}
+          key: stryker-incremental-${{ matrix.target }}-${{ github.run_id }}-${{ github.run_attempt }}
 
       # Upload on pass AND fail: a failed threshold is when the report matters.
       - name: Upload mutation report
