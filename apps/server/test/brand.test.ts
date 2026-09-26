@@ -17,7 +17,7 @@ import {
   type TemplateContext,
 } from "@payroll/notifications";
 import { loadConfig } from "../src/config.js";
-import { companyName } from "../src/notify/outbox.js";
+import { COMPANY_NAME_PLACEHOLDER, companyName } from "../src/notify/outbox.js";
 import { createTestApp, type TestContext } from "./helpers.js";
 import { inviteAndOnboard } from "./flow-helpers.js";
 
@@ -72,6 +72,8 @@ describe("parseBrandName (D1)", () => {
     expect(() => parseBrandName("Acme\u2028Pay")).toThrow(/BRAND_NAME/); // line separator
     expect(() => parseBrandName("Acme\u200bPay")).toThrow(/BRAND_NAME/); // zero-width space
     expect(() => parseBrandName("Acme\u2067Pay")).toThrow(/BRAND_NAME/); // RLI
+    expect(() => parseBrandName("Acme\u2060Pay")).toThrow(/BRAND_NAME/); // word joiner
+    expect(() => parseBrandName("Acme\ufeffPay")).toThrow(/BRAND_NAME/); // zero-width no-break space
   });
 
   it("accepts ordinary non-ASCII names", () => {
@@ -271,6 +273,7 @@ describe("companyName placeholder (D5)", () => {
     const emptyDb = {
       select: () => ({ from: () => ({ limit: async () => [] }) }),
     } as unknown as Parameters<typeof companyName>[0];
-    expect(await companyName(emptyDb)).toBe("Your company");
+    expect(COMPANY_NAME_PLACEHOLDER).toBe("Your company");
+    expect(await companyName(emptyDb)).toBe(COMPANY_NAME_PLACEHOLDER);
   });
 });

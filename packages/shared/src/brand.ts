@@ -15,12 +15,13 @@ export const BRAND_NAME_MAX_LENGTH = 60;
  * C1 controls (CR/LF in an email Subject: header would be header
  * injection), zero-width and directional marks U+200B–U+200F, line and
  * paragraph separators U+2028/U+2029, bidi embeddings and overrides
- * U+202A–U+202E, and bidi isolates U+2066–U+2069 (these can make a name
- * render as different text than it is).
+ * U+202A–U+202E, the word joiner U+2060, bidi isolates U+2066–U+2069, and
+ * the zero-width no-break space U+FEFF (these can make a name render as
+ * different text than it is).
  */
 const FORBIDDEN_CHARACTER =
   // biome-ignore lint/suspicious/noControlCharactersInRegex: matching control characters is the point
-  /[\u0000-\u001f\u007f-\u009f\u200b-\u200f\u2028-\u202e\u2066-\u2069]/;
+  /[\u0000-\u001f\u007f-\u009f\u200b-\u200f\u2028-\u202e\u2060\u2066-\u2069\ufeff]/;
 
 /**
  * Validate an operator-set display name (BRAND_NAME, TOTP_ISSUER): trimmed;

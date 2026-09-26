@@ -34,8 +34,9 @@ Validation (boot fails on an invalid value, same as a missing secret): trim;
 unset or empty → default; 1–60 characters; reject C0 controls
 (U+0000–U+001F), DEL (U+007F), C1 controls (U+0080–U+009F), zero-width and
 directional marks (U+200B–U+200F), line/paragraph separators (U+2028,
-U+2029), bidi embeddings and overrides (U+202A–U+202E), and bidi isolates
-(U+2066–U+2069). The name goes into an email `Subject:` header and an
+U+2029), bidi embeddings and overrides (U+202A–U+202E), the word joiner
+(U+2060), bidi isolates (U+2066–U+2069), and the zero-width no-break space
+(U+FEFF). The name goes into an email `Subject:` header and an
 `otpauth://` URI; CR/LF would be header injection, and bidi/zero-width
 characters let a name render as different text than it is. One function
 (`parseDisplayName`) validates both `BRAND_NAME` and `TOTP_ISSUER`.
