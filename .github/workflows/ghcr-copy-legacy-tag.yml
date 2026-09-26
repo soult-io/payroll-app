@@ -1,0 +1,126 @@
+name: ghcr-copy-legacy-tag
+
+# PAY-69: copy an image that exists only under a legacy GHCR name to the new
+# name, without a rebuild. The repo was renamed soult-io/payroll-app ->
+# soult-io/wagon-payroll (PAY-68) and release.yml dual-publishes only the
+# builds made after that; releases up to v1.24.0 exist only under
+# ghcr.io/soult-io/payroll-app. `imagetools create` from one source copies the
+# index as-is, so the new tags carry the SAME digest as the source (checked
+# below). Manual only: run it from the Actions tab.
+#
+# Safety: tags are validated against Docker's tag grammar; the source is copied
+# by digest (a tag that moves mid-run cannot change what is copied); a
+# destination tag that already points at a DIFFERENT digest is never
+# overwritten. Do not run it while release.yml is publishing (the check and
+# the copy are not atomic against it). Delete this workflow once no
+# legacy-only tag is still needed.
+
+on:
+  workflow_dispatch:
+    inputs:
+      package:
+        description: "Which image: app (payroll-app -> wagon-payroll) or verify (payroll-app-verify -> wagon-payroll-verify)"
+        required: true
+        type: choice
+        options: [app, verify]
+        default: app
+      source_tag:
+        description: "Tag to copy from the legacy name; it is also created under the new name (e.g. v1.24.0)"
+        required: true
+        type: string
+      extra_tags:
+        description: "Optional extra tags for the new name, space- or comma-separated (e.g. v1.24)"
+        required: false
+        type: string
+        default: ""
+
+permissions: {}
+
+concurrency:
+  group: ghcr-copy-legacy-tag
+  cancel-in-progress: false
+
+jobs:
+  copy:
+    # Repo gate: the soult-io/* packages are not writable from a fork.
+    if: github.repository == 'soult-io/wagon-payroll'
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      packages: write
+    steps:
+      - uses: docker/setup-buildx-action@v3
+
+      - uses: docker/login-action@v4
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Copy tags and check digests
+        env:
+          PACKAGE: ${{ inputs.package }}
+          SOURCE_TAG: ${{ inputs.source_tag }}
+          EXTRA_TAGS: ${{ inputs.extra_tags }}
+        run: |
+          set -euo pipefail
+          case "$PACKAGE" in
+            app)    src=ghcr.io/soult-io/payroll-app;        dst=ghcr.io/soult-io/wagon-payroll ;;
+            verify) src=ghcr.io/soult-io/payroll-app-verify; dst=ghcr.io/soult-io/wagon-payroll-verify ;;
+            *) echo "::error::unknown package '$PACKAGE'"; exit 1 ;;
+          esac
+
+          # Docker tag grammar: [A-Za-z0-9_][A-Za-z0-9._-]{0,127}.
+          tags=("$SOURCE_TAG")
+          read -r -a extra <<< "${EXTRA_TAGS//,/ }"
+          tags+=("${extra[@]}")
+          for t in "${tags[@]}"; do
+            if ! [[ "$t" =~ ^[A-Za-z0-9_][A-Za-z0-9._-]{0,127}$ ]]; then
+              # Value not echoed: an API-dispatched input could hold a newline.
+              echo "::error::invalid tag in source_tag/extra_tags"; exit 1
+            fi
+          done
+
+          digest_of() {
+            docker buildx imagetools inspect "$1" --format '{{json .Manifest}}' | jq -r .digest
+          }
+
+          src_digest=$(digest_of "$src:$SOURCE_TAG")
+          echo "source $src:$SOURCE_TAG = $src_digest"
+
+          args=()
+          for t in "${tags[@]}"; do
+            if out=$(docker buildx imagetools inspect "$dst:$t" --format '{{json .Manifest}}' 2>&1); then
+              have=$(jq -r .digest <<< "$out")
+              if [ "$have" != "$src_digest" ]; then
+                echo "::error::$dst:$t already exists at $have (source is $src_digest) — refusing to overwrite"
+                exit 1
+              fi
+              echo "$dst:$t already at $src_digest"
+            # Only the resolver's own "<ref>: not found" means absent; any other
+            # error (auth, a missing child manifest) fails closed.
+            elif grep -qF "$dst:$t: not found" <<< "$out"; then
+              echo "$dst:$t absent — will create"
+            else
+              echo "::error::cannot read $dst:$t: $out"; exit 1
+            fi
+            args+=(-t "$dst:$t")
+          done
+
+          # --prefer-index=false: never wrap a single-manifest source in a new
+          # index (that would change the digest).
+          docker buildx imagetools create --prefer-index=false "${args[@]}" "$src@$src_digest"
+
+          {
+            echo "### $src:$SOURCE_TAG -> $dst"
+            echo "Source digest: \`$src_digest\`"
+            echo
+          } >> "$GITHUB_STEP_SUMMARY"
+          for t in "${tags[@]}"; do
+            got=$(digest_of "$dst:$t")
+            echo "$dst:$t = $got"
+            echo "- \`$dst:$t\` = \`$got\`" >> "$GITHUB_STEP_SUMMARY"
+            if [ "$got" != "$src_digest" ]; then
+              echo "::error::$dst:$t is $got, expected $src_digest"; exit 1
+            fi
+          done
