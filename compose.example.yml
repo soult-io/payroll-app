@@ -36,6 +36,9 @@ services:
       # TLS terminates there). Used for setup links in invite/reset emails and
       # auth trusted origins — must be the PUBLIC URL, not the container name.
       BASE_URL: ${BASE_URL:-http://localhost:8927}
+      # Optional product name (spec 22); unset → "Wagon Payroll". Also the
+      # authenticator-app label unless TOTP_ISSUER is set.
+      # BRAND_NAME: Wagon Payroll
       # SMTP is optional: without SMTP_HOST the app logs emails instead of
       # sending (EMAIL_MODE=log). Password comes from the smtp-password secret
       # file, never an env value.

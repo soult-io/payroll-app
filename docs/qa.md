@@ -106,8 +106,9 @@ year through last month, issued through the real draft→approve→issue pipelin
 ## QA-only surfaces in the app
 
 - **Banner** — `GET /api/runtime-config` (unauthenticated, returns only
-  `{ appEnv }`) drives the persistent "QA — synthetic data" banner on every
-  page incl. login when `APP_ENV=qa`.
+  `{ appEnv, brandName }`) drives the persistent "QA — synthetic data" banner
+  on every page incl. login when `APP_ENV=qa`; `brandName` is the product
+  name the SPA shows (spec 22).
 - **Mailbox** — `GET /api/qa/mailbox?to=<address>&latest=true` exists **only**
   under `APP_ENV=qa` (404 elsewhere), is gated by the same export-token
   bearer credential as the export API, and proxies Mailpit

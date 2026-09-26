@@ -81,7 +81,8 @@ secrets below. The compose example already wires the bolded ones.
 | `LOG_LEVEL` | `info` | pino level: `trace`/`debug`/`info`/`warn`/`error`. |
 | `APP_TZ` | `Europe/Madrid` | Display timezone for dates (the DB stores TIMESTAMPTZ). |
 | `BASE_URL` | `http://localhost:$PORT` | **Public URL of the app as users reach it.** Used for setup links in invite/reset emails and auth trusted origins. Behind a proxy this must be the public `https://…` URL, not the container name. |
-| `TOTP_ISSUER` | `Payroll` | App name shown in authenticator apps during TOTP enrollment. |
+| `BRAND_NAME` | `Wagon Payroll` | Product name shown in the web app (tab title, header, login card), emails ("Sent by … on behalf of <company>"), and authenticator apps (spec 22). 1–60 characters, no control characters; an invalid value fails boot. Served to the SPA by the public `GET /api/runtime-config`. |
+| `TOTP_ISSUER` | `BRAND_NAME` | Optional override for the app name shown in authenticator apps during TOTP enrollment. Unset or empty → `BRAND_NAME`. Entries already enrolled keep the label they were enrolled with; codes are unaffected. |
 | `SECRETS_DIR` | `./secrets` (`/run/secrets` in the image) | Directory holding the secret files (see below). |
 | `DB_HOST` / `DB_PORT` / `DB_NAME` / `DB_USER` | `localhost` / `5432` / `payroll` / `payroll` | Postgres connection. The password is **not** an env var — it is the `db-password` secret file. |
 | `SMTP_HOST` | (empty) | Mail server. Empty → emails are logged, not sent (`EMAIL_MODE=log`). |

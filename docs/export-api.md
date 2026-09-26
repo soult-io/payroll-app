@@ -1,4 +1,4 @@
-# Payroll Export API (read-only)
+# Wagon Payroll Export API (read-only)
 
 Read-only export of **issued** payroll figures for downstream compliance
 work — 941 federal deposits, the quarterly/annual tax package
