@@ -1,7 +1,9 @@
 # Deployment guide
 
 How to run the payroll app from the published container image. The app ships as
-a single self-contained image (`ghcr.io/soult-io/payroll-app`) plus a Postgres
+a single self-contained image (`ghcr.io/soult-io/wagon-payroll`; formerly
+`ghcr.io/soult-io/payroll-app`, published in parallel for one release, then
+retired) plus a Postgres
 16 database; [compose.example.yml](../compose.example.yml) wires app + one-shot
 migrate + db together with production hardening (read-only rootfs,
 `no-new-privileges`, `cap_drop: ALL`, memory/CPU limits, healthchecks).
@@ -172,7 +174,9 @@ no cross-repo credential.
    agent or a maintainer → owner reviews and merges.
 2. Tag the merge commit `vX.Y.Z` and push the tag.
 3. `.github/workflows/release.yml` re-verifies the tagged commit, publishes
-   `ghcr.io/soult-io/payroll-app` tagged `vX.Y.Z` + `vX.Y` + `latest`, and
+   `ghcr.io/soult-io/wagon-payroll` tagged `vX.Y.Z` + `vX.Y` + `latest` (the
+   same tags also go to the legacy `ghcr.io/soult-io/payroll-app` until the
+   PAY-68 cutover ends), and
    creates the GitHub release.
 4. The deployment repo (`nsoult-agentic/stack-payroll`) polls for new releases
    on a schedule and opens a **prod-pin PR** itself, using its own token.

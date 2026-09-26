@@ -15,10 +15,12 @@ services:
   app:
     container_name: payroll-app
     # `:latest` tracks the newest release. For production, pin to a release
-    # tag instead — e.g. ghcr.io/soult-io/payroll-app:v1.2.3 — and upgrade
+    # tag instead — e.g. ghcr.io/soult-io/wagon-payroll:v1.2.3 — and upgrade
     # deliberately (docs/deployment.md#upgrades). Every merge to main also
     # publishes sha-<full-sha> tags if you need a pre-release build.
-    image: ghcr.io/soult-io/payroll-app:latest
+    # (Formerly ghcr.io/soult-io/payroll-app — still published in parallel for
+    # one release, then retired; switch to the name below.)
+    image: ghcr.io/soult-io/wagon-payroll:latest
     # To build from source instead of pulling, swap the image line for:
     #   build:
     #     context: .
@@ -85,7 +87,7 @@ services:
   app-migrate:
     container_name: payroll-app-migrate
     # Keep this tag identical to the app service's image tag.
-    image: ghcr.io/soult-io/payroll-app:latest
+    image: ghcr.io/soult-io/wagon-payroll:latest
     # One-shot: drizzle-kit migrate, then exits (seeds run once by hand — see
     # docs/deployment.md#first-run). The app service gates boot on this
     # completing successfully: schema always migrates before the app starts.

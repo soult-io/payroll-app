@@ -903,7 +903,7 @@ function renderDocument(
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>Wagon Payroll QA verification</title>
-<meta name="description" content="PII-free QA verification status for payroll-app — synthetic data only.">
+<meta name="description" content="PII-free QA verification status for wagon-payroll — synthetic data only.">
 <style>${STYLE}</style>
 </head>
 <body>

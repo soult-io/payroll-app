@@ -23,7 +23,8 @@ is validated against the `@payroll/verify-summary` schema and re-checked
 PII-free before it is rendered.
 
 ## Serving
-`Dockerfile` builds `ghcr.io/soult-io/payroll-app-verify` — an unprivileged
+`Dockerfile` builds `ghcr.io/soult-io/wagon-payroll-verify` (also pushed as the
+legacy `ghcr.io/soult-io/payroll-app-verify` until the PAY-68 cutover ends) — an unprivileged
 nginx (uid 101, port 8080) that serves the pre-generated `dist/`. No build stage:
 the `pay-verify-site` workflow generates `dist/` and hands it to the image. TLS +
 the LAN/VPN access gate are the BCN NPM's job (chunk D / PAY-46).

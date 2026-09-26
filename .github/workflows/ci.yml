@@ -14,7 +14,14 @@ concurrency:
 
 env:
   REGISTRY: ghcr.io
-  IMAGE_NAME: ${{ github.repository }}
+  # Explicit, not github.repository: the repo was renamed
+  # soult-io/payroll-app -> soult-io/wagon-payroll (PAY-68) and GHCR packages do
+  # not follow a rename. Every tag is pushed under BOTH names for the cutover;
+  # stack-payroll's pin-update still tracks the legacy package. Remove
+  # LEGACY_IMAGE_NAME and its tags once stack-payroll pulls IMAGE_NAME
+  # (PAY-68 step 3). Never delete the old package.
+  IMAGE_NAME: soult-io/wagon-payroll
+  LEGACY_IMAGE_NAME: soult-io/payroll-app
 
 jobs:
   verify:
@@ -202,7 +209,9 @@ jobs:
     # deployment — prod moves via release.yml + a pin PR in the stack repo.
     # E2E gates the push: the image carries exactly what the journeys exercise.
     needs: [verify, e2e]
-    if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+    # Repo gate: the image names are explicit soult-io/* packages (PAY-68), which
+    # a fork's GITHUB_TOKEN cannot push to — a fork's main push skips this job.
+    if: github.repository == 'soult-io/wagon-payroll' && github.event_name == 'push' && github.ref == 'refs/heads/main'
     runs-on: ubuntu-latest
     permissions:
       contents: read   # checkout
@@ -226,6 +235,8 @@ jobs:
           tags: |
             ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}:sha-${{ github.sha }}
             ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}:latest
+            ${{ env.REGISTRY }}/${{ env.LEGACY_IMAGE_NAME }}:sha-${{ github.sha }}
+            ${{ env.REGISTRY }}/${{ env.LEGACY_IMAGE_NAME }}:latest
           cache-from: type=gha
           cache-to: type=gha,mode=max
 

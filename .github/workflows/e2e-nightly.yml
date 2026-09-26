@@ -10,7 +10,7 @@ name: e2e-nightly
 #
 # Fork-friendly: the e2e-qa job gates on `github.repository` (the job-level
 # `if` context list does NOT include `secrets`, so the gate is the repo
-# identity itself — forks never match `soult-io/payroll-app`). A fork's job is
+# identity itself — forks never match `soult-io/wagon-payroll`). A fork's job is
 # skipped BEFORE a runner is allocated — no self-hosted runner is ever
 # requested — and the skip-notice job reports a clean green success instead.
 #
@@ -41,7 +41,7 @@ jobs:
   e2e-qa:
     # Skip before runner allocation when QA is not configured (forks) —
     # a skipped job counts as success and never touches the self-hosted pool.
-    if: github.repository == 'soult-io/payroll-app'  # secrets. not allowed in job-level if; repo identity is the fork gate
+    if: github.repository == 'soult-io/wagon-payroll'  # secrets. not allowed in job-level if; repo identity is the fork gate
     runs-on: [self-hosted, qa-e2e]
     steps:
       - uses: actions/checkout@v4
@@ -147,9 +147,9 @@ jobs:
 
   skip-notice:
     # Forks: report a clean green skip.
-    if: github.repository != 'soult-io/payroll-app'
+    if: github.repository != 'soult-io/wagon-payroll'
     runs-on: ubuntu-latest
     steps:
       - name: Notice
         run: |
-          echo "::notice::Not soult-io/payroll-app — skipping the nightly e2e against live QA. This is expected on forks and is not a failure."
+          echo "::notice::Not soult-io/wagon-payroll — skipping the nightly e2e against live QA. This is expected on forks and is not a failure."

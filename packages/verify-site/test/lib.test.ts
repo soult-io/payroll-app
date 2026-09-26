@@ -117,8 +117,8 @@ describe("renderPage", () => {
     const populated = renderPage([summary({ generatedAt: "2026-09-21T05:20:00Z" })]);
     expect(populated).toContain("<title>Wagon Payroll QA verification</title>");
     expect(populated).toContain("<h1>Wagon Payroll — QA verification</h1>");
-    // The meta description names the repo, which stays payroll-app.
-    expect(populated).toContain("status for payroll-app");
+    // The meta description names the repo, soult-io/wagon-payroll (renamed in PAY-68).
+    expect(populated).toContain("status for wagon-payroll");
   });
 
   it("renders the latest run's status, counts, suites and report link", () => {

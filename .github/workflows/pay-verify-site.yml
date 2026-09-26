@@ -1,7 +1,9 @@
 name: pay-verify-site
 
 # Spec 17 chunk B (PAY-44): build + publish the static pay-verify QA dashboard
-# image ghcr.io/soult-io/payroll-app-verify from the verify-summary history.
+# image ghcr.io/soult-io/wagon-payroll-verify from the verify-summary history
+# (also pushed under the legacy name ghcr.io/soult-io/payroll-app-verify during
+# the PAY-68 rename cutover — see LEGACY_IMAGE below).
 #
 # It never runs tests. It ingests the summary.json that ci.yml / e2e-nightly.yml
 # already publish (chunk A), keeps a rolling window of them on the orphan
@@ -62,7 +64,13 @@ concurrency:
 
 env:
   REGISTRY: ghcr.io
-  IMAGE: ghcr.io/soult-io/payroll-app-verify
+  IMAGE: ghcr.io/soult-io/wagon-payroll-verify
+  # PAY-68 (repo renamed soult-io/payroll-app -> soult-io/wagon-payroll): GHCR
+  # packages do not follow a rename, so every tag is ALSO pushed under the old
+  # package name that stack-payroll's pin-update still tracks. Remove this line
+  # and its push in "Push image" once stack-payroll pulls IMAGE (PAY-68 step 3).
+  # Never delete the old package.
+  LEGACY_IMAGE: ghcr.io/soult-io/payroll-app-verify
   DATA_BRANCH: pay-verify-data
   # Spec 20 D1: journey media lives on its own orphan branch, force-pushed as
   # ONE commit holding only the latest ci bundle — binary history never piles
@@ -90,7 +98,7 @@ jobs:
     # itself started by workflow_run — i.e. it re-recorded a green ci push to
     # main. Its PR and manual recordings never feed the site.
     if: >-
-      github.repository == 'soult-io/payroll-app' &&
+      github.repository == 'soult-io/wagon-payroll' &&
       (github.event_name == 'workflow_dispatch' || (
         github.event.workflow_run.conclusion != 'cancelled' &&
         github.event.workflow_run.head_branch == 'main' &&
@@ -569,9 +577,13 @@ jobs:
           MOVE_LATEST: ${{ steps.tip.outputs.move_latest }}
           TAG: sha-${{ env.COMMIT_SHA }}${{ github.event.workflow_run.name == 'walkthrough' && '-walkthrough' || '' }}
         run: |
-          docker tag payroll-app-verify:scan "$IMAGE:$TAG"
-          docker push "$IMAGE:$TAG"
-          if [ "$MOVE_LATEST" = "true" ]; then
-            docker tag payroll-app-verify:scan "$IMAGE:latest"
-            docker push "$IMAGE:latest"
-          fi
+          # Legacy name first: stack-payroll pin-update tracks it today (PAY-68),
+          # so a partial failure never leaves the pinned name behind.
+          for name in "$LEGACY_IMAGE" "$IMAGE"; do
+            docker tag payroll-app-verify:scan "$name:$TAG"
+            docker push "$name:$TAG"
+            if [ "$MOVE_LATEST" = "true" ]; then
+              docker tag payroll-app-verify:scan "$name:latest"
+              docker push "$name:latest"
+            fi
+          done
