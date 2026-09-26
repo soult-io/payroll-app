@@ -16,9 +16,9 @@ env:
   REGISTRY: ghcr.io
   # Explicit, not github.repository: the repo was renamed
   # soult-io/payroll-app -> soult-io/wagon-payroll (PAY-68) and GHCR packages do
-  # not follow a rename. The legacy ghcr.io/soult-io/payroll-app received tags
-  # up to v1.25.0 and receives nothing after it (PAY-68 step 3); its old tags
-  # stay pullable. Never delete the old package.
+  # not follow a rename. The legacy ghcr.io/soult-io/payroll-app got its last
+  # release tag at v1.25.0 and its last sha-* tag at the PAY-68 step 3 merge;
+  # nothing is pushed to it after that. Its old tags stay pullable. Never delete the old package.
   IMAGE_NAME: soult-io/wagon-payroll
 
 jobs:
