@@ -63,7 +63,7 @@ jobs:
     # workflow_run: only a green ci run of a push to main in this repo (a fork
     # PR from a branch named "main" also matches the trigger's branch filter).
     if: >-
-      github.repository == 'soult-io/payroll-app' && (
+      github.repository == 'soult-io/wagon-payroll' && (
         github.event_name != 'workflow_run' || (
           github.event.workflow_run.conclusion == 'success' &&
           github.event.workflow_run.event == 'push' &&
