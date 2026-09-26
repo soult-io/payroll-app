@@ -63,7 +63,7 @@ async function caRows(): Promise<string[]> {
   const r = await t.pglite.query<{ s: string }>(
     `SELECT period_kind || ' ' || period_start || ' ' || amount || ' ' ||
             CASE WHEN status IN ('pending','overdue')
-                 THEN (CASE WHEN status = (CASE WHEN due_date < current_date THEN 'overdue' ELSE 'pending' END)
+                 THEN (CASE WHEN status = (CASE WHEN due_date < current_date AND amount > 0 THEN 'overdue' ELSE 'pending' END)
                             THEN 'open' ELSE 'open-wrong-status' END)
                  ELSE status END ||
             CASE WHEN superseded_at IS NULL THEN '' ELSE ' sup_at' END AS s
@@ -160,6 +160,18 @@ describe("pay-91-revert.sql", () => {
     await expect(t.pglite.exec(REVERT)).rejects.toThrow(/quarter row to delete has an attachment/);
     await t.pglite.exec("ROLLBACK").catch(() => undefined);
     expect(await caRows()).toEqual(before);
+  });
+
+  it("a restored 0.00 month row past its due date is pending, never overdue", async () => {
+    await t.pglite.exec(
+      `INSERT INTO tax_deposits (jurisdiction, period_start, amount, due_date, status, superseded_at, created_by)
+       VALUES ('CA', '2026-01-01', '0.00', '2026-02-17', 'superseded', now(), 'scheduler')`,
+    );
+    await t.pglite.exec(REVERT);
+    const r = await t.pglite.query<{ status: string }>(
+      `SELECT status FROM tax_deposits WHERE jurisdiction = 'CA' AND period_start = '2026-01-01'`,
+    );
+    expect(r.rows).toEqual([{ status: "pending" }]);
   });
 
   it("takes an EXCLUSIVE lock and says the app must be stopped", () => {

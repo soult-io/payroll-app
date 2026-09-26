@@ -7,7 +7,8 @@
 -- deposit sync has run. It makes the table look like the old code expects:
 --   1. deletes every non-deposited QUARTER row the scheduler wrote (open or
 --      superseded — the old code only knows month rows);
---   2. restores superseded MONTH rows to pending/overdue (by due date) with
+--   2. restores superseded MONTH rows to pending/overdue (overdue only when past
+--      due AND amount > 0 — a 0.00 row never goes overdue) with
 --      superseded_at NULL — the most recent superseded row per
 --      (jurisdiction, period_start), and only where no live month row holds
 --      that key (the partial unique index allows one live row).
@@ -62,7 +63,7 @@ DELETE FROM tax_deposits d
    AND d.created_by = 'scheduler';
 
 UPDATE tax_deposits d
-   SET status = CASE WHEN d.due_date < current_date THEN 'overdue' ELSE 'pending' END,
+   SET status = CASE WHEN d.due_date < current_date AND d.amount > 0 THEN 'overdue' ELSE 'pending' END,
        superseded_at = NULL,
        updated_at = now()
  WHERE d.id IN (
