@@ -6,8 +6,44 @@ All notable changes to this project will be documented here. Format follows
 
 ## [Unreleased]
 
+## [1.25.0] - 2026-09-26
+
+### Added
+
+- **Projected filing dates on the calendar (PAY-51, PAY-52)** — the admin
+  calendar now shows upcoming filings before their `tax_filings` row exists:
+  the quarterly 941 (generation date and due date) and the annual W-2/W-3
+  and 940 (due date; W-2/W-3 also its Jan 1 generation date), for any
+  period with at least one issued run. They use a dashed purple style and
+  disappear once the real filing row exists.
+- **Per-state deposit due-date schedules (PAY-48)** — state `tax_deposits`
+  due dates now come from a per-state schedule in a new
+  `state_deposit_schedules` table, seeded for 2026 from verified official
+  sources: CA, NC, NY quarterly (last day of the month after the quarter),
+  MD quarterly (15th of the month after the quarter), IL monthly (15th of
+  the next month). Quarterly states get one deposit row per quarter, shown
+  as `Q3 2026` in the list, detail view, and reminder emails. States without
+  a schedule keep the federal convention (15th of the next month). Weekend
+  dates roll forward; holidays do not.
+- **Deposit detail view improvements (PAY-37)** — record a payment
+  ("Mark as deposited") from the deposit detail page; the EFTPS reference
+  card shows the tax year and quarter to pick on eftps.gov; the breakdown
+  shows Social Security and Medicare as combined employee + employer rows,
+  as EFTPS asks for them. The total is unchanged.
+- **Manual workflow to copy old image tags to the new name (PAY-69)** —
+  `.github/workflows/ghcr-copy-legacy-tag.yml` copies a tag published
+  before the rename from `ghcr.io/soult-io/payroll-app(-verify)` to
+  `ghcr.io/soult-io/wagon-payroll(-verify)` by digest, refuses to overwrite
+  a tag that points elsewhere, and checks the digest after the copy.
+  See `docs/deployment.md`.
+
 ### Changed
 
+- **Tax deposits table is easier to read (PAY-38)** — the period shows as
+  `Oct 2025` (quarters as `Q3 2025`), due dates stay on one line, the
+  Deposited column shows only the date with the EFTPS confirmation behind
+  a **View confirmation** action, and Period, Jurisdiction, Amount, Due
+  date, Status, and Deposited sort both ways.
 - **The app is now called Wagon Payroll (PAY-66, spec 22)** — the tab title,
   header, login page, new authenticator enrollments, and emails use the
   product name from one setting, `BRAND_NAME` (default "Wagon Payroll"),
@@ -30,6 +66,37 @@ All notable changes to this project will be documented here. Format follows
   get the same tags in parallel for one release and then stop receiving new
   tags (existing tags stay pullable). **Operators:** switch your `image:`
   lines to the new names. The container name `payroll-app` is unchanged.
+- **QA seed gives the sample employee a work state (PAY-49)** — the QA
+  fixture now assigns Ada an Illinois work-state election, so seeded QA runs
+  show state withholding and IL deposit rows. QA data only; production is
+  not affected.
+- **QA tooling (PAY-54, PAY-78, PAY-79)** — the pay-verify QA dashboard
+  marks flaky, never-run, and not-run results, shows CI and nightly results
+  separately, is bound to the tested commit, and shows per-step screens and
+  a walkthrough video for each journey; five live-QA journeys run in
+  ordinary CI; the verify image build is sturdier and backfills dropped
+  runs. No change to the app.
+
+### Upgrade notes
+
+- **One additive migration:** `packages/db/drizzle/0021_puzzling_bishop.sql`
+  creates the table `state_deposit_schedules`. The `app-migrate` one-shot
+  applies it automatically. The table starts empty, and while it is empty
+  every state keeps the federal convention (monthly, due the 15th of the next
+  month).
+- **Do not load the state deposit schedules yet (known issue PAY-91).** Running
+  `seed.js` fills the table. For a quarterly state (CA, NC, NY, MD) that
+  already has monthly deposit rows in the current quarter, the deposit sync
+  then counts months 2 and 3 of that quarter twice, and the quarter row keeps
+  the earlier monthly due date. Wait for the fix before running `seed.js` on
+  an existing installation.
+- **Existing state deposit rows keep their due dates.** The deposit sync sets
+  a due date only when it creates a row.
+- **Authenticator apps:** existing enrollments keep the label "Payroll".
+- **Image names:** new images are `ghcr.io/soult-io/wagon-payroll` and
+  `ghcr.io/soult-io/wagon-payroll-verify`. The old names
+  (`ghcr.io/soult-io/payroll-app`, `-verify`) also get this release, then
+  stop receiving new tags.
 
 ## [1.24.0] - 2026-09-22
 
