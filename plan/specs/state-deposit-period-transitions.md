@@ -312,25 +312,30 @@ to "Deposited" while another row of that quarter is present.
 shared `stateName(code)` map in `@payroll/shared`. The list's Jurisdiction column and filter
 read "California (CA)" (`jurisdictionLabel`).
 
-Calendar (`calendar/service.ts`): state rows are labelled `"{STATE} deposit due — {label}"`
-and `"{STATE} deposit made — {label}"`, with `{label}` built from `period_kind` (`Q3 2026` or
-`July 2026`). Federal keeps `941 deposit due — …`. The calendar legend reads "Tax deposit due"
-/ "Tax deposit made". (UX asked for state names in calendar labels; the auditor's T26 fixes
-`"CA deposit due — Q3 2026"`, so the code stays until the auditor changes T26.)
+Calendar (`calendar/service.ts`): state rows are labelled `"{State} deposit due — {label}"`
+and `"{State} deposit made — {label}"` with the state NAME (`stateName`), `{label}` built from
+`period_kind` (`Q3 2026` or `July 2026`): "California deposit due — Q3 2026". Federal keeps
+`941 deposit due — …`. A due event's detail is `"$253.45 · pending"`, or "Nothing left to pay"
+for a 0.00 row. The legend has one "Tax deposits" entry; the per-kind labels read "Tax
+deposit due" / "Tax deposit made".
 
-**Copy (final, product-ux-designer fix round 1; plain, no tax advice).** `{State}` = state
+**Copy (final, product-ux-designer final round; plain, no tax advice).** `{State}` = state
 name, `{Q}` = the row's quarter ("Q3 2026"), `{period}` = the row's period ("July 2026" or
 "Q3 2026").
+0. Detail title: "{period} {State} deposit" ("Q3 2026 California deposit"). List subtitle:
+   "Federal and state payroll tax deposits — computed from issued payroll runs. ..."
 1. Credits card title: "Payments already made for {Q}"
 2. Card line: "{period of payment} payment on {date}: {amount}", plus " — {applied} counted
    here" when applied ≠ amount.
 3. Breakdown footer (state rows): "Total withholding for {period}: {liability}". With credits,
-   a second line: "Already paid: {Σ applied} · Left to pay: {amount}". Federal keeps "Total:".
+   a second line, on open rows only (not superseded, not deposited): "Already paid:
+   {Σ applied} · Left to pay: {amount}". Federal keeps "Total:".
 4. Note, Case B (quarter row): "{State} now takes one payment per quarter. Check with {State}
    that your monthly payments were applied to {Q}."
 5. Month row credited by a quarter payment (Case C): "Counted toward this month: {Σ applied}."
    Note: "{State} now takes monthly payments. Check with {State} how your {Q} payment was
-   applied to each month."
+   applied to each month." A month row credited only by another month's excess: "Check with
+   {State} how your payments for {period} were applied to each month."
 6. Overpaid chip: "Overpaid". Note: "Your recorded payments for {Q} are {overpaid} more than
    that quarter's withholding. Ask {State} how they want to handle the extra amount."
 7. Zero row chip: "Nothing left to pay". Detail line: with credits, "Payments already recorded
@@ -341,9 +346,14 @@ name, `{Q}` = the row's quarter ("Q3 2026"), `{period}` = the row's period ("Jul
    {State} changed to quarterly payments, so this month is now part of the {Q} deposit."
    Link: "View {Q} deposit". Banner, to monthly: "Replaced — nothing to pay on this page.
    {State} changed to monthly payments, so this quarter is now split into monthly deposits."
-   Link: "View {State} deposits for {Q}" → deposits list `?jurisdiction={CODE}&year={YYYY}`.
-9. Data error (`paymentsUnavailable`): "We couldn't work out payments for this period.
-   Contact support."
+   Link: "View {State} deposits for {YYYY}" → deposits list `?jurisdiction={CODE}&year={YYYY}`.
+9. Data error (`paymentsUnavailable`). Detail: "We couldn't check the payments already made
+   for this period, so the amount above may not be right. Check it against your payroll runs
+   before you pay, and contact support." List cell: "Amount not checked. Open this deposit
+   before you pay." Admin email (`tax_deposit_sync_failed`, once per unit per day): subject
+   "{State} tax deposits for {Q} need checking"; body "We couldn't work out the {State} tax
+   deposits for {Q}. Until this is fixed, the {State} amount for {Q} may not be right. Check it
+   before you pay." with a link to the admin deposits list.
 10. 409 on marking a superseded or 0.00 row: "This deposit has nothing left to record."
 11. The list's mark-deposited and confirmation dialogs label a quarter row as a quarter.
 
@@ -392,7 +402,7 @@ to their pre-sync state; Σ live amounts per unit = max(ΣL, ΣD).
 | T23 | d,f | T02 end; void all three runs | sync 2026-11-03 | Q3 **0 · 11-02 · pending** (not overdue although the due date has passed); reminders on 11-02 → 0 sent |
 | T24 | a | IL monthly dueDay 15; IL M Jul 5,000 deposited (due 08-17); M Aug 5,000 pending (due 09-15). Change IL-2026 dueDay to 20 | sync 2026-09-10 | M Jul unchanged 08-17; M Aug due **2026-09-21** (Sep 20 is a Sunday), pending |
 | T25 | f | T03 end; offsets [5,0]; 1 admin | `sendDepositReminders` on 2026-10-10, 10-15, 10-28, 11-02; T06 end on 10-28 | 0, 0, 1 (body has "Q3 2026", amount $253.45; the subject is "tax deposit due <date>"), 1; T06: 0 |
-| T26 | f | T03 end | calendar Oct, Nov, Aug 2026 | Oct: no CA due event (SUP Sep row due 10-15 absent); Nov: "CA deposit due — Q3 2026" on 11-02 "$253.45 · pending"; Aug: "CA deposit made — July 2026" on 08-14 |
+| T26 | f | T03 end | calendar Oct, Nov, Aug 2026 | Oct: no CA due event (SUP Sep row due 10-15 absent); Nov: "California deposit due — Q3 2026" on 11-02 "$253.45 · pending"; Aug: "California deposit made — July 2026" on 08-14 |
 | T27 | f | T03 end | API: list; detail of SUP M Aug; POST deposit on SUP; POST deposit on T06 zero row; attachment upload on SUP | list excludes SUP (live rows only); detail 200 `status:'superseded'`, `replacedBy:[Q3]`; 409; 409; 409 |
 | T28 | b | T16 federal rows + T18 CA rows, migrated + synced | 941 Q3 2026 worksheet | line 13 = 1,721.28 (3 × 573.76), same as before migration |
 | T29 | b,g | `seed-qa` on an empty DB | existing qa-seed test | with the qa-seed test's today (2026-08-20): 19 federal + 19 IL rows, all `month`, amounts unchanged from main |
