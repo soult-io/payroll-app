@@ -28,7 +28,6 @@ export const TARGETS = {
       "test/*940*.test.ts",
       "test/*941*.test.ts",
       "test/annual*.test.ts",
-      "test/w2*.test.ts",
       "test/futa-*.test.ts",
       // Import from src/filings without the module in their names.
       "test/calendar.test.ts",

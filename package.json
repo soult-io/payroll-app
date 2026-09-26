@@ -4,7 +4,7 @@
   "version": "1.25.0",
   "description": "Wagon Payroll webapp \u2014 stable, deterministic payroll for small business (see plan/).",
   "engines": {
-    "node": ">=22"
+    "node": ">=22.5"
   },
   "packageManager": "pnpm@11.17.0",
   "scripts": {
