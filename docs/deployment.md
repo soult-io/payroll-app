@@ -184,3 +184,8 @@ no cross-repo credential.
    redeploys prod; the migrate one-shot runs first, as always.
 
 Emergency fix = the same flow with a smaller version bump.
+
+Releases tagged before the PAY-68 rename (up to `v1.24.0`) exist only under
+`ghcr.io/soult-io/payroll-app`. To make one pullable under the new name, run
+the manual `ghcr-copy-legacy-tag` workflow (Actions tab): it copies the tag
+without a rebuild, so the digest stays the same.
