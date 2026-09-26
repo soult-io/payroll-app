@@ -30,6 +30,7 @@ import { dirname, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 import * as schema from "@payroll/db";
 import { company, employees, seedDatabase, type SeedDb } from "@payroll/db";
+import { stateName } from "@payroll/shared";
 import { loadConfig, type AppConfig } from "../src/config.js";
 import type { Db } from "../src/db.js";
 import { markDeposited, sendDepositReminders, syncDeposits } from "../src/deposits/service.js";
@@ -1287,15 +1288,17 @@ describe("PAY-91 readers of superseded and zero rows", () => {
       (e) => e.kind === "deposit_due" && caIds.has(Number(e.link?.params?.id)),
     );
     expect(octCa.map((e) => [e.date, e.label])).toEqual([]);
+    const CA = stateName("CA");
+    expect(CA).toBe("California"); // pin the shared map so the label oracle stays independent
     const nov = await monthCalendar(E.db, 2026, 11);
-    const due = nov.filter((e) => e.kind === "deposit_due" && e.label.startsWith("CA"));
+    const due = nov.filter((e) => e.kind === "deposit_due" && e.label.startsWith(CA));
     expect(due.map((e) => [e.date, e.label, e.detail])).toEqual([
-      ["2026-11-02", "CA deposit due — Q3 2026", "$253.45 · pending"],
+      ["2026-11-02", `${CA} deposit due — Q3 2026`, "$253.45 · pending"],
     ]);
     const aug = await monthCalendar(E.db, 2026, 8);
-    const made = aug.filter((e) => e.kind === "deposit_made" && e.label.startsWith("CA"));
+    const made = aug.filter((e) => e.kind === "deposit_made" && e.label.startsWith(CA));
     expect(made.map((e) => [e.date, e.label])).toEqual([
-      ["2026-08-14", "CA deposit made — July 2026"],
+      ["2026-08-14", `${CA} deposit made — July 2026`],
     ]);
   });
 
