@@ -282,7 +282,10 @@ async function depositEvents(
       date: deposit.dueDate,
       kind: "deposit_due",
       label: depositLabel(deposit, "due"),
-      detail: `$${deposit.amount} · ${deposit.status}`,
+      // A 0.00 row has nothing to pay (spec 23 D5): say so, not "$0.00 · pending".
+      detail: /^0+(\.0+)?$/.test(deposit.amount)
+        ? "Nothing left to pay"
+        : `$${deposit.amount} · ${deposit.status}`,
       link: { name: "admin-deposit-detail", params: { id: deposit.id } },
     });
   }

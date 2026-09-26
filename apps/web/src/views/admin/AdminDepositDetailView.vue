@@ -307,7 +307,7 @@ watch(depositId, load);
     <Skeleton v-if="loading" height="16rem" />
     <template v-else-if="deposit">
 <PageHeader
-        :title="`${periodLabel(deposit.periodStart, deposit.periodKind)} ${jurisdictionLabel(deposit.jurisdiction)} deposit`"
+        :title="`${periodLabel(deposit.periodStart, deposit.periodKind)} ${stateName(deposit.jurisdiction)} deposit`"
         :subtitle="subtitle"
       >
         <BackButton to="admin-deposits" label="Back to deposits" />
@@ -330,13 +330,14 @@ watch(depositId, load);
           Replaced — nothing to pay on this page. {{ state }} changed to monthly payments, so this
           quarter is now split into monthly deposits.
           <RouterLink :to="stateYearLink">
-            View {{ state }} deposits for {{ quarterLabel(deposit.periodStart) }}
+            View {{ state }} deposits for {{ deposit.periodStart.slice(0, 4) }}
           </RouterLink>
         </template>
       </Message>
 
       <Message v-if="paymentsUnavailable" severity="warn" :closable="false">
-        We couldn't work out payments for this period. Contact support.
+        We couldn't check the payments already made for this period, so the amount above may not
+        be right. Check it against your payroll runs before you pay, and contact support.
       </Message>
 
       <section v-if="credits.length" class="card stack" data-testid="deposit-credits">
@@ -357,6 +358,10 @@ watch(depositId, load);
         <p v-else-if="deposit.periodKind === 'quarter'" class="muted small" style="margin: 0">
           {{ state }} now takes one payment per quarter. Check with {{ state }} that your monthly
           payments were applied to {{ quarterLabel(deposit.periodStart) }}.
+        </p>
+        <p v-else class="muted small" style="margin: 0">
+          Check with {{ state }} how your payments for
+          {{ periodLabel(deposit.periodStart, deposit.periodKind) }} were applied to each month.
         </p>
       </section>
 
@@ -447,7 +452,11 @@ watch(depositId, load);
               {{ money(totalAmount) }}
             </p>
             <p v-else class="bold" style="margin: 0">Total: {{ money(totalAmount) }}</p>
-            <p v-if="credits.length && !isSuperseded" style="margin: 0" data-testid="left-to-pay">
+            <p
+              v-if="credits.length && !isSuperseded && deposit.status !== 'deposited'"
+              style="margin: 0"
+              data-testid="left-to-pay"
+            >
               Already paid: {{ money(appliedTotal) }} · Left to pay: {{ money(deposit.amount) }}
             </p>
           </div>

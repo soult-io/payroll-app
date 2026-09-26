@@ -371,7 +371,7 @@ onMounted(async () => {
   <div class="page stack">
     <PageHeader
       title="Tax deposits"
-      subtitle="Monthly federal and state payroll tax deposits — computed from issued payroll runs. Record-only: pay on eftps.gov (or the state portal), then record the confirmation here."
+      subtitle="Federal and state payroll tax deposits — computed from issued payroll runs. Record-only: pay on eftps.gov (or the state portal), then record the confirmation here."
     >
       <Select v-model="yearFilter" :options="yearOptions" option-label="label" option-value="value" size="small" />
       <Select v-model="statusSelect" :options="statusOptions" option-label="label" option-value="value" size="small" />
@@ -411,7 +411,7 @@ onMounted(async () => {
               <StatusChip v-if="extraOverpaidChip(data)" status="overpaid" />
             </div>
             <p v-if="data.paymentsUnavailable" class="muted small unavailable">
-              We couldn't work out payments for this period. Contact support.
+              Amount not checked. Open this deposit before you pay.
             </p>
           </template>
         </Column>
