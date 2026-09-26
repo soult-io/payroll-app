@@ -22,6 +22,14 @@ All notable changes to this project will be documented here. Format follows
 - **Authenticator apps:** accounts enrolled before this release keep the
   label "Payroll" in the authenticator app. Their codes keep working; no
   action or re-enrollment is needed.
+- **Container images have new names (PAY-68)** — the repository is now
+  `soult-io/wagon-payroll`, and images are published as
+  `ghcr.io/soult-io/wagon-payroll` (app) and
+  `ghcr.io/soult-io/wagon-payroll-verify` (pay-verify site). The old names,
+  `ghcr.io/soult-io/payroll-app` and `ghcr.io/soult-io/payroll-app-verify`,
+  get the same tags in parallel for one release and then stop receiving new
+  tags (existing tags stay pullable). **Operators:** switch your `image:`
+  lines to the new names. The container name `payroll-app` is unchanged.
 
 ## [1.24.0] - 2026-09-22
 
