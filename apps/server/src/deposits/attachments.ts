@@ -97,6 +97,21 @@ export async function addDepositAttachment(
   const filename = sanitizeFilename(input.filename);
 
   return db.transaction(async (tx) => {
+    // Race guard: re-check under a share lock — the sync may have superseded
+    // the row since the check above, and cannot now until this commits.
+    const locked = await tx
+      .select({ status: taxDeposits.status })
+      .from(taxDeposits)
+      .where(eq(taxDeposits.id, depositId))
+      .for("share");
+    if (!locked[0])
+      throw new DepositServiceError("not_found", `tax deposit ${depositId} not found`);
+    if (locked[0].status === "superseded") {
+      throw new DepositServiceError(
+        "invalid_transition",
+        "This deposit was replaced and takes no new attachments.",
+      );
+    }
     const inserted = await tx
       .insert(depositAttachments)
       .values({

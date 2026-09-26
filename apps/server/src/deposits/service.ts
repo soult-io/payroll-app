@@ -799,7 +799,12 @@ export async function markDeposited(
         updatedAt: new Date(),
       })
       .where(
-        and(eq(taxDeposits.id, depositId), inArray(taxDeposits.status, ["pending", "overdue"])),
+        and(
+          eq(taxDeposits.id, depositId),
+          inArray(taxDeposits.status, ["pending", "overdue"]),
+          // Race guard: the sync may have set the row to 0.00 since the read.
+          sql`${taxDeposits.amount} > 0`,
+        ),
       )
       .returning();
     const row = updated[0];
