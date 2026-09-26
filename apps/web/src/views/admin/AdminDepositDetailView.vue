@@ -19,7 +19,12 @@ import DatePicker from "primevue/datepicker";
 import InputText from "primevue/inputtext";
 import Skeleton from "primevue/skeleton";
 import Message from "primevue/message";
-import { formatCents, parseCents } from "@payroll/shared";
+import {
+  formatCents,
+  jurisdictionLabel as sharedJurisdictionLabel,
+  parseCents,
+  stateName,
+} from "@payroll/shared";
 import PageHeader from "../../components/PageHeader.vue";
 import BackButton from "../../components/BackButton.vue";
 import StatusChip from "../../components/StatusChip.vue";
@@ -89,8 +94,9 @@ function periodLabel(periodStart: string, periodKind?: "month" | "quarter"): str
   return `${monthName(month)} ${periodStart.slice(0, 4)}`;
 }
 
+/** "California (CA)" / "Federal" — shared map (PAY-91 UX). */
 function jurisdictionLabel(jurisdiction: string): string {
-  return jurisdiction === "federal" ? "Federal" : jurisdiction;
+  return sharedJurisdictionLabel(jurisdiction);
 }
 
 /** "Q3 2026" — the quarter this deposit belongs to. */
@@ -122,7 +128,28 @@ const canRecord = computed(
     !isSuperseded.value &&
     !nothingToPay.value,
 );
+const overpaidAnchor = ref(false);
+const paymentsUnavailable = ref(false);
+/** The explanatory note may show on every row of an overpaid quarter. */
 const isOverpaid = computed(() => centsOf(overpaid.value) > 0);
+/** The chip shows only on the quarter's anchor (latest-period) row. */
+const overpaidChip = computed(() => isOverpaid.value && overpaidAnchor.value);
+const state = computed(() => (deposit.value ? stateName(deposit.value.jurisdiction) : ""));
+const isState = computed(() => !!deposit.value && deposit.value.jurisdiction !== "federal");
+const subtitle = computed(() => {
+  const d = deposit.value;
+  if (!d) return "";
+  if (isSuperseded.value) return "Replaced · nothing to pay here";
+  return `Due ${date(d.dueDate)} · Amount ${money(d.amount)}`;
+});
+/** To-monthly banner link: the state's deposits for that year. */
+const stateYearLink = computed(() => ({
+  name: "admin-deposits",
+  query: {
+    jurisdiction: deposit.value?.jurisdiction ?? "",
+    year: deposit.value?.periodStart.slice(0, 4) ?? "",
+  },
+}));
 const appliedTotal = computed(() =>
   formatCents(credits.value.reduce((sum, c) => sum + centsOf(c.applied), 0)),
 );
@@ -135,9 +162,11 @@ const creditedByQuarter = computed(
 
 const statusChip = computed(() => {
   if (!deposit.value) return "pending";
-  if (nothingToPay.value) return "nothing_to_pay";
+  if (nothingToPay.value) return overpaidChip.value ? "overpaid" : "nothing_to_pay";
   return isOverdue.value ? "overdue" : deposit.value.status;
 });
+/** A second chip only when the anchor is not a 0.00 row (a lone deposited quarter). */
+const extraOverpaidChip = computed(() => overpaidChip.value && !nothingToPay.value);
 
 const isOverdue = computed(() => {
   if (!deposit.value) return false;
@@ -209,6 +238,8 @@ async function load() {
     credits.value = detail.credits;
     overpaid.value = detail.overpaid;
     replacedBy.value = detail.replacedBy;
+    overpaidAnchor.value = detail.overpaidAnchor;
+    paymentsUnavailable.value = detail.paymentsUnavailable;
     attachments.value = (await adminDepositsApi.listAttachments(depositId.value)).attachments.map(
       (a) => ({
         id: a.id,
@@ -276,18 +307,18 @@ watch(depositId, load);
     <Skeleton v-if="loading" height="16rem" />
     <template v-else-if="deposit">
 <PageHeader
-   :title="`${periodLabel(deposit.periodStart, deposit.periodKind)} ${jurisdictionLabel(deposit.jurisdiction)} deposit`"
-  :subtitle="`Due ${date(deposit.dueDate)} · Amount ${money(deposit.amount)}`"
->
+        :title="`${periodLabel(deposit.periodStart, deposit.periodKind)} ${jurisdictionLabel(deposit.jurisdiction)} deposit`"
+        :subtitle="subtitle"
+      >
         <BackButton to="admin-deposits" label="Back to deposits" />
         <StatusChip :status="statusChip" style="margin-left: 0.5rem" />
-        <StatusChip v-if="isOverpaid" status="overpaid" style="margin-left: 0.25rem" />
+        <StatusChip v-if="extraOverpaidChip" status="overpaid" style="margin-left: 0.25rem" />
       </PageHeader>
 
-      <Message v-if="isSuperseded" severity="secondary" :closable="false">
+      <Message v-if="isSuperseded" severity="secondary" :closable="false" data-testid="replaced-banner">
         <template v-if="deposit.periodKind === 'month'">
-          Replaced. {{ deposit.jurisdiction }} changed to quarterly payments, so this month is now
-          part of the {{ quarterLabel(deposit.periodStart) }} deposit.
+          Replaced — nothing to pay on this page. {{ state }} changed to quarterly payments, so this
+          month is now part of the {{ quarterLabel(deposit.periodStart) }} deposit.
           <RouterLink
             v-if="replacement"
             :to="{ name: 'admin-deposit-detail', params: { id: replacement.id } }"
@@ -296,43 +327,46 @@ watch(depositId, load);
           </RouterLink>
         </template>
         <template v-else>
-          Replaced. {{ deposit.jurisdiction }} changed to monthly payments, so this quarter is now
-          split into monthly deposits.
+          Replaced — nothing to pay on this page. {{ state }} changed to monthly payments, so this
+          quarter is now split into monthly deposits.
+          <RouterLink :to="stateYearLink">
+            View {{ state }} deposits for {{ quarterLabel(deposit.periodStart) }}
+          </RouterLink>
         </template>
       </Message>
 
+      <Message v-if="paymentsUnavailable" severity="warn" :closable="false">
+        We couldn't work out payments for this period. Contact support.
+      </Message>
+
       <section v-if="credits.length" class="card stack" data-testid="deposit-credits">
-        <h3>Payments already made for this quarter</h3>
+        <h3>Payments already made for {{ quarterLabel(deposit.periodStart) }}</h3>
         <ul class="credit-list">
           <li v-for="c in credits" :key="c.depositId">
             {{ periodLabel(c.periodStart, c.periodKind) }} payment on {{ date(c.depositedOn) }}:
-            {{ money(c.amount) }}
+            {{ money(c.amount) }}<template v-if="c.applied !== c.amount"> — {{ money(c.applied) }} counted here</template>
           </li>
         </ul>
         <p v-if="creditedByQuarter" style="margin: 0">
           Counted toward this month: {{ money(appliedTotal) }}.
         </p>
-        <p v-if="!isSuperseded && deposit.status !== 'deposited'" class="bold" style="margin: 0">
-          Left to pay: {{ money(deposit.amount) }}
-        </p>
         <p v-if="creditedByQuarter" class="muted small" style="margin: 0">
-          {{ deposit.jurisdiction }} now takes monthly payments. Check with
-          {{ deposit.jurisdiction }} how your {{ quarterLabel(deposit.periodStart) }} payment was
-          applied to each month.
+          {{ state }} now takes monthly payments. Check with {{ state }} how your
+          {{ quarterLabel(deposit.periodStart) }} payment was applied to each month.
         </p>
         <p v-else-if="deposit.periodKind === 'quarter'" class="muted small" style="margin: 0">
-          {{ deposit.jurisdiction }} now takes one payment per quarter. Check with
-          {{ deposit.jurisdiction }} that your monthly payments were applied to
-          {{ quarterLabel(deposit.periodStart) }}.
+          {{ state }} now takes one payment per quarter. Check with {{ state }} that your monthly
+          payments were applied to {{ quarterLabel(deposit.periodStart) }}.
         </p>
       </section>
 
       <Message v-if="isOverpaid" severity="info" :closable="false">
-        You have paid {{ money(overpaid) }} more than {{ quarterLabel(deposit.periodStart) }}'s
-        withholding. Ask {{ deposit.jurisdiction }} how they want to handle the extra amount.
+        Your recorded payments for {{ quarterLabel(deposit.periodStart) }} are
+        {{ money(overpaid) }} more than that quarter's withholding. Ask {{ state }} how they want
+        to handle the extra amount.
       </Message>
 
-      <section class="card stack">
+      <section v-if="!isSuperseded" class="card stack">
         <h3>EFTPS reference</h3>
         <p class="muted small">
           When depositing to eftps.gov, use these exact values:
@@ -341,7 +375,7 @@ watch(depositId, load);
           <div class="row">
             <div class="col">
               <p class="muted small" style="margin: 0">Tax period</p>
-               <p class="bold">{{ periodLabel(deposit.periodStart, deposit.periodKind) }}</p>
+              <p class="bold">{{ periodLabel(deposit.periodStart, deposit.periodKind) }}</p>
             </div>
             <div class="col">
               <p class="muted small" style="margin: 0">Amount</p>
@@ -365,7 +399,13 @@ watch(depositId, load);
             </div>
           </div>
           <div class="row" v-if="nothingToPay">
-            <p class="muted small">Nothing left to pay for this period.</p>
+            <p class="muted small" v-if="credits.length">
+              Payments already recorded for {{ periodLabel(deposit.periodStart, deposit.periodKind) }}
+              cover this amount.
+            </p>
+            <p class="muted small" v-else>
+              The issued payroll runs for this period add up to {{ money(totalAmount) }}.
+            </p>
           </div>
           <div class="row" v-else-if="canRecord">
             <p class="muted small">
@@ -402,7 +442,14 @@ watch(depositId, load);
         </DataTable>
         <div class="row" style="justify-content: flex-end; padding-top: 0.5rem">
           <div class="col" style="text-align: right">
-            <p class="bold" style="margin: 0">Total: {{ money(totalAmount) }}</p>
+            <p v-if="isState" class="bold" style="margin: 0">
+              Total withholding for {{ periodLabel(deposit.periodStart, deposit.periodKind) }}:
+              {{ money(totalAmount) }}
+            </p>
+            <p v-else class="bold" style="margin: 0">Total: {{ money(totalAmount) }}</p>
+            <p v-if="credits.length && !isSuperseded" style="margin: 0" data-testid="left-to-pay">
+              Already paid: {{ money(appliedTotal) }} · Left to pay: {{ money(deposit.amount) }}
+            </p>
           </div>
         </div>
       </section>

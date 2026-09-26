@@ -981,8 +981,10 @@ export interface TaxDepositRow {
   periodKind: DepositPeriodKind;
   /** Set when the row was replaced by a monthly <-> quarterly change (PAY-91). */
   supersededAt: string | null;
-  /** List rows only: the state quarter's overpayment ("0.00" normally). */
+  /** List rows only: the state-quarter's overpayment, on its anchor (latest-period) row only. */
   overpaid?: string;
+  /** List rows only: the period's payments could not be worked out (data error). */
+  paymentsUnavailable?: boolean;
   depositedOn: string | null;
   eftpsConfirmation: string | null;
   remindersSent: number[];
@@ -1009,7 +1011,12 @@ export interface DepositDetail {
   /** The period's withholding (month or quarter). */
   liability: string;
   credits: DepositCredit[];
+  /** The state-quarter's overpayment (the note may show on any row). */
   overpaid: string;
+  /** True on the one row per state-quarter that carries the "Overpaid" chip. */
+  overpaidAnchor: boolean;
+  /** The period's payments could not be worked out (data error). */
+  paymentsUnavailable: boolean;
   /** Superseded rows only: the deposit(s) that replaced it. */
   replacedBy: { id: number; periodStart: string; periodKind: DepositPeriodKind }[];
 }

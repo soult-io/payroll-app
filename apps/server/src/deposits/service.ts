@@ -865,7 +865,7 @@ async function processDepositReminders(
     if (addDays(deposit.dueDate, -offset) !== today) continue;
 
     const rendered = tplTaxDepositDue(ctx, {
-      jurisdiction: deposit.jurisdiction,
+      jurisdiction: stateName(deposit.jurisdiction),
       periodLabel: periodLabel(periodStart, periodKind),
       amountLabel: formatMoney(Number(deposit.amount)),
       dueDate: deposit.dueDate,

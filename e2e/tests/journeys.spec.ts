@@ -470,16 +470,19 @@ test("journey 8: a state that moved to quarterly shows payments already made (PA
   const ctx = await newContext(browser, { storageState: ADMIN_SESSION });
   const page = await ctx.newPage();
   const quarterRow = page.locator(".p-datatable-tbody tr", { hasText: "Q3 2023" });
+  const julyRow = page.locator(".p-datatable-tbody tr", { hasText: "Jul 2023" });
 
   await step(page, "IL 2023 list: one quarter row, the replaced month is gone", async () => {
     await page.goto("/admin/deposits?year=2023&jurisdiction=IL");
     await expect(quarterRow).toBeVisible();
-    await expect(quarterRow).toContainText("Nothing left to pay");
+    await expect(quarterRow).toContainText("Illinois (IL)");
+    // The 0.00 anchor row shows "Overpaid" INSTEAD OF "Nothing left to pay".
     await expect(quarterRow).toContainText("Overpaid");
+    await expect(quarterRow).not.toContainText("Nothing left to pay");
     await expect(quarterRow.getByRole("button", { name: "Mark as deposited" })).toHaveCount(0);
-    await expect(page.locator(".p-datatable-tbody tr", { hasText: "Jul 2023" })).toContainText(
-      "Deposited",
-    );
+    // One Overpaid chip per quarter: never next to the July "Deposited" chip.
+    await expect(julyRow).toContainText("Deposited");
+    await expect(julyRow).not.toContainText("Overpaid");
     // Period column only: the July row's due and deposit dates are in August.
     await expect(
       page.locator(".p-datatable-tbody tr td:first-child", { hasText: "Aug 2023" }),
@@ -491,14 +494,22 @@ test("journey 8: a state that moved to quarterly shows payments already made (PA
     await expect(page).toHaveURL(/\/admin\/deposits\/\d+/);
     const card = page.getByTestId("deposit-credits");
     await expect(
-      card.getByRole("heading", { name: "Payments already made for this quarter" }),
+      card.getByRole("heading", { name: "Payments already made for Q3 2023" }),
     ).toBeVisible();
     await expect(card).toContainText("July 2023 payment on");
-    await expect(card).toContainText("$100.00");
-    await expect(card).toContainText("Left to pay: $0.00");
-    await expect(card).toContainText("IL now takes one payment per quarter.");
+    await expect(card).toContainText("$100.00 — $0.00 counted here");
+    await expect(card).toContainText("Illinois now takes one payment per quarter.");
+    await expect(page.getByTestId("left-to-pay")).toContainText(
+      "Already paid: $0.00 · Left to pay: $0.00",
+    );
+    await expect(page.getByText("Total withholding for Q3 2023: $0.00")).toBeVisible();
     await expect(
-      page.getByText("You have paid $100.00 more than Q3 2023's withholding."),
+      page.getByText(
+        "Your recorded payments for Q3 2023 are $100.00 more than that quarter's withholding.",
+      ),
+    ).toBeVisible();
+    await expect(
+      page.getByText("Payments already recorded for Q3 2023 cover this amount."),
     ).toBeVisible();
     await expect(page.getByRole("button", { name: "Mark as deposited" })).toHaveCount(0);
   });

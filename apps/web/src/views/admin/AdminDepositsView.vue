@@ -21,6 +21,7 @@ import Message from "primevue/message";
 import PageHeader from "../../components/PageHeader.vue";
 import EmptyState from "../../components/EmptyState.vue";
 import StatusChip from "../../components/StatusChip.vue";
+import { jurisdictionLabel as sharedJurisdictionLabel } from "@payroll/shared";
 import { adminDepositsApi, type DepositAttachment, type TaxDepositRow } from "../../lib/api";
 import { useDates } from "../../composables/useDates";
 import { useMoney } from "../../composables/useMoney";
@@ -66,8 +67,9 @@ function periodLabel(periodStart: string, periodKind?: "month" | "quarter"): str
   return `${monthName(month)} ${periodStart.slice(0, 4)}`;
 }
 
+/** "California (CA)" / "Federal" — shared map (PAY-91 UX). */
 function jurisdictionLabel(jurisdiction: string): string {
-  return jurisdiction === "federal" ? "Federal" : jurisdiction;
+  return sharedJurisdictionLabel(jurisdiction);
 }
 
 /** Numeric Amount sort: API sends amount as a string; a fixed-width zero-padded
@@ -141,9 +143,15 @@ function isOverdue(row: TaxDepositRow): boolean {
   return row.status === "overdue" || (row.status === "pending" && row.dueDate < today);
 }
 
+/** UX: on the state-quarter's 0.00 anchor row, "Overpaid" replaces "Nothing left to pay". */
 function statusChip(row: TaxDepositRow): string {
-  if (nothingToPay(row)) return "nothing_to_pay";
+  if (nothingToPay(row)) return isOverpaid(row) ? "overpaid" : "nothing_to_pay";
   return isOverdue(row) ? "overdue" : row.status;
+}
+
+/** A second chip only when the anchor row is not a 0.00 row (a lone deposited quarter). */
+function extraOverpaidChip(row: TaxDepositRow): boolean {
+  return isOverpaid(row) && !nothingToPay(row);
 }
 
 function isOverpaid(row: TaxDepositRow): boolean {
@@ -337,7 +345,7 @@ onMounted(async () => {
     jurisdictionOptions.value = [
       { label: "All jurisdictions", value: SELECT_ALL },
       ...jurisdictions.map((j) => ({
-        label: j === "federal" ? "Federal" : j,
+        label: jurisdictionLabel(j),
         value: j,
       })),
     ];
@@ -348,7 +356,7 @@ onMounted(async () => {
       !jurisdictionOptions.value.some((o) => o.value === jurisdictionFilter.value)
     ) {
       jurisdictionOptions.value.push({
-        label: jurisdictionFilter.value === "federal" ? "Federal" : jurisdictionFilter.value,
+        label: jurisdictionLabel(jurisdictionFilter.value),
         value: jurisdictionFilter.value,
       });
     }
@@ -400,8 +408,11 @@ onMounted(async () => {
           <template #body="{ data }">
             <div class="chips">
               <StatusChip :status="statusChip(data)" />
-              <StatusChip v-if="isOverpaid(data)" status="overpaid" />
+              <StatusChip v-if="extraOverpaidChip(data)" status="overpaid" />
             </div>
+            <p v-if="data.paymentsUnavailable" class="muted small unavailable">
+              We couldn't work out payments for this period. Contact support.
+            </p>
           </template>
         </Column>
         <Column header="Deposited" style="width: 12rem" sortable sort-field="depositedOn">
@@ -566,7 +577,7 @@ onMounted(async () => {
     >
       <div v-if="confirmationTarget" class="stack">
         <p class="muted small">
-          {{ periodLabel(confirmationTarget.periodStart) }}
+          {{ periodLabel(confirmationTarget.periodStart, confirmationTarget.periodKind) }}
         </p>
         <div class="field">
           <label>Deposited on</label>
@@ -585,6 +596,9 @@ onMounted(async () => {
 </template>
 
 <style scoped>
+.unavailable {
+  margin: 0.25rem 0 0;
+}
 .chips {
   display: flex;
   flex-wrap: wrap;

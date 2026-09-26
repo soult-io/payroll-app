@@ -281,37 +281,62 @@ rows: the same amounts, and due dates on the 15th with a weekend roll. T20 and T
 liability: string;            // the unit's liability for this row's period (month or quarter)
 credits: { depositId: number; periodStart: string; periodKind: "month"|"quarter";
            depositedOn: string; amount: string; applied: string }[];   // deposited rows counted against this row; `amount` = the whole payment, `applied` = the part counted toward THIS row (≤ amount)
-overpaid: string;             // unit overpayment (D6); "0.00" normally
+overpaid: string;             // unit overpayment (D6); "0.00" normally; the note may use it on any row
+overpaidAnchor: boolean;      // true on the one row per state-quarter that carries the "Overpaid" chip
+paymentsUnavailable: boolean; // the unit's data could not be planned (data error); no credits/overpaid
 replacedBy: { id: number; periodStart: string; periodKind: "month"|"quarter" }[]; // superseded rows only
 ```
-For a live pending/overdue row: `amount = max(0, liability − Σ applied)`. The detail view's
-Breakdown total stays the liability; the header shows the amount left to pay.
+For a live pending/overdue row: `amount = max(0, liability − Σ applied)`.
 
-List view: a 0.00 live row shows the chip "Nothing left to pay" instead of Pending, and
-has no "Mark as deposited" action. A row with `overpaid > 0` shows an "Overpaid" chip.
+`GET /api/admin/tax-deposits` rows add `overpaid` (the unit's overpayment on its **anchor**
+row only, `"0.00"` on every other row) and `paymentsUnavailable`. The anchor is the unit's
+live row covering the latest month (a quarter row covers its third month); on a tie an open
+row beats a deposited one, then a quarter row, then the newest id. A unit whose data cannot be
+planned never fails the list or the detail: its rows come back with `paymentsUnavailable: true`.
+
+**Chips (list and detail header).** A live 0.00 row shows "Nothing left to pay" instead of
+Pending and has no "Mark as deposited" action. One "Overpaid" chip per state-quarter, on the
+anchor row; on a 0.00 anchor row "Overpaid" replaces "Nothing left to pay". It never sits next
+to "Deposited" while another row of that quarter is present.
+
+**Names.** Prose, banners, notes and emails use the state name ("California") from the one
+shared `stateName(code)` map in `@payroll/shared`. The list's Jurisdiction column and filter
+read "California (CA)" (`jurisdictionLabel`).
 
 Calendar (`calendar/service.ts`): state rows are labelled `"{STATE} deposit due — {label}"`
 and `"{STATE} deposit made — {label}"`, with `{label}` built from `period_kind` (`Q3 2026` or
-`July 2026`). Federal keeps `941 deposit due — …`. Today state rows are wrongly labelled
-"941".
+`July 2026`). Federal keeps `941 deposit due — …`. The calendar legend reads "Tax deposit due"
+/ "Tax deposit made". (UX asked for state names in calendar labels; the auditor's T26 fixes
+`"CA deposit due — Q3 2026"`, so the code stays until the auditor changes T26.)
 
-**Copy for `product-ux-designer`** (customer-facing, plain and friendly; the designer owns
-the final wording; no tax advice):
-1. Credited payments card title: "Payments already made for this quarter"
-2. Card line: "{Month Year} payment on {date}: {amount}"; footer "Left to pay: {amount}"
-3. Note, Case B: "{State} now takes one payment per quarter. Check with {State} that your
-   monthly payments were applied to {Q3 2026}."
-4. Overpaid chip: "Overpaid"; note: "You have paid {amount} more than {period}'s
-   withholding. Ask {State} how they want to handle the extra amount."
-5. Zero row chip: "Nothing left to pay"
-6. Superseded row banner, to quarterly: "Replaced. {State} changed to quarterly payments,
-   so this month is now part of the {Q3 2026} deposit." Link: "View {Q3 2026} deposit"
-7. Superseded row banner, to monthly: "Replaced. {State} changed to monthly payments, so
-   this quarter is now split into monthly deposits."
-8. Month row credited by a quarter payment (Case C): "Counted toward this month: {amount}."
-   Note, Case C: "{State} now takes monthly payments. Check with {State} how your {Q3 2026}
-   payment was applied to each month."
-9. 409 on marking a superseded or 0.00 row: "This deposit has nothing left to record."
+**Copy (final, product-ux-designer fix round 1; plain, no tax advice).** `{State}` = state
+name, `{Q}` = the row's quarter ("Q3 2026"), `{period}` = the row's period ("July 2026" or
+"Q3 2026").
+1. Credits card title: "Payments already made for {Q}"
+2. Card line: "{period of payment} payment on {date}: {amount}", plus " — {applied} counted
+   here" when applied ≠ amount.
+3. Breakdown footer (state rows): "Total withholding for {period}: {liability}". With credits,
+   a second line: "Already paid: {Σ applied} · Left to pay: {amount}". Federal keeps "Total:".
+4. Note, Case B (quarter row): "{State} now takes one payment per quarter. Check with {State}
+   that your monthly payments were applied to {Q}."
+5. Month row credited by a quarter payment (Case C): "Counted toward this month: {Σ applied}."
+   Note: "{State} now takes monthly payments. Check with {State} how your {Q} payment was
+   applied to each month."
+6. Overpaid chip: "Overpaid". Note: "Your recorded payments for {Q} are {overpaid} more than
+   that quarter's withholding. Ask {State} how they want to handle the extra amount."
+7. Zero row chip: "Nothing left to pay". Detail line: with credits, "Payments already recorded
+   for {period} cover this amount."; without, "The issued payroll runs for this period add up
+   to {liability}."
+8. Superseded row: the EFTPS reference card is hidden; the header subtitle is "Replaced ·
+   nothing to pay here". Banner, to quarterly: "Replaced — nothing to pay on this page.
+   {State} changed to quarterly payments, so this month is now part of the {Q} deposit."
+   Link: "View {Q} deposit". Banner, to monthly: "Replaced — nothing to pay on this page.
+   {State} changed to monthly payments, so this quarter is now split into monthly deposits."
+   Link: "View {State} deposits for {Q}" → deposits list `?jurisdiction={CODE}&year={YYYY}`.
+9. Data error (`paymentsUnavailable`): "We couldn't work out payments for this period.
+   Contact support."
+10. 409 on marking a superseded or 0.00 row: "This deposit has nothing left to record."
+11. The list's mark-deposited and confirmation dialogs label a quarter row as a quarter.
 
 ## 8. Scenario test matrix (GUARDRAILS "Scenario coverage", classes a–g)
 
