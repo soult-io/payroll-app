@@ -44,6 +44,7 @@ import {
 } from "../filings/service.js";
 import { annualDueDate, w2AvailableOn } from "../filings/annual.js";
 import { liveDeposit } from "../deposits/service.js";
+import { periodLabel as depositPeriodLabel } from "../deposits/periods.js";
 import { interpolateDescription, invoiceDateFor } from "../contractors/recurring.js";
 
 export type CalendarEventKind =
@@ -247,6 +248,22 @@ async function contractorEvents(db: Db, year: number, month: number): Promise<Ca
   return events;
 }
 
+/**
+ * Spec 23 §7: federal rows keep "941 deposit due — August 2026"; state rows
+ * read "CA deposit due — Q3 2026" / "IL deposit due — July 2026", the label
+ * built from the stored period_kind.
+ */
+function depositLabel(
+  deposit: { jurisdiction: string; periodStart: string; periodKind: string },
+  what: "due" | "made",
+): string {
+  if (deposit.jurisdiction === "federal") {
+    return `941 deposit ${what} — ${periodLabel(deposit.periodStart)}`;
+  }
+  const kind = deposit.periodKind === "quarter" ? "quarter" : "month";
+  return `${deposit.jurisdiction} deposit ${what} — ${depositPeriodLabel(deposit.periodStart, kind)}`;
+}
+
 /** Deposit obligations (due_date) and actuals (deposited_on) in the month. */
 async function depositEvents(
   db: Db,
@@ -263,7 +280,7 @@ async function depositEvents(
     events.push({
       date: deposit.dueDate,
       kind: "deposit_due",
-      label: `941 deposit due — ${periodLabel(deposit.periodStart)}`,
+      label: depositLabel(deposit, "due"),
       detail: `$${deposit.amount} · ${deposit.status}`,
       link: { name: "admin-deposit-detail", params: { id: deposit.id } },
     });
@@ -283,7 +300,7 @@ async function depositEvents(
     events.push({
       date: deposit.depositedOn,
       kind: "deposit_made",
-      label: `941 deposit made — ${periodLabel(deposit.periodStart)}`,
+      label: depositLabel(deposit, "made"),
       detail: deposit.eftpsConfirmation ? `EFTPS ${deposit.eftpsConfirmation}` : undefined,
       link: { name: "admin-deposit-detail", params: { id: deposit.id } },
     });

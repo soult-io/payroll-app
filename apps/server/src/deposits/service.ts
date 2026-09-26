@@ -55,7 +55,12 @@ import {
   type PeriodKind,
   type StateSchedule,
 } from "./periods.js";
-import { planStateQuarter, type LiveDepositRow, type QuarterPlan } from "./transition.js";
+import {
+  planStateQuarter,
+  type DepositCredit,
+  type LiveDepositRow,
+  type QuarterPlan,
+} from "./transition.js";
 
 export {
   dueDateFor,
@@ -87,10 +92,38 @@ export function withPeriodKind(row: TaxDepositRow): TaxDepositWithPeriodKind {
 }
 
 /** PAY-36 — detail payload for GET /api/admin/tax-deposits/:id. */
-export interface DepositDetailRow {
+interface DepositDetailBase {
   deposit: TaxDepositWithPeriodKind;
   breakdown: { category: string; amount: string }[];
   runs: { publicId: string; payDate: string; employeeName: string; amount: string }[];
+}
+
+/** A deposited row counted against this row's period (spec 23 §7). */
+export interface DepositCreditRow {
+  depositId: number;
+  periodStart: string;
+  periodKind: PeriodKind;
+  depositedOn: string;
+  /** The whole payment. */
+  amount: string;
+  /** The part of the payment counted toward THIS row (≤ amount). */
+  applied: string;
+}
+
+/** PAY-36 detail + PAY-91 transition fields. All money as "0.00" strings. */
+export interface DepositDetailRow extends DepositDetailBase {
+  /** The unit's liability for this row's period (month or quarter). */
+  liability: string;
+  credits: DepositCreditRow[];
+  /** Unit overpayment (D6); "0.00" normally. */
+  overpaid: string;
+  /** Superseded rows only: the live rows that replaced it. */
+  replacedBy: { id: number; periodStart: string; periodKind: PeriodKind }[];
+}
+
+/** Live tax deposit row as listed (spec 23 §7: `overpaid` drives the list chip). */
+export interface TaxDepositListRow extends TaxDepositWithPeriodKind {
+  overpaid: string;
 }
 
 export class DepositServiceError extends Error {
@@ -334,7 +367,7 @@ function toLiveRow(row: TaxDepositRow): LiveDepositRow {
  * snapshot. Exact NUMERIC sums, parsed to cents.
  */
 async function loadStateLiability(
-  db: Tx,
+  db: Pick<Db, "select">,
   filter?: { state: string; year: number; quarter: number },
 ): Promise<{ state: string; month: string; cents: number }[]> {
   const workState = sql<string>`(${payrollRuns.runSnapshot}#>>'{inputs,state,workState}')`;
@@ -376,7 +409,7 @@ function unitFor(units: Map<string, StateUnit>, state: string, periodStart: stri
 
 /** Units = DISTINCT (state, year, quarter) of issued state runs ∪ live state rows. */
 async function loadStateUnits(
-  db: Tx,
+  db: Pick<Db, "select">,
   filter?: { state: string; year: number; quarter: number },
 ): Promise<StateUnit[]> {
   const units = new Map<string, StateUnit>();
@@ -555,7 +588,7 @@ export async function listDeposits(
     status?: "pending" | "deposited" | "overdue" | undefined;
     jurisdiction?: string | undefined;
   } = {},
-): Promise<TaxDepositWithPeriodKind[]> {
+): Promise<TaxDepositListRow[]> {
   const conditions: SQLWrapper[] = [liveDeposit];
   if (filter.year) {
     conditions.push(sql`${taxDeposits.periodStart} >= ${`${filter.year}-01-01`}`);
@@ -568,7 +601,29 @@ export async function listDeposits(
     .from(taxDeposits)
     .where(and(...conditions))
     .orderBy(desc(taxDeposits.periodStart), desc(taxDeposits.id));
-  return rows.map(withPeriodKind);
+  const overpaid = rows.some((r) => r.jurisdiction !== "federal")
+    ? await unitOverpayments(db)
+    : new Map<string, number>();
+  return rows.map((row) => {
+    const unit = unitKey(
+      row.jurisdiction,
+      Number(row.periodStart.slice(0, 4)),
+      quarterOfMonth(Number(row.periodStart.slice(5, 7))),
+    );
+    return { ...withPeriodKind(row), overpaid: formatCents(overpaid.get(unit) ?? 0) };
+  });
+}
+
+/** Overpayment (D6) per state unit, from the planner run read-only. */
+async function unitOverpayments(db: Db): Promise<Map<string, number>> {
+  const schedules = await loadStateSchedules(db);
+  const today = todayIso();
+  const out = new Map<string, number>();
+  for (const unit of await loadStateUnits(db)) {
+    const cents = planUnit(unit, schedules, today).overpaidCents;
+    if (cents > 0) out.set(unitKey(unit.state, unit.year, unit.quarter), cents);
+  }
+  return out;
 }
 
 export interface MarkDepositedInput {
@@ -746,7 +801,7 @@ async function getFederalOrMonthlyDepositDetail(
   db: Db,
   deposit: TaxDepositRow,
   periodStart: string,
-): Promise<DepositDetailRow> {
+): Promise<DepositDetailBase> {
   let sqlCategoryFilter: SQLWrapper;
 
   if (deposit.jurisdiction === "federal") {
@@ -779,7 +834,7 @@ async function getFederalOrMonthlyDepositDetail(
     )
     .groupBy(payrollEntries.category);
 
-  const breakdown: DepositDetailRow["breakdown"] = [];
+  const breakdown: DepositDetailBase["breakdown"] = [];
   if (deposit.jurisdiction === "federal") {
     for (const category of DEPOSIT_CATEGORIES) {
       const row = breakdownRows.find((r) => r.category === category);
@@ -845,7 +900,7 @@ async function getQuarterlyDepositDetail(
   db: Db,
   deposit: TaxDepositWithPeriodKind,
   periodStart: string,
-): Promise<DepositDetailRow> {
+): Promise<DepositDetailBase> {
   const year = Number(periodStart.slice(0, 4));
   const quarter = quarterOfMonth(Number(periodStart.slice(5, 7)));
   const firstMonth = (quarter - 1) * 3 + 1;
@@ -871,7 +926,7 @@ async function getQuarterlyDepositDetail(
     )
     .groupBy(payrollEntries.category);
 
-  const breakdown: DepositDetailRow["breakdown"] = [];
+  const breakdown: DepositDetailBase["breakdown"] = [];
   const row = breakdownRows.find((r) => r.category === "state_withholding");
   breakdown.push({
     category: "state_withholding",
@@ -924,8 +979,66 @@ export async function getDepositDetail(db: Db, id: number): Promise<DepositDetai
   // Spec 23 §5: the kind is the stored column, never today's schedule. A
   // superseded row is still returned (audit).
   const withKind = withPeriodKind(deposit);
-  if (withKind.periodKind === "quarter") {
-    return getQuarterlyDepositDetail(db, withKind, deposit.periodStart);
+  const base =
+    withKind.periodKind === "quarter"
+      ? await getQuarterlyDepositDetail(db, withKind, deposit.periodStart)
+      : await getFederalOrMonthlyDepositDetail(db, deposit, deposit.periodStart);
+  return { ...base, ...(await transitionDetail(db, withKind)) };
+}
+
+function toCreditRow(c: DepositCredit): DepositCreditRow {
+  return {
+    depositId: c.depositId,
+    periodStart: c.periodStart,
+    periodKind: c.periodKind,
+    depositedOn: c.depositedOn ?? "",
+    amount: formatCents(c.amountCents),
+    applied: formatCents(c.appliedCents),
+  };
+}
+
+/**
+ * Spec 23 §7: liability, credits, overpayment and replacement for one row,
+ * derived by the same pure planner the sync uses (read-only here), so the
+ * sync and the API can never disagree.
+ */
+async function transitionDetail(
+  db: Db,
+  deposit: TaxDepositWithPeriodKind,
+): Promise<Pick<DepositDetailRow, "liability" | "credits" | "overpaid" | "replacedBy">> {
+  const year = Number(deposit.periodStart.slice(0, 4));
+  const month = Number(deposit.periodStart.slice(5, 7));
+  if (deposit.jurisdiction === "federal") {
+    return {
+      liability: await computeDepositAmount(db, year, month),
+      credits: [],
+      overpaid: "0.00",
+      replacedBy: [],
+    };
   }
-  return getFederalOrMonthlyDepositDetail(db, deposit, deposit.periodStart);
+  const quarter = quarterOfMonth(month);
+  const filter = { state: deposit.jurisdiction, year, quarter };
+  const unit = (await loadStateUnits(db, filter))[0] ?? {
+    ...filter,
+    liability: [0, 0, 0] as [number, number, number],
+    live: [],
+  };
+  const plan = planUnit(unit, await loadStateSchedules(db), todayIso());
+  const m = (month - 1) % 3;
+  const isQuarter = deposit.periodKind === "quarter";
+  const credits = (isQuarter ? plan.quarterCredits : (plan.monthCredits[m] ?? []))
+    .filter((c) => c.depositId !== deposit.id)
+    .map(toCreditRow);
+  const replacedBy =
+    deposit.status === "superseded"
+      ? unit.live
+          .filter((r) => r.kind !== deposit.periodKind)
+          .map((r) => ({ id: r.id, periodStart: r.periodStart, periodKind: r.kind }))
+      : [];
+  return {
+    liability: formatCents(isQuarter ? plan.liabilityCents : (unit.liability[m] ?? 0)),
+    credits,
+    overpaid: formatCents(plan.overpaidCents),
+    replacedBy,
+  };
 }

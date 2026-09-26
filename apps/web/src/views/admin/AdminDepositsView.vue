@@ -130,8 +130,24 @@ async function load() {
 watch([statusFilter, yearFilter, jurisdictionFilter], load);
 
 const today = new Date().toISOString().slice(0, 10);
+
+/** PAY-91: a 0.00 row (monthly payments already cover it, or runs voided). */
+function nothingToPay(row: TaxDepositRow): boolean {
+  return row.status !== "deposited" && /^0+(\.0+)?$/.test(row.amount);
+}
+
 function isOverdue(row: TaxDepositRow): boolean {
+  if (nothingToPay(row)) return false;
   return row.status === "overdue" || (row.status === "pending" && row.dueDate < today);
+}
+
+function statusChip(row: TaxDepositRow): string {
+  if (nothingToPay(row)) return "nothing_to_pay";
+  return isOverdue(row) ? "overdue" : row.status;
+}
+
+function isOverpaid(row: TaxDepositRow): boolean {
+  return !!row.overpaid && !/^0+(\.0+)?$/.test(row.overpaid);
 }
 
 function rowClass(row: TaxDepositRow): string {
@@ -380,9 +396,12 @@ onMounted(async () => {
             <span :class="{ 'overdue-text': isOverdue(data) }" style="white-space: nowrap">{{ date(data.dueDate) }}</span>
           </template>
         </Column>
-        <Column field="status" header="Status" style="width: 8rem" sortable>
+        <Column field="status" header="Status" style="width: 11rem" sortable>
           <template #body="{ data }">
-            <StatusChip :status="isOverdue(data) ? 'overdue' : data.status" />
+            <div class="chips">
+              <StatusChip :status="statusChip(data)" />
+              <StatusChip v-if="isOverpaid(data)" status="overpaid" />
+            </div>
           </template>
         </Column>
         <Column header="Deposited" style="width: 12rem" sortable sort-field="depositedOn">
@@ -396,7 +415,7 @@ onMounted(async () => {
         <Column header="Actions" style="width: 16rem">
           <template #body="{ data }">
             <Button
-              v-if="data.status !== 'deposited'"
+              v-if="data.status !== 'deposited' && !nothingToPay(data)"
               label="Mark as deposited"
               size="small"
               text
@@ -566,6 +585,11 @@ onMounted(async () => {
 </template>
 
 <style scoped>
+.chips {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.25rem;
+}
 .row-overdue {
   background: var(--p-red-50, #fef2f2);
 }

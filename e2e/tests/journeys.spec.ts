@@ -459,3 +459,49 @@ test("journey 7: deposit detail view (PAY-36/PAY-37/PAY-38)", async ({ browser }
 
   await ctx.close();
 });
+
+test("journey 8: a state that moved to quarterly shows payments already made (PAY-91)", async ({
+  browser,
+}) => {
+  // e2e:serve seeds IL 2023 monthly rows (July deposited, August open), then a
+  // synthetic IL-2023 quarterly schedule, then syncs: August is replaced by one
+  // Q3 2023 row. No 2023 runs exist, so nothing is left to pay and the July
+  // payment is an overpayment.
+  const ctx = await newContext(browser, { storageState: ADMIN_SESSION });
+  const page = await ctx.newPage();
+  const quarterRow = page.locator(".p-datatable-tbody tr", { hasText: "Q3 2023" });
+
+  await step(page, "IL 2023 list: one quarter row, the replaced month is gone", async () => {
+    await page.goto("/admin/deposits?year=2023&jurisdiction=IL");
+    await expect(quarterRow).toBeVisible();
+    await expect(quarterRow).toContainText("Nothing left to pay");
+    await expect(quarterRow).toContainText("Overpaid");
+    await expect(quarterRow.getByRole("button", { name: "Mark as deposited" })).toHaveCount(0);
+    await expect(page.locator(".p-datatable-tbody tr", { hasText: "Jul 2023" })).toContainText(
+      "Deposited",
+    );
+    // Period column only: the July row's due and deposit dates are in August.
+    await expect(
+      page.locator(".p-datatable-tbody tr td:first-child", { hasText: "Aug 2023" }),
+    ).toHaveCount(0);
+  });
+
+  await step(page, "Quarter detail lists the July payment and the overpayment", async () => {
+    await quarterRow.click();
+    await expect(page).toHaveURL(/\/admin\/deposits\/\d+/);
+    const card = page.getByTestId("deposit-credits");
+    await expect(
+      card.getByRole("heading", { name: "Payments already made for this quarter" }),
+    ).toBeVisible();
+    await expect(card).toContainText("July 2023 payment on");
+    await expect(card).toContainText("$100.00");
+    await expect(card).toContainText("Left to pay: $0.00");
+    await expect(card).toContainText("IL now takes one payment per quarter.");
+    await expect(
+      page.getByText("You have paid $100.00 more than Q3 2023's withholding."),
+    ).toBeVisible();
+    await expect(page.getByRole("button", { name: "Mark as deposited" })).toHaveCount(0);
+  });
+
+  await ctx.close();
+});
