@@ -105,22 +105,66 @@ describe("pay-91-revert.sql", () => {
     ]);
   });
 
-  it("T07 end: restores the superseded quarter row next to the month rows (pre-fix shape)", async () => {
+  it("T07 end (Case C month rows): aborts, changing nothing", async () => {
     await threeRuns();
     await schedule("quarterly", null);
     await syncDeposits({ db: t.db, config: t.config }, { today: "2026-09-20" });
     await schedule("monthly", 15);
     await syncDeposits({ db: t.db, config: t.config }, { today: "2026-10-05" });
-    expect(await caRows()).toEqual([
+    const before = await caRows();
+    expect(before).toEqual([
       "month 2026-07-01 123.45 open",
       "quarter 2026-07-01 376.90 superseded sup_at",
       "month 2026-08-01 123.45 open",
       "month 2026-09-01 130.00 open",
     ]);
+    await expect(t.pglite.exec(REVERT)).rejects.toThrow(/month rows replaced a quarter row/);
+    await t.pglite.exec("ROLLBACK").catch(() => undefined);
+    expect(await caRows()).toEqual(before);
+  });
+
+  it("T33 shape (quarterly, monthly, quarterly again): month rows back, every quarter row gone", async () => {
+    await threeRuns();
+    await t.pglite.query(
+      `INSERT INTO tax_deposits (jurisdiction, period_start, amount, due_date, status, deposited_on, eftps_confirmation, created_by, created_at)
+       VALUES ('CA','2026-07-01','123.45','2026-08-17','deposited','2026-08-14','SYN-0001','scheduler', now() - interval '1 day'),
+              ('CA','2026-08-01','123.45','2026-09-15','overdue',NULL,NULL,'scheduler', now() - interval '1 day'),
+              ('CA','2026-09-01','130.00','2026-10-15','pending',NULL,NULL,'scheduler', now() - interval '1 day')`,
+    );
+    const deps = { db: t.db, config: t.config };
+    await schedule("quarterly", null);
+    await syncDeposits(deps, { today: "2026-10-01" });
+    await schedule("monthly", 15);
+    await syncDeposits(deps, { today: "2026-10-05" });
+    await schedule("quarterly", null);
+    await syncDeposits(deps, { today: "2026-10-06" });
     await t.pglite.exec(REVERT);
     const after = await caRows();
-    expect(after).toContain("quarter 2026-07-01 376.90 open");
-    expect(after.filter((s) => s.includes("superseded"))).toEqual([]);
+    expect(after.filter((r) => !r.includes("superseded"))).toEqual([
+      "month 2026-07-01 123.45 deposited",
+      "month 2026-08-01 123.45 open",
+      "month 2026-09-01 130.00 open",
+    ]);
+    expect(after.filter((r) => r.startsWith("quarter"))).toEqual([]);
+  });
+
+  it("aborts, changing nothing, when a quarter row to delete has an attachment", async () => {
+    await threeRuns();
+    await schedule("quarterly", null);
+    await syncDeposits({ db: t.db, config: t.config }, { today: "2026-10-01" });
+    await t.pglite.exec(
+      `INSERT INTO deposit_attachments (deposit_id, filename, size_bytes, data, uploaded_by)
+       SELECT id, 'x.pdf', 1, '\\x00'::bytea, 'synthetic' FROM tax_deposits WHERE period_kind = 'quarter'`,
+    );
+    const before = await caRows();
+    await expect(t.pglite.exec(REVERT)).rejects.toThrow(/quarter row to delete has an attachment/);
+    await t.pglite.exec("ROLLBACK").catch(() => undefined);
+    expect(await caRows()).toEqual(before);
+  });
+
+  it("takes an EXCLUSIVE lock and says the app must be stopped", () => {
+    expect(REVERT).toMatch(/BEGIN;\s+LOCK TABLE tax_deposits IN EXCLUSIVE MODE;/);
+    expect(REVERT).toMatch(/STOP THE APP FIRST/);
   });
 
   it("aborts, changing nothing, when a quarter row is deposited", async () => {
