@@ -36,10 +36,11 @@ import {
   stateDepositSchedules,
   taxDeposits,
 } from "@payroll/db";
-import { formatCents, formatMoney, parseCents } from "@payroll/shared";
+import { formatCents, formatMoney, parseCents, stateName } from "@payroll/shared";
 import {
   EVENT_TYPE,
   taxDepositDue as tplTaxDepositDue,
+  taxDepositSyncFailed as tplTaxDepositSyncFailed,
   type TemplateContext,
 } from "@payroll/notifications";
 import type { Db } from "../db.js";
@@ -56,6 +57,7 @@ import {
   type StateSchedule,
 } from "./periods.js";
 import {
+  PlanInputError,
   planStateQuarter,
   type DepositCredit,
   type LiveDepositRow,
@@ -115,15 +117,22 @@ export interface DepositDetailRow extends DepositDetailBase {
   /** The unit's liability for this row's period (month or quarter). */
   liability: string;
   credits: DepositCreditRow[];
-  /** Unit overpayment (D6); "0.00" normally. */
+  /** Unit overpayment (D6); "0.00" normally. The explanatory note may use it on any row. */
   overpaid: string;
+  /** True on the one row per state-quarter that carries the "Overpaid" chip. */
+  overpaidAnchor: boolean;
+  /** True when the period's payments could not be worked out (data error). */
+  paymentsUnavailable: boolean;
   /** Superseded rows only: the live rows that replaced it. */
   replacedBy: { id: number; periodStart: string; periodKind: PeriodKind }[];
 }
 
 /** Live tax deposit row as listed (spec 23 §7: `overpaid` drives the list chip). */
 export interface TaxDepositListRow extends TaxDepositWithPeriodKind {
+  /** The state-quarter's overpayment — on its latest-period (anchor) row only; else "0.00". */
   overpaid: string;
+  /** True when the period's payments could not be worked out (data error). */
+  paymentsUnavailable: boolean;
 }
 
 export class DepositServiceError extends Error {
@@ -286,6 +295,8 @@ export interface SyncResult {
   flippedOverdue: number;
   /** PAY-91: rows replaced by a monthly <-> quarterly period transition. */
   superseded: number;
+  /** PAY-91: state units skipped because their data could not be planned. */
+  failedUnits: number;
 }
 
 type Tx = Parameters<Parameters<Db["transaction"]>[0]>[0];
@@ -537,7 +548,14 @@ const SYNC_LOCK = sql`SELECT pg_advisory_xact_lock(hashtext('tax_deposits_state_
 export async function syncDeposits(deps: Deps, opts: { today?: string } = {}): Promise<SyncResult> {
   const { db } = deps;
   const today = opts.today ?? todayIso();
-  const result: SyncResult = { created: 0, recomputed: 0, flippedOverdue: 0, superseded: 0 };
+  const result: SyncResult = {
+    created: 0,
+    recomputed: 0,
+    flippedOverdue: 0,
+    superseded: 0,
+    failedUnits: 0,
+  };
+  const failed: FailedUnit[] = [];
 
   await db.transaction(async (tx) => {
     // The federal loop shares the lock: two concurrent syncs would otherwise
@@ -556,7 +574,20 @@ export async function syncDeposits(deps: Deps, opts: { today?: string } = {}): P
 
     const schedules = await loadStateSchedules(tx);
     for (const unit of await loadStateUnits(tx)) {
-      await applyPlan(tx, unit, planUnit(unit, schedules, today), result);
+      // One bad unit never stops the federal rows or the other units: each
+      // unit runs in its own savepoint and is skipped (and reported) on error.
+      const unitResult: SyncResult = { ...EMPTY_RESULT };
+      try {
+        await tx.transaction(async (sp) => {
+          await applyPlan(sp, unit, planUnit(unit, schedules, today), unitResult);
+        });
+      } catch (err) {
+        failed.push({ unit, code: failureCode(err) });
+        continue;
+      }
+      result.created += unitResult.created;
+      result.recomputed += unitResult.recomputed;
+      result.superseded += unitResult.superseded;
     }
 
     const flipped = await tx
@@ -573,7 +604,79 @@ export async function syncDeposits(deps: Deps, opts: { today?: string } = {}): P
     result.flippedOverdue = flipped.length;
   });
 
+  result.failedUnits = failed.length;
+  for (const f of failed) await reportFailedUnit(deps, f, today);
   return result;
+}
+
+const EMPTY_RESULT: SyncResult = {
+  created: 0,
+  recomputed: 0,
+  flippedOverdue: 0,
+  superseded: 0,
+  failedUnits: 0,
+};
+
+interface FailedUnit {
+  unit: StateUnit;
+  /** Safe to log: no amounts, no PII. */
+  code: string;
+}
+
+function failureCode(err: unknown): string {
+  if (err instanceof PlanInputError) return err.code;
+  return "unexpected_error";
+}
+
+function unitLabel(unit: { state: string; year: number; quarter: number }): string {
+  return `${unit.state}:${unit.year}-Q${unit.quarter}`;
+}
+
+/**
+ * A skipped state unit (spec 23, fix round 1): log it (jurisdiction + quarter
+ * + error code only), and once per unit per day record an audit event and
+ * mail every admin through the outbox.
+ */
+async function reportFailedUnit(deps: Deps, f: FailedUnit, today: string): Promise<void> {
+  const { db, config } = deps;
+  const entityId = unitLabel(f.unit);
+  console.warn(`[deposits] state unit ${entityId} skipped (${f.code})`);
+  const seen = await db
+    .select({ id: auditEvents.id })
+    .from(auditEvents)
+    .where(
+      and(
+        eq(auditEvents.action, "tax_deposit.sync_failed"),
+        eq(auditEvents.entityId, entityId),
+        sql`${auditEvents.after}->>'day' = ${today}`,
+      ),
+    )
+    .limit(1);
+  if (seen.length > 0) return;
+  const ctx = await templateContext(db, config);
+  const admins = await adminUserIds(db);
+  const rendered = tplTaxDepositSyncFailed(ctx, {
+    jurisdictionLabel: stateName(f.unit.state),
+    periodLabel: `Q${f.unit.quarter} ${f.unit.year}`,
+  });
+  await db.transaction(async (tx) => {
+    await tx.insert(auditEvents).values({
+      actorId: "scheduler",
+      action: "tax_deposit.sync_failed",
+      entity: "tax_deposit",
+      entityId,
+      before: null,
+      after: { day: today, code: f.code },
+    });
+    for (const userId of admins) {
+      await tx.insert(emailOutbox).values({
+        userId,
+        eventType: EVENT_TYPE.taxDepositSyncFailed,
+        subject: rendered.subject,
+        bodyHtml: `${rendered.html}<!-- deposit-sync-failed:${entityId}:${today} -->`,
+      });
+    }
+  });
 }
 
 // ---------------------------------------------------------------------------
@@ -601,27 +704,46 @@ export async function listDeposits(
     .from(taxDeposits)
     .where(and(...conditions))
     .orderBy(desc(taxDeposits.periodStart), desc(taxDeposits.id));
-  const overpaid = rows.some((r) => r.jurisdiction !== "federal")
+  const units = rows.some((r) => r.jurisdiction !== "federal")
     ? await unitOverpayments(db)
-    : new Map<string, number>();
+    : new Map<string, UnitOverpayment>();
   return rows.map((row) => {
-    const unit = unitKey(
-      row.jurisdiction,
-      Number(row.periodStart.slice(0, 4)),
-      quarterOfMonth(Number(row.periodStart.slice(5, 7))),
+    const unit = units.get(
+      unitKey(
+        row.jurisdiction,
+        Number(row.periodStart.slice(0, 4)),
+        quarterOfMonth(Number(row.periodStart.slice(5, 7))),
+      ),
     );
-    return { ...withPeriodKind(row), overpaid: formatCents(overpaid.get(unit) ?? 0) };
+    const anchored = unit?.anchorId === row.id;
+    return {
+      ...withPeriodKind(row),
+      overpaid: formatCents(anchored ? (unit?.cents ?? 0) : 0),
+      paymentsUnavailable: unit?.failed ?? false,
+    };
   });
 }
 
-/** Overpayment (D6) per state unit, from the planner run read-only. */
-async function unitOverpayments(db: Db): Promise<Map<string, number>> {
+type UnitOverpayment =
+  | { failed: false; cents: number; anchorId: number | null }
+  | { failed: true; cents: 0; anchorId: null };
+
+/**
+ * Overpayment (D6) and its anchor row per state unit, from the planner run
+ * read-only. A unit whose data cannot be planned is flagged, never a 500.
+ */
+async function unitOverpayments(db: Db): Promise<Map<string, UnitOverpayment>> {
   const schedules = await loadStateSchedules(db);
   const today = todayIso();
-  const out = new Map<string, number>();
+  const out = new Map<string, UnitOverpayment>();
   for (const unit of await loadStateUnits(db)) {
-    const cents = planUnit(unit, schedules, today).overpaidCents;
-    if (cents > 0) out.set(unitKey(unit.state, unit.year, unit.quarter), cents);
+    const key = unitKey(unit.state, unit.year, unit.quarter);
+    try {
+      const plan = planUnit(unit, schedules, today);
+      out.set(key, { failed: false, cents: plan.overpaidCents, anchorId: plan.overpaidAnchorId });
+    } catch {
+      out.set(key, { failed: true, cents: 0, anchorId: null });
+    }
   }
   return out;
 }
@@ -983,7 +1105,8 @@ export async function getDepositDetail(db: Db, id: number): Promise<DepositDetai
     withKind.periodKind === "quarter"
       ? await getQuarterlyDepositDetail(db, withKind, deposit.periodStart)
       : await getFederalOrMonthlyDepositDetail(db, deposit, deposit.periodStart);
-  return { ...base, ...(await transitionDetail(db, withKind)) };
+  const total = base.breakdown.reduce((a, b) => a + parseCents(b.amount), 0);
+  return { ...base, ...(await transitionDetail(db, withKind, formatCents(total))) };
 }
 
 function toCreditRow(c: DepositCredit): DepositCreditRow {
@@ -1005,15 +1128,21 @@ function toCreditRow(c: DepositCredit): DepositCreditRow {
 async function transitionDetail(
   db: Db,
   deposit: TaxDepositWithPeriodKind,
-): Promise<Pick<DepositDetailRow, "liability" | "credits" | "overpaid" | "replacedBy">> {
+  breakdownTotal: string,
+): Promise<
+  Pick<
+    DepositDetailRow,
+    "liability" | "credits" | "overpaid" | "overpaidAnchor" | "paymentsUnavailable" | "replacedBy"
+  >
+> {
   const year = Number(deposit.periodStart.slice(0, 4));
   const month = Number(deposit.periodStart.slice(5, 7));
+  const none = { credits: [], overpaid: "0.00", overpaidAnchor: false, replacedBy: [] };
   if (deposit.jurisdiction === "federal") {
     return {
+      ...none,
       liability: await computeDepositAmount(db, year, month),
-      credits: [],
-      overpaid: "0.00",
-      replacedBy: [],
+      paymentsUnavailable: false,
     };
   }
   const quarter = quarterOfMonth(month);
@@ -1023,22 +1152,30 @@ async function transitionDetail(
     liability: [0, 0, 0] as [number, number, number],
     live: [],
   };
-  const plan = planUnit(unit, await loadStateSchedules(db), todayIso());
-  const m = (month - 1) % 3;
-  const isQuarter = deposit.periodKind === "quarter";
-  const credits = (isQuarter ? plan.quarterCredits : (plan.monthCredits[m] ?? []))
-    .filter((c) => c.depositId !== deposit.id)
-    .map(toCreditRow);
   const replacedBy =
     deposit.status === "superseded"
       ? unit.live
           .filter((r) => r.kind !== deposit.periodKind)
           .map((r) => ({ id: r.id, periodStart: r.periodStart, periodKind: r.kind }))
       : [];
+  let plan: QuarterPlan;
+  try {
+    plan = planUnit(unit, await loadStateSchedules(db), todayIso());
+  } catch {
+    // Data error in this period: show the row, without the payment figures.
+    return { ...none, liability: breakdownTotal, paymentsUnavailable: true, replacedBy };
+  }
+  const m = (month - 1) % 3;
+  const isQuarter = deposit.periodKind === "quarter";
+  const credits = (isQuarter ? plan.quarterCredits : (plan.monthCredits[m] ?? []))
+    .filter((c) => c.depositId !== deposit.id)
+    .map(toCreditRow);
   return {
     liability: formatCents(isQuarter ? plan.liabilityCents : (unit.liability[m] ?? 0)),
     credits,
     overpaid: formatCents(plan.overpaidCents),
+    overpaidAnchor: plan.overpaidAnchorId === deposit.id,
+    paymentsUnavailable: false,
     replacedBy,
   };
 }

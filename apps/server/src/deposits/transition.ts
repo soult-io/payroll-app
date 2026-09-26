@@ -84,6 +84,11 @@ export interface QuarterPlan {
   /** Σ live deposited amounts in the unit. */
   depositedCents: number;
   overpaidCents: number;
+  /**
+   * The row that carries the unit's "Overpaid" flag in lists (UX: one per
+   * state-quarter, on its latest-period row); null when nothing is overpaid.
+   */
+  overpaidAnchorId: number | null;
 }
 
 export interface Allocation {
@@ -93,9 +98,26 @@ export interface Allocation {
   overpaidCents: number;
 }
 
+/**
+ * Invalid planner input: a data error, never clamped. The sync skips the
+ * unit and alerts admins; `code` is safe to log (no amounts, no PII).
+ */
+export class PlanInputError extends Error {
+  constructor(
+    public code: "invalid_amount" | "invalid_quarter" | "row_outside_unit",
+    message: string,
+  ) {
+    super(message);
+    this.name = "PlanInputError";
+  }
+}
+
 function assertCents(n: number, what: string): void {
   if (!Number.isSafeInteger(n) || n < 0) {
-    throw new Error(`planStateQuarter: ${what} must be non-negative integer cents, got ${n}`);
+    throw new PlanInputError(
+      "invalid_amount",
+      `planStateQuarter: ${what} must be non-negative integer cents, got ${n}`,
+    );
   }
 }
 
@@ -224,14 +246,20 @@ function statusOf(dueDate: string, cents: number, today: string): OpenStatus {
 function validate(input: QuarterInput, firstMonth: number): void {
   const { year, quarter, liability, live } = input;
   if (!Number.isInteger(quarter) || quarter < 1 || quarter > 4) {
-    throw new Error(`planStateQuarter: quarter must be 1-4, got ${quarter}`);
+    throw new PlanInputError(
+      "invalid_quarter",
+      `planStateQuarter: quarter must be 1-4, got ${quarter}`,
+    );
   }
   for (const [m, l] of liability.entries()) assertCents(l, `liability[${m}]`);
   for (const r of live) {
     assertCents(r.cents, `row ${r.id} amount`);
     const m = monthIndex(r.periodStart, firstMonth);
     if (r.periodStart.slice(0, 4) !== String(year) || m < 0 || m > 2) {
-      throw new Error(`planStateQuarter: row ${r.id} (${r.periodStart}) is outside the unit`);
+      throw new PlanInputError(
+        "row_outside_unit",
+        `planStateQuarter: row ${r.id} (${r.periodStart}) is outside the unit`,
+      );
     }
   }
 }
@@ -320,6 +348,32 @@ function planMonthly(ctx: Ctx, rem: readonly number[]): void {
   }
 }
 
+/** Last month a row covers, as "YYYY-MM" (a quarter row covers its third month). */
+function coversThrough(r: LiveDepositRow): string {
+  const month = Number(r.periodStart.slice(5, 7));
+  const last = r.kind === "quarter" ? Math.ceil(month / 3) * 3 : month;
+  return `${r.periodStart.slice(0, 4)}-${String(last).padStart(2, "0")}`;
+}
+
+/**
+ * The latest-period live row of a unit: covers the latest month; on a tie an
+ * open row beats a deposited one (so "Overpaid" never sits next to a
+ * "Deposited" chip while another row exists), then a quarter row, then the
+ * newest id.
+ */
+/** Sort key: latest month covered, then open before deposited, then quarter, then newest id. */
+function anchorKey(r: LiveDepositRow): string {
+  const open = r.status === "deposited" ? "0" : "1";
+  const kind = r.kind === "quarter" ? "1" : "0";
+  return `${coversThrough(r)}|${open}|${kind}|${String(r.id).padStart(12, "0")}`;
+}
+
+export function overpaidAnchor(live: readonly LiveDepositRow[]): number | null {
+  let best: LiveDepositRow | null = null;
+  for (const r of live) if (!best || anchorKey(r) > anchorKey(best)) best = r;
+  return best?.id ?? null;
+}
+
 export function planStateQuarter(input: QuarterInput): QuarterPlan {
   const firstMonth = (input.quarter - 1) * 3 + 1;
   validate(input, firstMonth);
@@ -344,6 +398,7 @@ export function planStateQuarter(input: QuarterInput): QuarterPlan {
     monthCredits: alloc.monthCredits,
     depositedCents: dep.reduce((a, r) => a + r.cents, 0),
     overpaidCents: alloc.overpaidCents,
+    overpaidAnchorId: alloc.overpaidCents > 0 ? overpaidAnchor(live) : null,
   };
 }
 

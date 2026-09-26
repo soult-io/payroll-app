@@ -33,6 +33,8 @@ export const EVENT_TYPE = {
   contractorRecurringPaymentDue: "contractor_recurring_payment_due",
   /** PAY-9 — monthly federal tax deposit due-date reminder (admin). */
   taxDepositDue: "tax_deposit_due",
+  /** PAY-91 — a state deposit period could not be worked out (data error; admin, always on). */
+  taxDepositSyncFailed: "tax_deposit_sync_failed",
   /** PAY-10 — quarterly filing (Form 941) due-date reminder (admin). */
   taxFilingDue: "tax_filing_due",
   /** PAY-11 — an employee's W-2 for a tax year is available for download. */
@@ -468,6 +470,24 @@ export function taxDepositDue(
     `tax deposit due ${data.dueDate}`,
     body,
     `The ${jurisdiction} payroll tax deposit for ${data.periodLabel} (${data.amountLabel}) is due on ${data.dueDate}. Make the payment on eftps.gov, then log in to record it: ${ctx.appUrl}`,
+  );
+}
+
+/**
+ * Admin (PAY-91): the daily deposit sync could not work out one state's
+ * deposits for a period (bad payroll data, e.g. a negative withholding
+ * total). That period was skipped; everything else was updated. No amounts.
+ */
+export function taxDepositSyncFailed(
+  ctx: TemplateContext,
+  data: { jurisdictionLabel: string; periodLabel: string },
+): RenderedEmail {
+  const body = `<p>We couldn't work out the <strong>${escapeHtml(data.jurisdictionLabel)}</strong> tax deposits for <strong>${escapeHtml(data.periodLabel)}</strong>. The payroll data for that period needs checking; every other deposit was updated as usual.</p><p><a href="${ctx.appUrl}">Log in to see your deposits</a>, and contact support about this period.</p>`;
+  return email(
+    ctx,
+    `tax deposits for ${data.periodLabel} need checking`,
+    body,
+    `We couldn't work out the ${data.jurisdictionLabel} tax deposits for ${data.periodLabel}. The payroll data for that period needs checking; every other deposit was updated as usual. Log in to see your deposits, and contact support about this period: ${ctx.appUrl}`,
   );
 }
 
