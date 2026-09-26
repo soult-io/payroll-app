@@ -169,6 +169,10 @@ CREATE UNIQUE INDEX "tax_deposits_live_period_uniq" ON "tax_deposits"
   ("jurisdiction","period_start","period_kind") WHERE "status" <> 'superseded';
 ```
 
+**Apply only through `drizzle-kit migrate`** (`pnpm db:migrate`), which runs the whole
+migration in one transaction. Never paste the file into psql statement by statement: a
+failure part-way would leave the old unique constraint dropped without the new index.
+
 **Safety on live prod data.** Additive, and no existing value changes. Every existing row
 satisfies every new check: all rows are `month` after the default, none is superseded, and
 the new index is wider than the old unique constraint. `amount_nonneg` fails the migration
@@ -205,8 +209,9 @@ checklist item for this area).
 
 ```
 syncDeposits(deps, { today }):
-  federal loop: unchanged, plus the §5 lookup filter
-  BEGIN; SELECT pg_advisory_xact_lock(hashtext('tax_deposits_state_sync'))
+  BEGIN; SELECT pg_advisory_xact_lock(hashtext('tax_deposits_state_sync'))   -- lock FIRST
+  federal loop: unchanged, plus the §5 lookup filter   -- inside the lock: two parallel syncs
+                                                        -- would both insert a new federal month
   schedules := load all state_deposit_schedules keyed "STATE:YEAR"
   units := DISTINCT (state, year, quarter) FROM
              issued runs with state_withholding entries, workState = runSnapshot.inputs.state.workState,
@@ -218,15 +223,19 @@ syncDeposits(deps, { today }):
        L[1..3]:  cents of issued-run state_withholding for S per month of q (0 if none),
        live:     live rows of S with period_start in q (id, kind, start, cents, status, due),
        today }
-     plan := planStateQuarter(input)
+     SAVEPOINT per unit; plan := planStateQuarter(input)        -- throws PlanInputError on bad data
+     on error: ROLLBACK TO SAVEPOINT; skip the unit; after COMMIT log "STATE:YEAR-Qq (code)"
+               (no amounts, no PII), and once per unit per day an audit event
+               'tax_deposit.sync_failed' + one 'tax_deposit_sync_failed' mail per admin.
+               A negative state-month or state-quarter sum is such an error: no row, no clamping.
      apply plan: UPDATE ... SET status='superseded', superseded_at=now()
                    WHERE id IN plan.supersede AND status IN ('pending','overdue')   -- guard: never a deposited row
                  then UPDATE changed live rows; INSERT new rows (created_by='scheduler')
      if plan.supersede ≠ ∅: INSERT audit_events(action='tax_deposit.period_transition',
          entity='tax_deposit', entity_id="S:Y-Qq", actor 'scheduler',
          before={rows}, after={rows, liabilityCents, creditsCents, overpaidCents})
+  global overdue flip (pending, amount>0, due<today)          -- inside the transaction
   COMMIT
-  global overdue flip (pending, amount>0, due<today)
 
 planStateQuarter({ schedule, L, live, today }):
   months := [first..first+2] of q; ΣL := L1+L2+L3
@@ -418,7 +427,8 @@ today.
 
 ## 10. Migration, rollback, out of scope
 
-**Deploy order.** Infra preflight (§4) → migrate → app. QA first; prod only as part of a
+**Deploy order.** Infra preflight (§4) → migrate (only through `drizzle-kit migrate`, one
+transaction, §4) → app. QA first; prod only as part of a
 release the owner approves.
 
 **Rollback.** Forward-only schema; the new columns and index are never dropped.
@@ -427,11 +437,14 @@ release the owner approves.
 - *After the new sync has run:* roll forward with a fix. Re-pinning v1.25 or older is
   unsafe once superseded rows exist: old code shows them and emails reminders for them
   (`status <> 'deposited'`). If an image rollback is still required and **no quarter row is
-  deposited**, run `packages/db/scripts/pay-91-revert.sql` first. In one transaction it
-  deletes live, non-deposited, attachment-free `quarter` rows with `created_by='scheduler'`,
-  then restores superseded rows to `CASE WHEN due_date < current_date THEN 'overdue' ELSE
-  'pending' END` and sets `superseded_at` to NULL. PR-3 ships that script with a test on
-  T03/T07 end states. This brings back the pre-fix double count and is a stopgap only. If a
+  deposited**, stop the app, then run `packages/db/scripts/pay-91-revert.sql`. In one
+  transaction under `LOCK TABLE tax_deposits IN EXCLUSIVE MODE` it deletes every
+  non-deposited `quarter` row with `created_by='scheduler'` (open or superseded), then
+  restores the newest superseded `month` row per key to `CASE WHEN due_date < current_date
+  THEN 'overdue' ELSE 'pending' END` with `superseded_at` NULL. It aborts, changing nothing,
+  if a quarter row is deposited, if a quarter row it would delete has an attachment, or if
+  month rows replaced a quarter row (Case C: no consistent pre-fix shape). Tested on the
+  T03, T07 and T33 end states. This brings back the pre-fix double count and is a stopgap only. If a
   quarter row is deposited, the only paths are roll-forward or a restore from backup.
 
 **Out of scope** (follow-up tickets for the product lead):
