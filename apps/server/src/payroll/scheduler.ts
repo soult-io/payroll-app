@@ -157,7 +157,7 @@ export async function startScheduler(deps: {
   // rows or emails.
   await boss.work(DEPOSIT_TICK_QUEUE, async () => {
     const sync = await syncDeposits({ db, config });
-    if (sync.created + sync.recomputed + sync.flippedOverdue > 0) {
+    if (sync.created + sync.recomputed + sync.flippedOverdue + sync.superseded > 0) {
       console.log(`[deposits] sync: ${JSON.stringify(sync)}`);
     }
     const reminders = await sendDepositReminders({ db, config });

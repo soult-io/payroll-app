@@ -38,7 +38,6 @@ import {
   dueDateFor,
   getDepositDetail,
   listDeposits,
-  periodKindForDeposit,
   periodStartFor,
   quarterOfMonth,
   sendDepositReminders,
@@ -1002,29 +1001,6 @@ describe("PAY-13 state deposits", () => {
 // ---------------------------------------------------------------------------
 // Defect fixes and periodKind tests
 // ---------------------------------------------------------------------------
-
-describe("periodKindForDeposit (Defect 2 fix)", () => {
-  it("returns 'month' for federal, 'quarter' for quarterly schedules based on periodStart year", async () => {
-    const scheduleMap = new Map<string, { frequency: "monthly" | "quarterly" }>();
-    scheduleMap.set("CA:2026", { frequency: "quarterly" });
-    scheduleMap.set("IL:2026", { frequency: "monthly" });
-
-    expect(periodKindForDeposit("federal", scheduleMap, "2026-07-01")).toBe("month");
-    expect(periodKindForDeposit("CA", scheduleMap, "2026-07-01")).toBe("quarter");
-    expect(periodKindForDeposit("CA", scheduleMap, "2026-04-01")).toBe("quarter");
-    expect(periodKindForDeposit("CA", scheduleMap, "2027-01-01")).toBe("month");
-    expect(periodKindForDeposit("IL", scheduleMap, "2026-07-01")).toBe("month");
-    expect(periodKindForDeposit("TX", scheduleMap, "2026-07-01")).toBe("month");
-  });
-
-  it("uses the year from periodStart, not the current year", async () => {
-    const scheduleMap = new Map<string, { frequency: "monthly" | "quarterly" }>();
-    scheduleMap.set("CA:2025", { frequency: "quarterly" });
-
-    // For a 2025 period, should check CA:2025, not CA:2026
-    expect(periodKindForDeposit("CA", scheduleMap, "2025-07-01")).toBe("quarter");
-  });
-});
 
 describe("state Due Date Tests (golden dates)", () => {
   it("IL monthly dueDay 15: Aug 2026 (15th Saturday) → 17th Monday", () => {

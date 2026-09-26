@@ -305,6 +305,21 @@ for (const action of ["approve", "issue"] as const) {
 // above existed, so its 2025 Q4 941 and W-2/W-3 worksheets would otherwise
 // exclude it. No today override — the Oct 2025 deposit shows as overdue, which
 // also exercises the overdue chip.
+// PAY-91 journey fixture (synthetic, 2023 — a year no other fixture uses).
+// IL monthly deposit rows as an older release wrote them (July deposited,
+// August still open), then an IL-2023 QUARTERLY schedule row. The quarterly
+// schedule is SYNTHETIC — IL's real schedule is not this; it only exists so
+// the sync below performs a monthly → quarterly transition the browser can
+// see. No 2023 runs exist, so the quarter owes nothing: the Q3 2023 row reads
+// "Nothing left to pay", lists the July payment, and flags the overpayment.
+await pglite.exec(`
+  INSERT INTO tax_deposits (jurisdiction, period_start, amount, due_date, status, deposited_on, eftps_confirmation, created_by)
+  VALUES ('IL', '2023-07-01', '100.00', '2023-08-15', 'deposited', '2023-08-14', 'SYN-E2E-PAY91', 'scheduler'),
+         ('IL', '2023-08-01', '100.00', '2023-09-15', 'overdue', NULL, NULL, 'scheduler');
+  INSERT INTO state_deposit_schedules (state_code, tax_year, frequency, due_day, note, source)
+  VALUES ('IL', 2023, 'quarterly', NULL, 'PAY-91 e2e fixture', 'synthetic');
+`);
+
 await syncDeposits({ db, config });
 await syncFilings({ db, config });
 await syncAnnualFilings({ db, config });
