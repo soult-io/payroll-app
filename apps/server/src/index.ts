@@ -7,8 +7,9 @@
  * private pre-open-source one; CI-created packages inherit repo visibility.
  *
  * PAY-68 (2026-09-26): the repo is now soult-io/wagon-payroll and the image is
- * published as `soult-io/wagon-payroll`, with `soult-io/payroll-app` pushed in
- * parallel until stack-payroll switches. Neither package is ever deleted.
+ * published as `soult-io/wagon-payroll`. `soult-io/payroll-app` received tags up
+ * to v1.25.0 and receives nothing after it; its old tags stay pullable. Neither
+ * package is ever deleted.
  */
 
 import { buildApp } from "./app.js";

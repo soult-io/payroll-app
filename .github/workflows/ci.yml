@@ -16,12 +16,10 @@ env:
   REGISTRY: ghcr.io
   # Explicit, not github.repository: the repo was renamed
   # soult-io/payroll-app -> soult-io/wagon-payroll (PAY-68) and GHCR packages do
-  # not follow a rename. Every tag is pushed under BOTH names for the cutover;
-  # stack-payroll's pin-update still tracks the legacy package. Remove
-  # LEGACY_IMAGE_NAME and its tags once stack-payroll pulls IMAGE_NAME
-  # (PAY-68 step 3). Never delete the old package.
+  # not follow a rename. The legacy ghcr.io/soult-io/payroll-app received tags
+  # up to v1.25.0 and receives nothing after it (PAY-68 step 3); its old tags
+  # stay pullable. Never delete the old package.
   IMAGE_NAME: soult-io/wagon-payroll
-  LEGACY_IMAGE_NAME: soult-io/payroll-app
 
 jobs:
   verify:
@@ -235,8 +233,6 @@ jobs:
           tags: |
             ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}:sha-${{ github.sha }}
             ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}:latest
-            ${{ env.REGISTRY }}/${{ env.LEGACY_IMAGE_NAME }}:sha-${{ github.sha }}
-            ${{ env.REGISTRY }}/${{ env.LEGACY_IMAGE_NAME }}:latest
           cache-from: type=gha
           cache-to: type=gha,mode=max
 
