@@ -602,10 +602,24 @@ export async function syncDeposits(deps: Deps, opts: { today?: string } = {}): P
       )
       .returning({ id: taxDeposits.id });
     result.flippedOverdue = flipped.length;
+
+    // Report skipped units while still holding the advisory lock, so two
+    // concurrent syncs cannot both alert. Each report has its own savepoint:
+    // an alert failure is logged (unit label only) and never fails the tick.
+    for (const f of failed) {
+      const label = unitLabel(f.unit);
+      console.warn(`[deposits] state unit ${label} skipped (${f.code})`);
+      try {
+        await tx.transaction(async (sp) => {
+          await reportFailedUnit(sp, deps.config, f, today);
+        });
+      } catch {
+        console.warn(`[deposits] alert for state unit ${label} failed`);
+      }
+    }
   });
 
   result.failedUnits = failed.length;
-  for (const f of failed) await reportFailedUnit(deps, f, today);
   return result;
 }
 
@@ -623,9 +637,21 @@ interface FailedUnit {
   code: string;
 }
 
-function failureCode(err: unknown): string {
+/**
+ * Safe-to-log failure code: the planner's code, else the SQLSTATE of a
+ * database error, else the error class. Never the message or detail (they
+ * can carry amounts or row data).
+ */
+export function failureCode(err: unknown): string {
   if (err instanceof PlanInputError) return err.code;
-  return "unexpected_error";
+  for (let e: unknown = err, depth = 0; e && depth < 5; depth += 1) {
+    const code = (e as { code?: unknown }).code;
+    if (typeof code === "string" && /^[0-9A-Z]{5}$/.test(code)) return `sqlstate_${code}`;
+    e = (e as { cause?: unknown }).cause;
+  }
+  if (!(err instanceof Error)) return "unexpected_error";
+  const name = err.constructor.name;
+  return /^[A-Za-z]{1,40}$/.test(name) ? `error_${name}` : "unexpected_error";
 }
 
 function unitLabel(unit: { state: string; year: number; quarter: number }): string {
@@ -633,15 +659,19 @@ function unitLabel(unit: { state: string; year: number; quarter: number }): stri
 }
 
 /**
- * A skipped state unit (spec 23, fix round 1): log it (jurisdiction + quarter
- * + error code only), and once per unit per day record an audit event and
- * mail every admin through the outbox.
+ * A skipped state unit (spec 23): once per unit per day, record an audit
+ * event and mail every admin through the outbox. Runs inside the sync
+ * transaction, under the advisory lock, in its own savepoint (the caller
+ * logs the unit and swallows a failure here).
  */
-async function reportFailedUnit(deps: Deps, f: FailedUnit, today: string): Promise<void> {
-  const { db, config } = deps;
+async function reportFailedUnit(
+  tx: Tx,
+  config: AppConfig,
+  f: FailedUnit,
+  today: string,
+): Promise<void> {
   const entityId = unitLabel(f.unit);
-  console.warn(`[deposits] state unit ${entityId} skipped (${f.code})`);
-  const seen = await db
+  const seen = await tx
     .select({ id: auditEvents.id })
     .from(auditEvents)
     .where(
@@ -653,30 +683,28 @@ async function reportFailedUnit(deps: Deps, f: FailedUnit, today: string): Promi
     )
     .limit(1);
   if (seen.length > 0) return;
-  const ctx = await templateContext(db, config);
-  const admins = await adminUserIds(db);
+  const ctx = await templateContext(tx, config);
+  const admins = await adminUserIds(tx);
   const rendered = tplTaxDepositSyncFailed(ctx, {
     jurisdictionLabel: stateName(f.unit.state),
     periodLabel: `Q${f.unit.quarter} ${f.unit.year}`,
   });
-  await db.transaction(async (tx) => {
-    await tx.insert(auditEvents).values({
-      actorId: "scheduler",
-      action: "tax_deposit.sync_failed",
-      entity: "tax_deposit",
-      entityId,
-      before: null,
-      after: { day: today, code: f.code },
-    });
-    for (const userId of admins) {
-      await tx.insert(emailOutbox).values({
-        userId,
-        eventType: EVENT_TYPE.taxDepositSyncFailed,
-        subject: rendered.subject,
-        bodyHtml: rendered.html, // dedupe is the audit event, not a marker
-      });
-    }
+  await tx.insert(auditEvents).values({
+    actorId: "scheduler",
+    action: "tax_deposit.sync_failed",
+    entity: "tax_deposit",
+    entityId,
+    before: null,
+    after: { day: today, code: f.code },
   });
+  for (const userId of admins) {
+    await tx.insert(emailOutbox).values({
+      userId,
+      eventType: EVENT_TYPE.taxDepositSyncFailed,
+      subject: rendered.subject,
+      bodyHtml: rendered.html, // dedupe is the audit event, not a marker
+    });
+  }
 }
 
 // ---------------------------------------------------------------------------
@@ -836,7 +864,7 @@ export async function markDeposited(
 // Due-date reminders (D1) — each configured offset fires at most once
 // ---------------------------------------------------------------------------
 
-async function adminUserIds(db: Db): Promise<string[]> {
+async function adminUserIds(db: Pick<Db, "select">): Promise<string[]> {
   const rows = await db
     .select({ id: authUser.id })
     .from(authUser)

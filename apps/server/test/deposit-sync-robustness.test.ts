@@ -5,7 +5,7 @@
  */
 import { afterAll, beforeAll, beforeEach, describe, expect, it } from "vitest";
 import { company, employees, seedDatabase, type SeedDb } from "@payroll/db";
-import { syncDeposits } from "../src/deposits/service.js";
+import { failureCode, syncDeposits } from "../src/deposits/service.js";
 import { createTestApp, type TestContext } from "./helpers.js";
 import { inviteAndOnboard, login, sessionHeader, TEST_PASSWORD } from "./flow-helpers.js";
 
@@ -24,7 +24,8 @@ afterAll(async () => {
 beforeEach(async () => {
   await t.pglite.exec(
     `TRUNCATE tax_deposits, payroll_entries, payroll_runs, email_outbox RESTART IDENTITY CASCADE;
-     DELETE FROM audit_events WHERE action = 'tax_deposit.sync_failed';`,
+     DELETE FROM audit_events WHERE action = 'tax_deposit.sync_failed';
+     DROP TRIGGER IF EXISTS pay91_fail_ca_insert ON tax_deposits;`,
   );
 });
 
@@ -155,5 +156,80 @@ describe("PAY-91 bad state data", () => {
       overpaid: string;
     };
     expect([d.paymentsUnavailable, d.credits, d.overpaid]).toEqual([true, [], "0.00"]);
+  });
+
+  it("two concurrent syncs alert once (the report runs under the advisory lock)", async () => {
+    await setup();
+    const deps = { db: t.db, config: t.config };
+    await Promise.all([
+      syncDeposits(deps, { today: "2026-08-20" }),
+      syncDeposits(deps, { today: "2026-08-20" }),
+    ]);
+    expect(
+      await count(
+        `SELECT count(*)::int AS n FROM audit_events WHERE action = 'tax_deposit.sync_failed'`,
+      ),
+    ).toBe(1);
+  });
+});
+
+describe("PAY-91 DB error after a partial unit write", () => {
+  it("rolls the unit back to its savepoint; other units and federal still commit", async () => {
+    // CA: v1.24 month rows + quarterly schedule -> the plan supersedes the
+    // month rows, THEN inserts the quarter row. A trigger makes that insert
+    // fail with a unique violation, after the supersede UPDATE ran.
+    await t.pglite.exec(`
+      DELETE FROM state_deposit_schedules WHERE state_code IN ('CA','NY') AND tax_year = 2026;
+      INSERT INTO state_deposit_schedules (state_code, tax_year, frequency, due_day)
+        VALUES ('CA', 2026, 'quarterly', NULL), ('NY', 2026, 'quarterly', NULL);
+      INSERT INTO tax_deposits (jurisdiction, period_start, amount, due_date, status, created_by)
+        VALUES ('CA', '2026-07-01', '60.00', '2026-08-17', 'overdue', 'scheduler'),
+               ('CA', '2026-08-01', '60.00', '2026-09-15', 'pending', 'scheduler');
+      CREATE OR REPLACE FUNCTION pay91_fail_ca_insert() RETURNS trigger AS $$
+      BEGIN
+        IF NEW.jurisdiction = 'CA' THEN
+          RAISE EXCEPTION 'forced' USING ERRCODE = 'unique_violation';
+        END IF;
+        RETURN NEW;
+      END $$ LANGUAGE plpgsql;
+      CREATE TRIGGER pay91_fail_ca_insert BEFORE INSERT ON tax_deposits
+        FOR EACH ROW EXECUTE FUNCTION pay91_fail_ca_insert();
+    `);
+    const a = await employee("Cy Partial");
+    const b = await employee("Di Partial");
+    await run(a, "CA", "2026-07-15", "60.00");
+    await run(a, "CA", "2026-08-14", "60.00");
+    await run(b, "NY", "2026-07-15", "80.00");
+    const res = await syncDeposits({ db: t.db, config: t.config }, { today: "2026-09-10" });
+    expect(res.failedUnits).toBe(1);
+    const r = await t.pglite.query<{ s: string }>(
+      `SELECT jurisdiction || ' ' || period_kind || ' ' || period_start || ' ' || amount || ' ' || status AS s
+         FROM tax_deposits ORDER BY jurisdiction, period_start, period_kind`,
+    );
+    expect(r.rows.map((x) => x.s)).toEqual([
+      // CA untouched: the supersede was rolled back with the failed insert.
+      "CA month 2026-07-01 60.00 overdue",
+      "CA month 2026-08-01 60.00 pending",
+      "NY quarter 2026-07-01 80.00 pending",
+      "federal month 2026-07-01 100.00 overdue",
+      "federal month 2026-08-01 50.00 pending",
+    ]);
+    const audit = await t.pglite.query<{ entity_id: string; code: string }>(
+      `SELECT entity_id, after->>'code' AS code FROM audit_events WHERE action = 'tax_deposit.sync_failed'`,
+    );
+    expect(audit.rows).toEqual([{ entity_id: "CA:2026-Q3", code: "sqlstate_23505" }]);
+  });
+});
+
+describe("failureCode", () => {
+  it("never returns a message: planner code, SQLSTATE (also via cause), or class name", () => {
+    expect(failureCode(Object.assign(new Error("amount 12.34 bad"), { code: "23505" }))).toBe(
+      "sqlstate_23505",
+    );
+    expect(failureCode(new Error("wrap", { cause: { code: "40P01", detail: "x" } }))).toBe(
+      "sqlstate_40P01",
+    );
+    expect(failureCode(new TypeError("row 7 amount 9.99"))).toBe("error_TypeError");
+    expect(failureCode("string thrown")).toBe("unexpected_error");
   });
 });
