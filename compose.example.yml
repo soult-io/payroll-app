@@ -18,8 +18,9 @@ services:
     # tag instead — e.g. ghcr.io/soult-io/wagon-payroll:v1.2.3 — and upgrade
     # deliberately (docs/deployment.md#upgrades). Every merge to main also
     # publishes sha-<full-sha> tags if you need a pre-release build.
-    # (Formerly ghcr.io/soult-io/payroll-app — still published in parallel for
-    # one release, then retired; switch to the name below.)
+    # (Formerly ghcr.io/soult-io/payroll-app — it received tags up to v1.25.0
+    # and receives nothing after it; old tags stay pullable. Switch to the name
+    # below.)
     image: ghcr.io/soult-io/wagon-payroll:latest
     # To build from source instead of pulling, swap the image line for:
     #   build:

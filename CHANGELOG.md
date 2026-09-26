@@ -6,6 +6,13 @@ All notable changes to this project will be documented here. Format follows
 
 ## [Unreleased]
 
+### Changed
+
+- Images are published only as ghcr.io/soult-io/wagon-payroll and
+  ghcr.io/soult-io/wagon-payroll-verify. The old names (payroll-app,
+  payroll-app-verify) stopped at v1.25.0; existing tags remain pullable.
+  Operators still on the old name must switch their image: lines.
+
 ## [1.25.0] - 2026-09-26
 
 ### Added

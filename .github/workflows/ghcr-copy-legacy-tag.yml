@@ -2,9 +2,9 @@ name: ghcr-copy-legacy-tag
 
 # PAY-69: copy an image that exists only under a legacy GHCR name to the new
 # name, without a rebuild. The repo was renamed soult-io/payroll-app ->
-# soult-io/wagon-payroll (PAY-68) and release.yml dual-publishes only the
-# builds made after that; releases up to v1.24.0 exist only under
-# ghcr.io/soult-io/payroll-app. `imagetools create` from one source copies the
+# soult-io/wagon-payroll (PAY-68). Releases up to v1.24.0 exist only under
+# ghcr.io/soult-io/payroll-app; v1.25.0 was published under both names, and
+# from then on release.yml publishes only the new name (PAY-68 step 3). `imagetools create` from one source copies the
 # index as-is, so the new tags carry the SAME digest as the source (checked
 # below). Manual only: run it from the Actions tab.
 #

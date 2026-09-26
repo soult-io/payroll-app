@@ -4,8 +4,8 @@ name: release
 # artifacts — it knows nothing about any deployment repo and holds no cross-repo
 # credential. Flow: release PR (CHANGELOG + version bump) → owner merges → tag
 # vX.Y.Z pushed → THIS workflow re-verifies and publishes
-# ghcr.io/soult-io/wagon-payroll:vX.Y.Z / vX.Y / latest (and the same tags under
-# the legacy ghcr.io/soult-io/payroll-app during PAY-68) + a GitHub release.
+# ghcr.io/soult-io/wagon-payroll:vX.Y.Z / vX.Y / latest + a GitHub release
+# (the legacy ghcr.io/soult-io/payroll-app stopped at v1.25.0, PAY-68).
 # Deployment is the stack repo's job: nsoult-agentic/stack-payroll's own
 # scheduled workflow sees the new release and opens a prod-pin PR (owner merge =
 # the final gate → the GitOps deployment redeploys prod).
@@ -19,12 +19,10 @@ env:
   REGISTRY: ghcr.io
   # Explicit, not github.repository: the repo was renamed
   # soult-io/payroll-app -> soult-io/wagon-payroll (PAY-68) and GHCR packages do
-  # not follow a rename. Every tag is pushed under BOTH names for the cutover;
-  # stack-payroll's pin-update still tracks the legacy package. Remove
-  # LEGACY_IMAGE_NAME and its tags once stack-payroll pulls IMAGE_NAME
-  # (PAY-68 step 3). Never delete the old package.
+  # not follow a rename. The legacy ghcr.io/soult-io/payroll-app received tags
+  # up to v1.25.0 and receives nothing after it (PAY-68 step 3); its old tags
+  # stay pullable. Never delete the old package.
   IMAGE_NAME: soult-io/wagon-payroll
-  LEGACY_IMAGE_NAME: soult-io/payroll-app
 
 jobs:
   # Re-verify the tagged commit before publishing anything (lint/build/
@@ -106,9 +104,6 @@ jobs:
             ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}:${{ steps.version.outputs.release_tag }}
             ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}:${{ steps.version.outputs.minor_tag }}
             ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}:latest
-            ${{ env.REGISTRY }}/${{ env.LEGACY_IMAGE_NAME }}:${{ steps.version.outputs.release_tag }}
-            ${{ env.REGISTRY }}/${{ env.LEGACY_IMAGE_NAME }}:${{ steps.version.outputs.minor_tag }}
-            ${{ env.REGISTRY }}/${{ env.LEGACY_IMAGE_NAME }}:latest
           cache-from: type=gha
           cache-to: type=gha,mode=max
 

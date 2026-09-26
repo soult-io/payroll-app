@@ -78,8 +78,8 @@ CLI above is everything the codebase needs.
 
 Prereqs: Docker with the compose plugin. The published image is
 `ghcr.io/soult-io/wagon-payroll` — no build required. (The old name,
-`ghcr.io/soult-io/payroll-app`, is published in parallel for one release and
-then retired — switch your `image:` line.)
+`ghcr.io/soult-io/payroll-app`, received tags up to `v1.25.0` and receives
+nothing after it; its old tags stay pullable — switch your `image:` line.)
 
 ```sh
 # 1. Configure — every knob is documented inline

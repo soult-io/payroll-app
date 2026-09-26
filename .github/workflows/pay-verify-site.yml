@@ -2,8 +2,9 @@ name: pay-verify-site
 
 # Spec 17 chunk B (PAY-44): build + publish the static pay-verify QA dashboard
 # image ghcr.io/soult-io/wagon-payroll-verify from the verify-summary history
-# (also pushed under the legacy name ghcr.io/soult-io/payroll-app-verify during
-# the PAY-68 rename cutover — see LEGACY_IMAGE below).
+# (the pre-rename name ghcr.io/soult-io/payroll-app-verify got its last
+# sha-* tag at the PAY-68 step 3 merge and nothing after it; its old tags stay
+# pullable).
 #
 # It never runs tests. It ingests the summary.json that ci.yml / e2e-nightly.yml
 # already publish (chunk A), keeps a rolling window of them on the orphan
@@ -65,12 +66,9 @@ concurrency:
 env:
   REGISTRY: ghcr.io
   IMAGE: ghcr.io/soult-io/wagon-payroll-verify
-  # PAY-68 (repo renamed soult-io/payroll-app -> soult-io/wagon-payroll): GHCR
-  # packages do not follow a rename, so every tag is ALSO pushed under the old
-  # package name that stack-payroll's pin-update still tracks. Remove this line
-  # and its push in "Push image" once stack-payroll pulls IMAGE (PAY-68 step 3).
-  # Never delete the old package.
-  LEGACY_IMAGE: ghcr.io/soult-io/payroll-app-verify
+  # Explicit: the repo was renamed soult-io/payroll-app -> soult-io/wagon-payroll
+  # (PAY-68) and GHCR packages do not follow a rename. The old package
+  # payroll-app-verify stopped at the PAY-68 step 3 merge. Never delete it.
   DATA_BRANCH: pay-verify-data
   # Spec 20 D1: journey media lives on its own orphan branch, force-pushed as
   # ONE commit holding only the latest ci bundle — binary history never piles
@@ -546,7 +544,7 @@ jobs:
           pull: true
           load: true
           push: false
-          tags: payroll-app-verify:scan
+          tags: wagon-payroll-verify:scan
           cache-from: type=gha
           # A failed cache WRITE ("failed to reserve cache": the Actions cache
           # refusing a key another job holds) must not fail a publish — the
@@ -559,7 +557,7 @@ jobs:
         if: steps.wt.outputs.publish == 'true'
         uses: aquasecurity/trivy-action@v0.36.0
         with:
-          image-ref: payroll-app-verify:scan
+          image-ref: wagon-payroll-verify:scan
           severity: CRITICAL
           ignore-unfixed: true
           exit-code: "1"
@@ -577,13 +575,9 @@ jobs:
           MOVE_LATEST: ${{ steps.tip.outputs.move_latest }}
           TAG: sha-${{ env.COMMIT_SHA }}${{ github.event.workflow_run.name == 'walkthrough' && '-walkthrough' || '' }}
         run: |
-          # Legacy name first: stack-payroll pin-update tracks it today (PAY-68),
-          # so a partial failure never leaves the pinned name behind.
-          for name in "$LEGACY_IMAGE" "$IMAGE"; do
-            docker tag payroll-app-verify:scan "$name:$TAG"
-            docker push "$name:$TAG"
-            if [ "$MOVE_LATEST" = "true" ]; then
-              docker tag payroll-app-verify:scan "$name:latest"
-              docker push "$name:latest"
-            fi
-          done
+          docker tag wagon-payroll-verify:scan "$IMAGE:$TAG"
+          docker push "$IMAGE:$TAG"
+          if [ "$MOVE_LATEST" = "true" ]; then
+            docker tag wagon-payroll-verify:scan "$IMAGE:latest"
+            docker push "$IMAGE:latest"
+          fi
