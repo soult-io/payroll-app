@@ -43,6 +43,7 @@ import {
   quarterEnd as filingsQuarterEnd,
 } from "../filings/service.js";
 import { annualDueDate, w2AvailableOn } from "../filings/annual.js";
+import { stateName } from "@payroll/shared";
 import { liveDeposit } from "../deposits/service.js";
 import { periodLabel as depositPeriodLabel } from "../deposits/periods.js";
 import { interpolateDescription, invoiceDateFor } from "../contractors/recurring.js";
@@ -250,7 +251,7 @@ async function contractorEvents(db: Db, year: number, month: number): Promise<Ca
 
 /**
  * Spec 23 §7: federal rows keep "941 deposit due — August 2026"; state rows
- * read "CA deposit due — Q3 2026" / "IL deposit due — July 2026", the label
+ * read "California deposit due — Q3 2026" / "Illinois deposit due — July 2026", the label
  * built from the stored period_kind.
  */
 function depositLabel(
@@ -261,7 +262,7 @@ function depositLabel(
     return `941 deposit ${what} — ${periodLabel(deposit.periodStart)}`;
   }
   const kind = deposit.periodKind === "quarter" ? "quarter" : "month";
-  return `${deposit.jurisdiction} deposit ${what} — ${depositPeriodLabel(deposit.periodStart, kind)}`;
+  return `${stateName(deposit.jurisdiction)} deposit ${what} — ${depositPeriodLabel(deposit.periodStart, kind)}`;
 }
 
 /** Deposit obligations (due_date) and actuals (deposited_on) in the month. */
