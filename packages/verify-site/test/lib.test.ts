@@ -109,6 +109,18 @@ describe("renderPage", () => {
     expect(html).not.toContain("badge fail");
   });
 
+  it("carries the product name in the title and heading (spec 22 D8)", () => {
+    const empty = renderPage([]);
+    expect(empty).toContain("<title>Wagon Payroll QA verification</title>");
+    expect(empty).toContain("<h1>Wagon Payroll — QA verification</h1>");
+    expect(empty).not.toContain("<h1>payroll-app");
+    const populated = renderPage([summary({ generatedAt: "2026-09-21T05:20:00Z" })]);
+    expect(populated).toContain("<title>Wagon Payroll QA verification</title>");
+    expect(populated).toContain("<h1>Wagon Payroll — QA verification</h1>");
+    // The meta description names the repo, which stays payroll-app.
+    expect(populated).toContain("status for payroll-app");
+  });
+
   it("renders the latest run's status, counts, suites and report link", () => {
     const html = renderPage(
       [

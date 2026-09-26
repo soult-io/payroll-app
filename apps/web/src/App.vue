@@ -9,7 +9,7 @@
  * when a linked employee record exists). This avoids the duplicated
  * Dashboard/Requests/Settings labels of the original side-by-side layout.
  */
-import { computed, onMounted, ref, watch } from "vue";
+import { computed, ref, watch } from "vue";
 import { useRoute, useRouter } from "vue-router";
 import Button from "primevue/button";
 import Badge from "primevue/badge";
@@ -19,6 +19,7 @@ import ConfirmDialog from "primevue/confirmdialog";
 import { useAuthStore } from "./stores/auth";
 import { pinia } from "./stores/pinia";
 import { changeRequestsApi } from "./lib/api";
+import { useRuntimeConfig } from "./composables/useRuntimeConfig";
 
 const route = useRoute();
 const router = useRouter();
@@ -30,22 +31,11 @@ const hasEmployee = computed(() => auth.employeeLoaded && auth.employmentType !=
 const myMenu = ref<InstanceType<typeof Menu>>();
 
 /**
- * Deployment environment (spec 14): fetched once from the unauthenticated
- * runtime-config endpoint. "qa" renders a persistent banner on EVERY page
- * (incl. login) so prod and QA are never confusable in a screenshot; anything
- * else renders nothing.
+ * Runtime config (spec 14 + spec 22): appEnv "qa" renders a persistent banner
+ * on EVERY page (incl. login) so prod and QA are never confusable in a
+ * screenshot; brandName is the product name in the header.
  */
-const appEnv = ref("");
-onMounted(async () => {
-  try {
-    const res = await fetch("/api/runtime-config");
-    if (res.ok) {
-      appEnv.value = ((await res.json()) as { appEnv?: string }).appEnv ?? "";
-    }
-  } catch {
-    // Banner is best-effort; never block the app on it.
-  }
-});
+const { appEnv, brandName } = useRuntimeConfig();
 
 /**
  * PAY-8: worker-type-scoped nav — Payslips only for W-2 employees, Invoices
@@ -134,7 +124,7 @@ async function logout() {
     <div v-if="appEnv === 'qa'" class="qa-banner" role="status">QA — synthetic data</div>
     <header v-if="signedIn" class="topbar">
       <div class="brand-row">
-        <RouterLink :to="{ name: 'my-dashboard' }" class="brand">Payroll</RouterLink>
+        <RouterLink :to="{ name: 'my-dashboard' }" class="brand">{{ brandName }}</RouterLink>
         <span class="user-chip">
           {{ auth.user?.name }}
           <span v-if="auth.isAdmin" class="role">admin</span>

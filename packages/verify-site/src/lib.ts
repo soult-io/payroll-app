@@ -488,7 +488,7 @@ function headerCard(
   const quietText = quietSentence(quiet);
   return `<section class="card status ${demote ? "flake" : outcomeClass(base)}">
       <div class="status-head">
-        <h1>payroll-app — QA verification</h1>
+        <h1>Wagon Payroll — QA verification</h1>
         ${demote ? `<span class="badge flake">${[OUTCOME_LABEL[base], ...reasons].join(" · ")}</span>` : badge(base)}
       </div>
       <p class="counts">
@@ -813,7 +813,7 @@ function journeyCardsSection(
 }
 
 const EMPTY_PAGE_BODY = `<section class="card status skip">
-      <div class="status-head"><h1>payroll-app — QA verification</h1></div>
+      <div class="status-head"><h1>Wagon Payroll — QA verification</h1></div>
       <p class="muted">No verification runs ingested yet. The dashboard populates after the first CI or nightly run publishes a summary.</p>
     </section>`;
 
@@ -902,7 +902,7 @@ function renderDocument(
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<title>payroll-app QA verification</title>
+<title>Wagon Payroll QA verification</title>
 <meta name="description" content="PII-free QA verification status for payroll-app — synthetic data only.">
 <style>${STYLE}</style>
 </head>
