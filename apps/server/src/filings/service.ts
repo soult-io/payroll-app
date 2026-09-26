@@ -24,7 +24,6 @@ import {
   appSettings,
   auditEvents,
   authUser,
-  company,
   emailOutbox,
   payrollRuns,
   taxAdjustments,
@@ -32,13 +31,9 @@ import {
   taxFilings,
 } from "@payroll/db";
 import { round2 } from "@payroll/engine/money";
-import {
-  EVENT_TYPE,
-  taxFilingDue as tplTaxFilingDue,
-  type TemplateContext,
-} from "@payroll/notifications";
+import { EVENT_TYPE, taxFilingDue as tplTaxFilingDue } from "@payroll/notifications";
 import type { Db } from "../db.js";
-import type { AppConfig } from "../config.js";
+import { templateContext } from "../notify/outbox.js";
 import { computeDepositAmount, periodStartFor } from "../deposits/service.js";
 import { compute940Worksheet, computeW3Worksheet, refreshAnnualWorksheet } from "./annual.js";
 import {
@@ -1002,11 +997,6 @@ export async function deleteAdjustment(
 // Due-date reminders (D1) — each configured offset fires at most once
 // ---------------------------------------------------------------------------
 
-async function templateCtx(db: Db, config: AppConfig): Promise<TemplateContext> {
-  const rows = await db.select({ legalName: company.legalName }).from(company).limit(1);
-  return { companyName: rows[0]?.legalName ?? "Payroll", appUrl: config.baseUrl };
-}
-
 async function adminUserIds(db: Db): Promise<string[]> {
   const rows = await db
     .select({ id: authUser.id })
@@ -1038,7 +1028,7 @@ export async function sendFilingReminders(
     .orderBy(taxFilings.year, taxFilings.quarter);
   if (filings.length === 0) return { sent: 0 };
 
-  const ctx = await templateCtx(db, config);
+  const ctx = await templateContext(db, config);
   const admins = await adminUserIds(db);
   let sent = 0;
 

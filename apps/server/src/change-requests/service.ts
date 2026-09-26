@@ -25,7 +25,6 @@ import {
   changeRequestDenied,
   changeRequestSubmitted,
   EVENT_TYPE,
-  type TemplateContext,
 } from "@payroll/notifications";
 import type { BankDetailsPayload, ChangeRequestType, TaxIdPayload } from "@payroll/shared";
 import type { Db } from "../db.js";
@@ -33,7 +32,7 @@ import { isUniqueViolation } from "../db.js";
 import type { AppConfig } from "../config.js";
 import { encryptField, isEncrypted, maskLast4 } from "../crypto/field-encryption.js";
 import { addressForStorage } from "../crypto/address-encryption.js";
-import { companyName } from "../notify/outbox.js";
+import { templateContext } from "../notify/outbox.js";
 import type { DbLike } from "../payroll/resolve.js";
 
 export class ChangeRequestError extends Error {
@@ -56,10 +55,6 @@ export type ChangeRequestRow = typeof changeRequests.$inferSelect;
 interface Deps {
   db: Db;
   config: AppConfig;
-}
-
-async function templateCtx(db: DbLike, config: AppConfig): Promise<TemplateContext> {
-  return { companyName: await companyName(db), appUrl: config.baseUrl };
 }
 
 /** All active admins (recipients of submitted/notifications per spec catalog). */
@@ -165,7 +160,7 @@ export async function submitRequest(
   }
 
   // submitted → all admins (outbox; send failure can never roll this back).
-  const ctx = await templateCtx(db, config);
+  const ctx = await templateContext(db, config);
   const rendered = changeRequestSubmitted(ctx, {
     employeeName: input.employeeName,
     requestType: input.requestType,
@@ -377,7 +372,7 @@ export async function approveRequest(
     });
 
     if (employee.userId) {
-      const ctx = await templateCtx(tx as DbLike, config);
+      const ctx = await templateContext(tx as DbLike, config);
       const rendered = changeRequestApproved(ctx, {
         requestType: request.requestType,
         effectiveFrom,
@@ -450,7 +445,7 @@ export async function denyRequest(
       .limit(1);
     const employee = employeeRows[0];
     if (employee?.userId) {
-      const ctx = await templateCtx(tx as DbLike, config);
+      const ctx = await templateContext(tx as DbLike, config);
       const rendered = changeRequestDenied(ctx, { requestType: request.requestType });
       await tx.insert(emailOutbox).values({
         userId: employee.userId,

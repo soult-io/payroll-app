@@ -35,6 +35,7 @@ import {
 import type { Db } from "../db.js";
 import { isUniqueViolation } from "../db.js";
 import type { AppConfig } from "../config.js";
+import { templateContext } from "../notify/outbox.js";
 import {
   mapStateFilingStatus,
   resolveCompensation,
@@ -92,19 +93,6 @@ export type RunRow = typeof payrollRuns.$inferSelect;
 interface GenerateDeps {
   db: Db;
   config: AppConfig;
-}
-
-async function templateCtx(
-  tx: DbLike,
-  config: AppConfig,
-  fallbackCompanyName?: string,
-): Promise<TemplateContext> {
-  let companyName = fallbackCompanyName;
-  if (!companyName) {
-    const rows = await tx.select({ legalName: company.legalName }).from(company).limit(1);
-    companyName = rows[0]?.legalName ?? "Payroll";
-  }
-  return { companyName, appUrl: config.baseUrl };
 }
 
 async function notifyDraftReady(
@@ -444,7 +432,7 @@ export async function generateDraft(
         })),
       );
 
-      const tplCtx = await templateCtx(tx, deps.config, companyRow.legalName);
+      const tplCtx = await templateContext(tx, deps.config, companyRow.legalName);
       await notifyDraftReady(tx as DbLike & Pick<Db, "insert">, tplCtx, run, employee.legalName);
       return { run, created: true };
     });
@@ -637,7 +625,7 @@ export async function transitionRun(
     });
 
     if (input.action === "issue") {
-      const tplCtx = await templateCtx(tx as DbLike, deps.config);
+      const tplCtx = await templateContext(tx as DbLike, deps.config);
       await notifyPayslipIssued(tx as DbLike & Pick<Db, "insert">, tplCtx, next);
     }
     return next;

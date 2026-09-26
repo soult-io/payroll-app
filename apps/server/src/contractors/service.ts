@@ -37,10 +37,10 @@ import {
   contractorInvoiceReviewed as tplInvoiceReviewed,
   contractorInvoiceSubmitted as tplInvoiceSubmitted,
   taxFormLabel,
-  type TemplateContext,
 } from "@payroll/notifications";
 import type { Db } from "../db.js";
 import type { AppConfig } from "../config.js";
+import { templateContext } from "../notify/outbox.js";
 import { encryptField } from "../crypto/field-encryption.js";
 
 export type TaxStatus = "us_person" | "nonresident";
@@ -107,11 +107,6 @@ export function formExpiryDate(taxForm: TaxForm, formCollectedAt: string | null)
 
 function todayIso(): string {
   return new Date().toISOString().slice(0, 10);
-}
-
-async function templateCtx(db: Db, config: AppConfig): Promise<TemplateContext> {
-  const rows = await db.select({ legalName: company.legalName }).from(company).limit(1);
-  return { companyName: rows[0]?.legalName ?? "Payroll", appUrl: config.baseUrl };
 }
 
 async function adminUserIds(db: Deps["db"]): Promise<string[]> {
@@ -375,7 +370,7 @@ export async function createInvoice(
   // Notification data gathered BEFORE the transaction (PGlite runs the app
   // single-connection; non-tx reads mid-transaction are not allowed).
   const submitted = Boolean(input.submittedBy);
-  const ctx = submitted ? await templateCtx(db, config) : null;
+  const ctx = submitted ? await templateContext(db, config) : null;
   const admins = submitted ? await adminUserIds(db) : [];
 
   return db.transaction(async (tx) => {
@@ -470,7 +465,7 @@ export async function reviewInvoice(
     );
   }
   const next = input.action === "approve" ? "approved" : "rejected";
-  const ctx = await templateCtx(db, config);
+  const ctx = await templateContext(db, config);
   const recipientId = await contractorUserId(db, invoice.employeeId);
 
   return db.transaction(async (tx) => {
@@ -567,7 +562,7 @@ export async function recordPayment(
   const backupWithheld = details.backupWithholding
     ? round2(input.amount * BACKUP_WITHHOLDING_RATE)
     : 0;
-  const ctx = await templateCtx(db, config);
+  const ctx = await templateContext(db, config);
   const recipientId = await contractorUserId(db, invoice.employeeId);
 
   return db.transaction(async (tx) => {
@@ -888,7 +883,7 @@ export async function checkContractorFormExpiry(
     .innerJoin(employees, eq(employees.id, contractorDetails.employeeId))
     .where(and(isNotNull(contractorDetails.formExpiresAt), eq(employees.status, "active")));
 
-  const ctx = await templateCtx(db, config);
+  const ctx = await templateContext(db, config);
   const admins = await adminUserIds(db);
   const result = { expiring: 0, expired: 0 };
 

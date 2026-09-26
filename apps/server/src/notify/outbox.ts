@@ -11,7 +11,7 @@
 
 import { and, asc, eq } from "drizzle-orm";
 import { company, emailOutbox, notificationSettings } from "@payroll/db";
-import { WORKFLOW_EVENTS } from "@payroll/notifications";
+import { type TemplateContext, WORKFLOW_EVENTS } from "@payroll/notifications";
 import type { Db } from "../db.js";
 import type { AppConfig } from "../config.js";
 
@@ -157,8 +157,30 @@ function htmlToText(html: string): string {
     .trim();
 }
 
+/**
+ * Stand-in employer name when no company row exists yet (spec 22 D5). A
+ * deployment that has completed company setup never reaches it.
+ */
+export const COMPANY_NAME_PLACEHOLDER = "Your company";
+
 /** Company-name helper for template contexts (single company row per spec 1). */
 export async function companyName(db: Pick<Db, "select">): Promise<string> {
   const rows = await db.select({ legalName: company.legalName }).from(company).limit(1);
-  return rows[0]?.legalName ?? "Payroll";
+  return rows[0]?.legalName ?? COMPANY_NAME_PLACEHOLDER;
+}
+
+/**
+ * The one builder for email template contexts: employer name (from the
+ * company row unless the caller already holds it), product name, app URL.
+ */
+export async function templateContext(
+  db: Pick<Db, "select">,
+  config: Pick<AppConfig, "baseUrl" | "brandName">,
+  knownCompanyName?: string,
+): Promise<TemplateContext> {
+  return {
+    companyName: knownCompanyName || (await companyName(db)),
+    brandName: config.brandName,
+    appUrl: config.baseUrl,
+  };
 }

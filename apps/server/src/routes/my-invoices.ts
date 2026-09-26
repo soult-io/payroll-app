@@ -13,9 +13,10 @@
 
 import type { FastifyInstance, FastifyRequest } from "fastify";
 import { and, desc, eq, inArray } from "drizzle-orm";
-import { company, contractorInvoices, contractorPayments, employees } from "@payroll/db";
+import { contractorInvoices, contractorPayments, employees } from "@payroll/db";
 import { renderInvoicePdf } from "@payroll/documents";
 import type { Db } from "../db.js";
+import { companyName } from "../notify/outbox.js";
 import type { Guards } from "../plugins/guards.js";
 
 interface MyInvoiceDeps {
@@ -108,10 +109,9 @@ export function registerMyInvoiceRoutes(app: FastifyInstance, deps: MyInvoiceDep
       .where(eq(contractorPayments.invoiceId, invoice.id))
       .limit(1);
     const payment = paymentRows[0] ?? null;
-    const companyRows = await db.select({ legalName: company.legalName }).from(company).limit(1);
 
     const pdf = await renderInvoicePdf({
-      company: { legalName: companyRows[0]?.legalName ?? "Payroll" },
+      company: { legalName: await companyName(db) },
       contractor: { legalName: employee!.legalName, preferredName: employee!.preferredName },
       invoiceDate: invoice.invoiceDate,
       description: invoice.description,

@@ -1,7 +1,8 @@
 /**
  * Email templates (spec notifications): one function per catalog event, each
  * returning {subject, html, text} (text/plain fallback always present).
- * MJML-free, branding = company name from the company row, no external assets.
+ * MJML-free, no external assets. The employer's name (company row) leads; the
+ * product name (spec 22 D4) appears only as the tool that sent the message.
  *
  * CONTENT RULES (spec — enforced here, asserted in tests):
  * - change_request_* emails never include amounts.
@@ -135,6 +136,8 @@ export interface RenderedEmail {
 
 export interface TemplateContext {
   companyName: string;
+  /** Product name (spec 22), from AppConfig.brandName. */
+  brandName: string;
   /** Public app URL for "log in" links (no deep links to sensitive data). */
   appUrl: string;
 }
@@ -147,12 +150,18 @@ function escapeHtml(s: string): string {
     .replaceAll('"', "&quot;");
 }
 
+/** Footer sentence (spec 22 D4), shared by the HTML and plain-text bodies. */
+function footer(companyName: string, brandName: string): string {
+  return `Sent by ${brandName} on behalf of ${companyName}. This is an automated message — please don't reply. Questions? Contact ${companyName} directly.`;
+}
+
 function page(ctx: TemplateContext, bodyHtml: string): string {
+  const company = escapeHtml(ctx.companyName);
   return `<!doctype html>
 <html><body style="font-family:system-ui,sans-serif;max-width:560px;margin:0 auto;padding:24px;color:#111">
-<h2 style="margin:0 0 16px">${escapeHtml(ctx.companyName)}</h2>
+<h2 style="margin:0 0 16px">${company}</h2>
 ${bodyHtml}
-<p style="color:#777;font-size:12px;margin-top:32px">This is an automated message from ${escapeHtml(ctx.companyName)} Payroll. Do not reply.</p>
+<p style="color:#777;font-size:12px;margin-top:32px">${footer(company, escapeHtml(ctx.brandName))}</p>
 </body></html>`;
 }
 
@@ -162,7 +171,11 @@ function email(
   bodyHtml: string,
   text: string,
 ): RenderedEmail {
-  return { subject: `${ctx.companyName} Payroll — ${subject}`, html: page(ctx, bodyHtml), text };
+  return {
+    subject: `${ctx.companyName} — ${subject}`,
+    html: page(ctx, bodyHtml),
+    text: `${text}\n\n${footer(ctx.companyName, ctx.brandName)}`,
+  };
 }
 
 const CHANGE_REQUEST_LABELS: Record<string, string> = {
@@ -257,13 +270,18 @@ export function changeRequestDenied(
 // Security events (always on)
 // ---------------------------------------------------------------------------
 
+function inviteLead(company: string, brand: string): string {
+  return `${company} has invited you to view your pay and tax documents in ${brand}, the payroll system ${company} uses.`;
+}
+
 export function securityInvite(ctx: TemplateContext, data: { setupLink: string }): RenderedEmail {
-  const body = `<p>You have been invited to ${escapeHtml(ctx.companyName)} Payroll.</p><p><a href="${data.setupLink}">Set up your account</a> (single-use link, valid 24 hours). You will choose a password and enroll an authenticator app.</p>`;
+  const lead = inviteLead(escapeHtml(ctx.companyName), escapeHtml(ctx.brandName));
+  const body = `<p>${lead}</p><p><a href="${data.setupLink}">Set up your account</a> (single-use link, valid 24 hours). You will choose a password and enroll an authenticator app.</p>`;
   return email(
     ctx,
     "you're invited",
     body,
-    `You have been invited to ${ctx.companyName} Payroll. Set up your account with this single-use link (valid 24 hours): ${data.setupLink}`,
+    `${inviteLead(ctx.companyName, ctx.brandName)} Set up your account with this single-use link (valid 24 hours): ${data.setupLink}`,
   );
 }
 
@@ -271,12 +289,13 @@ export function securityPasswordReset(
   ctx: TemplateContext,
   data: { setupLink: string },
 ): RenderedEmail {
-  const body = `<p>A password reset was requested for your ${escapeHtml(ctx.companyName)} Payroll account. You will need to set a new password and re-enroll your authenticator app.</p><p><a href="${data.setupLink}">Reset your password</a> (single-use link, valid 24 hours). If you did not request this, contact your administrator.</p>`;
+  const company = escapeHtml(ctx.companyName);
+  const body = `<p>Someone asked to reset the password for your ${company} account in ${escapeHtml(ctx.brandName)}. You will need to set a new password and re-enroll your authenticator app.</p><p><a href="${data.setupLink}">Reset your password</a> (single-use link, valid 24 hours). If you did not request this, contact ${company}.</p>`;
   return email(
     ctx,
     "password reset",
     body,
-    `A password reset was requested for your ${ctx.companyName} Payroll account. Reset with this single-use link (valid 24 hours): ${data.setupLink}`,
+    `Someone asked to reset the password for your ${ctx.companyName} account in ${ctx.brandName}. Reset with this single-use link (valid 24 hours): ${data.setupLink} If you did not request this, contact ${ctx.companyName}.`,
   );
 }
 
@@ -286,22 +305,23 @@ export function securityLoginNewDevice(
 ): RenderedEmail {
   const ua = data.userAgent ?? "unknown device";
   const ip = data.ip ?? "unknown IP";
-  const body = `<p>A sign-in to your ${escapeHtml(ctx.companyName)} Payroll account completed from a device we have not seen before:</p><ul><li>Device: ${escapeHtml(ua)}</li><li>IP: ${escapeHtml(ip)}</li><li>Time: ${escapeHtml(data.at)}</li></ul><p>If this was not you, contact your administrator immediately.</p>`;
+  const company = escapeHtml(ctx.companyName);
+  const body = `<p>Your ${company} account in ${escapeHtml(ctx.brandName)} was just signed in to from a device we haven't seen before:</p><ul><li>Device: ${escapeHtml(ua)}</li><li>IP: ${escapeHtml(ip)}</li><li>Time: ${escapeHtml(data.at)}</li></ul><p>If this wasn't you, contact ${company} right away.</p>`;
   return email(
     ctx,
     "new device sign-in",
     body,
-    `A sign-in to your ${ctx.companyName} Payroll account completed from an unseen device (${ua}, IP ${ip}, at ${data.at}). If this was not you, contact your administrator immediately.`,
+    `Your ${ctx.companyName} account in ${ctx.brandName} was just signed in to from a device we haven't seen before: Device: ${ua}; IP: ${ip}; Time: ${data.at}. If this wasn't you, contact ${ctx.companyName} right away.`,
   );
 }
 
 export function adminTestEmail(ctx: TemplateContext, data: { by: string }): RenderedEmail {
-  const body = `<p>This is a test email from the ${escapeHtml(ctx.companyName)} Payroll admin settings, requested by ${escapeHtml(data.by)}. SMTP delivery is working.</p>`;
+  const body = `<p>This is a test email from ${escapeHtml(ctx.brandName)} settings for ${escapeHtml(ctx.companyName)}, requested by ${escapeHtml(data.by)}. Email delivery is working.</p>`;
   return email(
     ctx,
     "test email",
     body,
-    `Test email from ${ctx.companyName} Payroll admin settings (requested by ${data.by}). SMTP delivery is working.`,
+    `This is a test email from ${ctx.brandName} settings for ${ctx.companyName}, requested by ${data.by}. Email delivery is working.`,
   );
 }
 

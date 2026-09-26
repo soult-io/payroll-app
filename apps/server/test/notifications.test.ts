@@ -40,7 +40,7 @@ let cookieA: string;
 let admin: { userId: string; email: string };
 let adminCookie: string;
 
-const CTX = { companyName: "Test Co", appUrl: "http://localhost" };
+const CTX = { companyName: "Test Co", brandName: "Wagon Payroll", appUrl: "http://localhost" };
 
 class StubTransport implements MailTransport {
   messages: { from: string; to: string; subject: string; html: string; text: string }[] = [];

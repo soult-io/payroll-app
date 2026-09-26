@@ -11,7 +11,7 @@ import { adminTestEmail, EVENT_TYPE } from "@payroll/notifications";
 import type { Db } from "../db.js";
 import type { AppConfig } from "../config.js";
 import type { Guards } from "../plugins/guards.js";
-import { companyName } from "../notify/outbox.js";
+import { templateContext } from "../notify/outbox.js";
 
 interface Deps {
   db: Db;
@@ -58,10 +58,7 @@ export function registerAdminNotificationRoutes(app: FastifyInstance, deps: Deps
   });
 
   app.post("/api/admin/settings/test-email", { preHandler: admin }, async (req, reply) => {
-    const rendered = adminTestEmail(
-      { companyName: await companyName(db), appUrl: config.baseUrl },
-      { by: req.authUser!.email },
-    );
+    const rendered = adminTestEmail(await templateContext(db, config), { by: req.authUser!.email });
     await db.insert(emailOutbox).values({
       userId: req.authUser!.id,
       eventType: EVENT_TYPE.adminTestEmail,
