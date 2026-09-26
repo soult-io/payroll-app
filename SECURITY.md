@@ -7,7 +7,7 @@ vulnerability reporting:
 
 **Repository → Security → Advisories → Report a vulnerability**
 
-(<https://github.com/soult-io/payroll-app/security/advisories/new>)
+(<https://github.com/soult-io/wagon-payroll/security/advisories/new>)
 
 Please do **not** open a public issue for a vulnerability. We will acknowledge
 your report as quickly as we can and coordinate a fix and disclosure timeline
