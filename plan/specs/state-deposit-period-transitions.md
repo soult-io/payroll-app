@@ -36,8 +36,10 @@ seeds run by hand. The bug fires only once `state_deposit_schedules` has rows. S
 ## 2. Domain rules (state-local-payroll-sme, 2026; requirements, not proposals)
 
 - **R1** Quarterly = one row per state per quarter covering 3 months, due on the schedule's
-  date. The schedule is looked up by the pay-period year. Quarters never cross a year;
-  December never merges with the next January.
+  date. The schedule and the quarter are taken from the **pay date** (the date wages are
+  paid), not the pay period: a Dec 20–31 period paid Jan 5 belongs to January of the next
+  year (state SME, 2026-09-26). Quarters never cross a year; December never merges with
+  the next January. Test: a period that crosses the year and is paid in January.
 - **R2 (Case A)** All monthly rows in the quarter are pending/overdue → merge into one
   quarter row. The amount is **recomputed from the quarter's issued runs**, not by adding
   up the old rows. Due date comes from the schedule; status comes from the new due date.
@@ -212,7 +214,7 @@ syncDeposits(deps, { today }):
            ∪ live state rows (period_start → year, quarter)
   for each unit (state S, year Y, quarter q):            -- q never crosses Y (R1)
      input := {
-       schedule: schedules["S:Y"] ?? null,                -- lookup by pay-period year
+       schedule: schedules["S:Y"] ?? null,                -- lookup by pay-date year (R1)
        L[1..3]:  cents of issued-run state_withholding for S per month of q (0 if none),
        live:     live rows of S with period_start in q (id, kind, start, cents, status, due),
        today }
@@ -306,8 +308,9 @@ the final wording; no tax advice):
    so this month is now part of the {Q3 2026} deposit." Link: "View {Q3 2026} deposit"
 7. Superseded row banner, to monthly: "Replaced. {State} changed to monthly payments, so
    this quarter is now split into monthly deposits."
-8. Month row credited by a quarter payment (Case C): "{Q3 2026} payment applied to this
-   month: {amount}."
+8. Month row credited by a quarter payment (Case C): "Counted toward this month: {amount}."
+   Note, Case C: "{State} now takes monthly payments. Check with {State} how your {Q3 2026}
+   payment was applied to each month."
 9. 409 on marking a superseded or 0.00 row: "This deposit has nothing left to record."
 
 ## 8. Scenario test matrix (GUARDRAILS "Scenario coverage", classes a–g)
