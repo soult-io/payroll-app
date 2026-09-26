@@ -31,9 +31,14 @@ spells the product name except through this module; the only literals left are
 the static pre-JS `<title>` (D2), the pay-verify page (D8), and prose docs.
 
 Validation (boot fails on an invalid value, same as a missing secret): trim;
-unset or empty → default; 1–60 characters; reject any control character
-(U+0000–U+001F, U+007F). The name goes into an email `Subject:` header and an
-`otpauth://` URI; CR/LF would be header injection.
+unset or empty → default; 1–60 characters; reject C0 controls
+(U+0000–U+001F), DEL (U+007F), C1 controls (U+0080–U+009F), zero-width and
+directional marks (U+200B–U+200F), line/paragraph separators (U+2028,
+U+2029), bidi embeddings and overrides (U+202A–U+202E), and bidi isolates
+(U+2066–U+2069). The name goes into an email `Subject:` header and an
+`otpauth://` URI; CR/LF would be header injection, and bidi/zero-width
+characters let a name render as different text than it is. One function
+(`parseDisplayName`) validates both `BRAND_NAME` and `TOTP_ISSUER`.
 
 **D2 — The SPA learns the name from the existing `GET /api/runtime-config`.**
 Options weighed:
@@ -54,7 +59,9 @@ fails), so a default deployment shows no flash of a different name.
 paint.
 
 **D3 — TOTP issuer follows the brand.** `totpIssuer` =
-`TOTP_ISSUER` if set and non-empty, else `brandName`. `TOTP_ISSUER` stays as an
+an explicit `totpIssuer` config override, else `TOTP_ISSUER` if set and
+non-empty (validated like `BRAND_NAME`; invalid fails boot), else the final
+`brandName` (after config overrides are merged). `TOTP_ISSUER` stays as an
 override for existing deployments. Neither stack-payroll compose sets it, so
 QA and prod new enrollments show "Wagon Payroll". Authenticator entries already
 enrolled keep the label "Payroll": the label lives in the user's app, codes are
@@ -138,10 +145,12 @@ stack-payroll needs no change.
 
 Server (vitest):
 1. `parseBrandName`: unset / `""` / whitespace → `"Wagon Payroll"`; `" Acme "` →
-   `"Acme"`; 61 chars, `"A\r\nBcc: x"`, `"A\u0000"` → throw.
+   `"Acme"`; 61 chars, `"A\r\nBcc: x"`, `"A\u0000"`, LRO U+202D, RLO U+202E,
+   U+2028 → throw.
 2. `loadConfig`: no env → `brandName` and `totpIssuer` both `"Wagon Payroll"`;
    `BRAND_NAME=Acme` → both `"Acme"`; `TOTP_ISSUER=Old` → issuer `"Old"`,
-   brand unchanged.
+   brand unchanged; `loadConfig({ brandName: "X" })` → issuer `"X"`; invalid
+   `TOTP_ISSUER` → throw.
 3. `qa-runtime.test.ts`: body `toEqual({ appEnv: "production", brandName: "Wagon Payroll" })`
    (exact key set), and the override case.
 4. Onboarding TOTP setup: returned `totpURI` has `issuer=Wagon%20Payroll`.

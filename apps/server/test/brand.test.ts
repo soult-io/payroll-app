@@ -63,6 +63,19 @@ describe("parseBrandName (D1)", () => {
     expect(() => parseBrandName("A\u0000")).toThrow(/BRAND_NAME/);
     expect(() => parseBrandName("A\u007fB")).toThrow(/BRAND_NAME/);
     expect(() => parseBrandName("A\tB")).toThrow(/BRAND_NAME/);
+    expect(() => parseBrandName("A\u0085B")).toThrow(/BRAND_NAME/); // C1 NEL
+  });
+
+  it("rejects zero-width, separator, and bidi characters (spoofing)", () => {
+    expect(() => parseBrandName("Acme\u202dPay")).toThrow(/BRAND_NAME/); // LRO
+    expect(() => parseBrandName("Acme\u202ePay")).toThrow(/BRAND_NAME/); // RLO
+    expect(() => parseBrandName("Acme\u2028Pay")).toThrow(/BRAND_NAME/); // line separator
+    expect(() => parseBrandName("Acme\u200bPay")).toThrow(/BRAND_NAME/); // zero-width space
+    expect(() => parseBrandName("Acme\u2067Pay")).toThrow(/BRAND_NAME/); // RLI
+  });
+
+  it("accepts ordinary non-ASCII names", () => {
+    expect(parseBrandName("Nómina Café — Pagos")).toBe("Nómina Café — Pagos");
   });
 });
 
@@ -94,6 +107,38 @@ describe("loadConfig brand + TOTP issuer (D1, D3)", () => {
   it("empty TOTP_ISSUER falls back to the brand", () => {
     withEnv({ BRAND_NAME: undefined, TOTP_ISSUER: "" }, () => {
       expect(loadConfig().totpIssuer).toBe("Wagon Payroll");
+    });
+  });
+
+  it("a brandName override moves the issuer too", () => {
+    withEnv({ BRAND_NAME: undefined, TOTP_ISSUER: undefined }, () => {
+      const config = loadConfig({ brandName: "X" });
+      expect(config.brandName).toBe("X");
+      expect(config.totpIssuer).toBe("X");
+    });
+  });
+
+  it("TOTP_ISSUER env or an explicit totpIssuer override wins over a brandName override", () => {
+    withEnv({ BRAND_NAME: undefined, TOTP_ISSUER: "Old" }, () => {
+      expect(loadConfig({ brandName: "X" }).totpIssuer).toBe("Old");
+    });
+    withEnv({ BRAND_NAME: undefined, TOTP_ISSUER: undefined }, () => {
+      expect(loadConfig({ brandName: "X", totpIssuer: "Y" }).totpIssuer).toBe("Y");
+    });
+  });
+
+  it("TOTP_ISSUER is trimmed and validated like BRAND_NAME; invalid fails boot", () => {
+    withEnv({ BRAND_NAME: undefined, TOTP_ISSUER: "  Old  " }, () => {
+      expect(loadConfig().totpIssuer).toBe("Old");
+    });
+    withEnv({ BRAND_NAME: undefined, TOTP_ISSUER: "A\r\nB" }, () => {
+      expect(() => loadConfig()).toThrow(/TOTP_ISSUER/);
+    });
+    withEnv({ BRAND_NAME: undefined, TOTP_ISSUER: "A\u202eB" }, () => {
+      expect(() => loadConfig()).toThrow(/TOTP_ISSUER/);
+    });
+    withEnv({ BRAND_NAME: undefined, TOTP_ISSUER: "A".repeat(61) }, () => {
+      expect(() => loadConfig()).toThrow(/TOTP_ISSUER/);
     });
   });
 
