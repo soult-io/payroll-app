@@ -36,7 +36,7 @@ import {
   stateDepositSchedules,
   taxDeposits,
 } from "@payroll/db";
-import { formatMoney, parseCents } from "@payroll/shared";
+import { formatCents, formatMoney, parseCents } from "@payroll/shared";
 import {
   EVENT_TYPE,
   taxDepositDue as tplTaxDepositDue,
@@ -55,6 +55,7 @@ import {
   type PeriodKind,
   type StateSchedule,
 } from "./periods.js";
+import { planStateQuarter, type LiveDepositRow, type QuarterPlan } from "./transition.js";
 
 export {
   dueDateFor,
@@ -139,7 +140,11 @@ function addDays(iso: string, days: number): string {
  * ISSUED runs with pay_date in the month. Draft/void/awaiting runs never
  * count. NUMERIC sum in SQL — exact decimal math, no floats, to the cent.
  */
-export async function computeDepositAmount(db: Db, year: number, month: number): Promise<string> {
+export async function computeDepositAmount(
+  db: Pick<Db, "select">,
+  year: number,
+  month: number,
+): Promise<string> {
   const periodStart = periodStartFor(year, month);
   const rows = await db
     .select({
@@ -158,86 +163,6 @@ export async function computeDepositAmount(db: Db, year: number, month: number):
       ),
     );
   return rows[0]?.total ?? "0.00";
-}
-
-/**
- * Compute per-state sums for state_withholding entries across all issued
- * runs in a month. Returns an array of {workState, amount} for each distinct
- * workState with non-zero state withholding. Runs without a frozen
- * inputs.state (legacy / no work state) group under a NULL workState — they
- * necessarily sum to 0.00 and are dropped by the zero filter.
- */
-export async function computeStateDepositAmounts(
-  db: Db,
-  year: number,
-  month: number,
-): Promise<{ workState: string; amount: string }[]> {
-  const periodStart = periodStartFor(year, month);
-  const rows = await db
-    .select({
-      workState: sql<string>`(${payrollRuns.runSnapshot}#>>'{inputs,state,workState}')`,
-      amount: sql<string>`coalesce(sum(${payrollEntries.amount}), 0)::numeric(12,2)::text`,
-    })
-    .from(payrollEntries)
-    .innerJoin(payrollRuns, eq(payrollEntries.runId, payrollRuns.id))
-    .where(
-      and(
-        eq(payrollRuns.status, "issued"),
-        sql`date_trunc('month', ${payrollRuns.payDate})::date = ${periodStart}::date`,
-        eq(payrollEntries.category, "state_withholding"),
-      ),
-    )
-    .groupBy(sql`${payrollRuns.runSnapshot}#>>'{inputs,state,workState}'`);
-
-  return rows
-    .filter((row) => row.workState && row.amount !== "0.00")
-    .map((row) => ({ workState: row.workState, amount: row.amount }));
-}
-
-/**
- * Compute per-state sums for state_withholding entries across all issued
- * runs in a period (monthly or quarterly). Returns an array of
- * {periodStart, workState, amount}. For quarterly schedules, aggregates across
- * the entire quarter; for monthly/fallback, only the given periodStart month.
- */
-export async function computeStateDepositAmountsForPeriod(
-  db: Db,
-  periodStart: string,
-  frequency: "monthly" | "quarterly",
-): Promise<{ workState: string; amount: string }[]> {
-  let periodClause: SQLWrapper | undefined;
-  if (frequency === "monthly") {
-    periodClause = sql`date_trunc('month', ${payrollRuns.payDate})::date = ${periodStart}::date`;
-  } else {
-    const q = quarterOfMonth(Number(periodStart.slice(5, 7)));
-    const firstMonth = (q - 1) * 3 + 1;
-    const lastMonth = q * 3;
-    const firstPeriod = periodStartFor(Number(periodStart.slice(0, 4)), firstMonth);
-    const lastPeriod = periodStartFor(Number(periodStart.slice(0, 4)), lastMonth);
-    periodClause = sql`
-      date_trunc('month', ${payrollRuns.payDate})::date >= ${firstPeriod}::date
-      AND date_trunc('month', ${payrollRuns.payDate})::date <= ${lastPeriod}::date
-    `;
-  }
-  const rows = await db
-    .select({
-      workState: sql<string>`(${payrollRuns.runSnapshot}#>>'{inputs,state,workState}')`,
-      amount: sql<string>`coalesce(sum(${payrollEntries.amount}), 0)::numeric(12,2)::text`,
-    })
-    .from(payrollEntries)
-    .innerJoin(payrollRuns, eq(payrollEntries.runId, payrollRuns.id))
-    .where(
-      and(
-        eq(payrollRuns.status, "issued"),
-        periodClause,
-        eq(payrollEntries.category, "state_withholding"),
-      ),
-    )
-    .groupBy(sql`${payrollRuns.runSnapshot}#>>'{inputs,state,workState}'`);
-
-  return rows
-    .filter((row) => row.workState && row.amount !== "0.00")
-    .map((row) => ({ workState: row.workState, amount: row.amount }));
 }
 
 // ---------------------------------------------------------------------------
@@ -308,7 +233,7 @@ function toStateSchedule(row: typeof stateDepositSchedules.$inferSelect): StateS
 }
 
 /** Load all state deposit schedules into a Map keyed by "stateCode:taxYear". */
-async function loadStateSchedules(db: Db): Promise<Map<string, StateSchedule>> {
+async function loadStateSchedules(db: Pick<Db, "select">): Promise<Map<string, StateSchedule>> {
   const rows = await db.select().from(stateDepositSchedules);
   const map = new Map<string, StateSchedule>();
   for (const row of rows) {
@@ -318,47 +243,26 @@ async function loadStateSchedules(db: Db): Promise<Map<string, StateSchedule>> {
   return map;
 }
 
-/** Compute the period key for a (state, periodStart, schedule). */
-function statePeriodKey(
-  state: string,
-  periodStart: string,
-  schedule: StateSchedule | null,
-): string {
-  if (!schedule || schedule.frequency === "monthly") {
-    return `${state}:${periodStart}`;
-  }
-  const year = Number(periodStart.slice(0, 4));
-  const q = quarterOfMonth(Number(periodStart.slice(5, 7)));
-  const firstMonthOfQuarter = (q - 1) * 3 + 1;
-  const quarterStart = periodStartFor(year, firstMonthOfQuarter);
-  return `${state}:${quarterStart}`;
-}
-
 // ---------------------------------------------------------------------------
-// Deposit sync (daily tick) — idempotent upsert + overdue flip
+// Deposit sync (daily tick) — federal upsert + state period planner (PAY-91)
 // ---------------------------------------------------------------------------
 
 export interface SyncResult {
   created: number;
   recomputed: number;
   flippedOverdue: number;
+  /** PAY-91: rows replaced by a monthly <-> quarterly period transition. */
+  superseded: number;
 }
 
+type Tx = Parameters<Parameters<Db["transaction"]>[0]>[0];
+
 /**
- * Upsert pending deposit rows for every month with issued payroll history —
- * INCLUDING the current month (PAY-14): the row appears as soon as a run
- * issues in the month, because the FTD is typically paid right after payroll,
- * weeks before the due date. Then flip past-due pending rows to 'overdue'.
- * Idempotent: the (jurisdiction, period_start) unique constraint is the belt;
- * amounts are recomputed while status='pending' so a late-issued run corrects
- * the figure, and 'deposited'/'overdue' rows are never rewritten. Due dates,
- * the overdue flip, and reminders use the per-state schedule when present.
- *
- * After the federal loop, state rows are synced once per distinct (state,
- * periodStart), where periodStart is the state's deposit period (monthly for
- * monthly frequency, or quarter start for quarterly frequency).
+ * Federal (PAY-9): one month row per pay month; the amount of a PENDING row
+ * is recomputed when a late run issues. Deposited/overdue rows are never
+ * rewritten (spec 23 D4 keeps federal unchanged).
  */
-async function syncFederalDeposit(db: Db, periodStart: string, result: SyncResult) {
+async function syncFederalDeposit(db: Tx, periodStart: string, result: SyncResult) {
   const year = Number(periodStart.slice(0, 4));
   const month = Number(periodStart.slice(5, 7));
   const amount = await computeDepositAmount(db, year, month);
@@ -399,119 +303,242 @@ async function syncFederalDeposit(db: Db, periodStart: string, result: SyncResul
   }
 }
 
-async function syncStateDepositsForPeriod(
-  db: Db,
-  workState: string,
-  periodStart: string,
-  schedule: StateSchedule | null,
-  result: SyncResult,
-) {
-  const stateDeposits = await computeStateDepositAmountsForPeriod(
-    db,
-    periodStart,
-    schedule?.frequency ?? "monthly",
-  );
+/** One (state, year, quarter) planning unit (spec 23 §6). */
+interface StateUnit {
+  state: string;
+  year: number;
+  quarter: number;
+  liability: [number, number, number];
+  live: LiveDepositRow[];
+}
 
-  let totalAmount = "0.00";
-  for (const { workState: ws, amount } of stateDeposits) {
-    if (ws === workState) {
-      totalAmount = amount;
-      break;
-    }
+function unitKey(state: string, year: number, quarter: number): string {
+  return `${state}:${year}:${quarter}`;
+}
+
+function toLiveRow(row: TaxDepositRow): LiveDepositRow {
+  return {
+    id: row.id,
+    kind: withPeriodKind(row).periodKind,
+    periodStart: row.periodStart,
+    cents: parseCents(row.amount),
+    status: row.status as LiveDepositRow["status"],
+    dueDate: row.dueDate,
+    depositedOn: row.depositedOn,
+  };
+}
+
+/**
+ * Issued-run state withholding in cents per (state, pay month). Year and
+ * quarter come from the PAY DATE (R1); the work state from the frozen run
+ * snapshot. Exact NUMERIC sums, parsed to cents.
+ */
+async function loadStateLiability(
+  db: Tx,
+  filter?: { state: string; year: number; quarter: number },
+): Promise<{ state: string; month: string; cents: number }[]> {
+  const workState = sql<string>`(${payrollRuns.runSnapshot}#>>'{inputs,state,workState}')`;
+  const month = sql<string>`to_char(date_trunc('month', ${payrollRuns.payDate})::date, 'YYYY-MM-DD')`;
+  const conditions: SQLWrapper[] = [
+    eq(payrollRuns.status, "issued"),
+    eq(payrollEntries.category, "state_withholding"),
+    sql`${workState} IS NOT NULL`,
+  ];
+  if (filter) {
+    const first = periodStartFor(filter.year, (filter.quarter - 1) * 3 + 1);
+    conditions.push(sql`${workState} = ${filter.state}`);
+    conditions.push(sql`date_trunc('quarter', ${payrollRuns.payDate})::date = ${first}::date`);
   }
+  const rows = await db
+    .select({
+      state: workState,
+      month,
+      amount: sql<string>`coalesce(sum(${payrollEntries.amount}), 0)::numeric(12,2)::text`,
+    })
+    .from(payrollEntries)
+    .innerJoin(payrollRuns, eq(payrollEntries.runId, payrollRuns.id))
+    .where(and(...conditions))
+    .groupBy(workState, month);
+  return rows.map((r) => ({ state: r.state, month: r.month, cents: parseCents(r.amount) }));
+}
 
-  const periodKind: PeriodKind = schedule?.frequency === "quarterly" ? "quarter" : "month";
-  const existing = await db
+function unitFor(units: Map<string, StateUnit>, state: string, periodStart: string): StateUnit {
+  const year = Number(periodStart.slice(0, 4));
+  const quarter = quarterOfMonth(Number(periodStart.slice(5, 7)));
+  const key = unitKey(state, year, quarter);
+  let unit = units.get(key);
+  if (!unit) {
+    unit = { state, year, quarter, liability: [0, 0, 0], live: [] };
+    units.set(key, unit);
+  }
+  return unit;
+}
+
+/** Units = DISTINCT (state, year, quarter) of issued state runs ∪ live state rows. */
+async function loadStateUnits(
+  db: Tx,
+  filter?: { state: string; year: number; quarter: number },
+): Promise<StateUnit[]> {
+  const units = new Map<string, StateUnit>();
+  for (const l of await loadStateLiability(db, filter)) {
+    const unit = unitFor(units, l.state, l.month);
+    const m = (Number(l.month.slice(5, 7)) - 1) % 3;
+    unit.liability[m] = (unit.liability[m] ?? 0) + l.cents;
+  }
+  const conditions: SQLWrapper[] = [sql`${taxDeposits.jurisdiction} <> 'federal'`, liveDeposit];
+  if (filter) {
+    const first = periodStartFor(filter.year, (filter.quarter - 1) * 3 + 1);
+    conditions.push(eq(taxDeposits.jurisdiction, filter.state));
+    conditions.push(sql`date_trunc('quarter', ${taxDeposits.periodStart})::date = ${first}::date`);
+  }
+  const rows = await db
     .select()
     .from(taxDeposits)
-    .where(
-      and(
-        eq(taxDeposits.jurisdiction, workState),
-        eq(taxDeposits.periodStart, periodStart),
-        eq(taxDeposits.periodKind, periodKind),
-        liveDeposit,
-      ),
-    )
-    .limit(1);
-  const row = existing[0];
+    .where(and(...conditions))
+    .orderBy(taxDeposits.id);
+  for (const row of rows) {
+    unitFor(units, row.jurisdiction, row.periodStart).live.push(toLiveRow(row));
+  }
+  return [...units.values()].sort((a, b) =>
+    unitKey(a.state, a.year, a.quarter) < unitKey(b.state, b.year, b.quarter) ? -1 : 1,
+  );
+}
 
-  if (!row) {
-    await db.insert(taxDeposits).values({
-      jurisdiction: workState,
-      periodStart,
-      periodKind,
-      amount: totalAmount,
-      dueDate: stateDueDateFor(schedule, Number(periodStart.slice(0, 4)), periodStart),
-      status: "pending",
-      createdBy: "scheduler",
-    });
-    result.created += 1;
-  } else if (row.status === "pending" && row.amount !== totalAmount) {
-    await db
+function planUnit(
+  unit: StateUnit,
+  schedules: Map<string, StateSchedule>,
+  today: string,
+): QuarterPlan {
+  return planStateQuarter({
+    year: unit.year,
+    quarter: unit.quarter,
+    // Schedule by pay-date year (R1): the unit's year.
+    schedule: schedules.get(`${unit.state}:${unit.year}`) ?? null,
+    liability: unit.liability,
+    live: unit.live,
+    today,
+  });
+}
+
+/** Apply one unit's plan: supersede, then update, then insert (the index needs that order). */
+async function applyPlan(
+  tx: Tx,
+  unit: StateUnit,
+  plan: QuarterPlan,
+  result: SyncResult,
+): Promise<void> {
+  const now = new Date();
+  const open = ["pending", "overdue"];
+  const superseded = plan.supersede.length
+    ? await tx
+        .update(taxDeposits)
+        .set({ status: "superseded", supersededAt: now, updatedAt: now })
+        // Guard: a deposited row is never superseded.
+        .where(and(inArray(taxDeposits.id, plan.supersede), inArray(taxDeposits.status, open)))
+        .returning({ id: taxDeposits.id })
+    : [];
+  for (const u of plan.updates) {
+    await tx
       .update(taxDeposits)
-      .set({ amount: totalAmount, updatedAt: new Date() })
-      .where(eq(taxDeposits.id, row.id));
-    result.recomputed += 1;
+      .set({ amount: formatCents(u.cents), dueDate: u.dueDate, status: u.status, updatedAt: now })
+      .where(and(eq(taxDeposits.id, u.id), inArray(taxDeposits.status, open)));
+  }
+  const inserted = plan.inserts.length
+    ? await tx
+        .insert(taxDeposits)
+        .values(
+          plan.inserts.map((i) => ({
+            jurisdiction: unit.state,
+            periodStart: i.periodStart,
+            periodKind: i.kind,
+            amount: formatCents(i.cents),
+            dueDate: i.dueDate,
+            status: i.status,
+            createdBy: "scheduler",
+          })),
+        )
+        .returning({ id: taxDeposits.id })
+    : [];
+  result.superseded += superseded.length;
+  result.recomputed += plan.updates.length;
+  result.created += inserted.length;
+
+  if (superseded.length > 0) {
+    const beforeRows = unit.live.filter((r) => plan.supersede.includes(r.id));
+    await tx.insert(auditEvents).values({
+      actorId: "scheduler",
+      action: "tax_deposit.period_transition",
+      entity: "tax_deposit",
+      entityId: `${unit.state}:${unit.year}-Q${unit.quarter}`,
+      before: { rows: beforeRows },
+      after: {
+        superseded: superseded.map((r) => r.id),
+        updated: plan.updates,
+        inserted: inserted.map((r, n) => ({ id: r.id, ...plan.inserts[n] })),
+        liabilityCents: plan.liabilityCents,
+        creditsCents: plan.depositedCents,
+        overpaidCents: plan.overpaidCents,
+      },
+    });
   }
 }
 
+/** Serialises the deposit sync (daily tick, seed-qa, e2e serve) — spec 23 §6. */
+const SYNC_LOCK = sql`SELECT pg_advisory_xact_lock(hashtext('tax_deposits_state_sync'))`;
+
+/**
+ * Upsert the computed deposit schedule for every pay month with issued
+ * payroll history — INCLUDING the current month (PAY-14): the row appears as
+ * soon as a run issues, because deposits are typically paid right after
+ * payroll, weeks before the due date. Then flip past-due pending rows with
+ * something to pay to 'overdue'.
+ *
+ * Federal rows: one per month (PAY-9), pending amounts recomputed.
+ * State rows (PAY-47/48/91): one plan per (state, year, quarter) unit from
+ * `planStateQuarter` — quarterly schedules merge into one quarter row,
+ * monthly (or no schedule) keep month rows, and a schedule change supersedes
+ * the replaced rows (kept for audit, never counted). Deposited rows are
+ * never touched. The whole sync runs in one transaction under an advisory
+ * lock; re-running it is a no-op (the planner writes only changed fields).
+ */
 export async function syncDeposits(deps: Deps, opts: { today?: string } = {}): Promise<SyncResult> {
   const { db } = deps;
   const today = opts.today ?? todayIso();
+  const result: SyncResult = { created: 0, recomputed: 0, flippedOverdue: 0, superseded: 0 };
 
-  const months = await db
-    .selectDistinct({
-      periodStart: sql<string>`to_char(date_trunc('month', ${payrollRuns.payDate})::date, 'YYYY-MM-DD')`,
-    })
-    .from(payrollRuns)
-    .where(eq(payrollRuns.status, "issued"))
-    .orderBy(sql`1`);
-
-  const scheduleMap = await loadStateSchedules(db);
-  const result: SyncResult = { created: 0, recomputed: 0, flippedOverdue: 0 };
-
-  for (const { periodStart } of months) {
-    await syncFederalDeposit(db, periodStart, result);
-  }
-
-  const statePeriods = new Map<
-    string,
-    { workState: string; periodStart: string; schedule: StateSchedule | null }
-  >();
-
-  for (const { periodStart } of months) {
-    const year = Number(periodStart.slice(0, 4));
-    const month = Number(periodStart.slice(5, 7));
-    const stateAmounts = await computeStateDepositAmounts(db, year, month);
-
-    for (const { workState } of stateAmounts) {
-      const scheduleKey = `${workState}:${year}`;
-      const schedule = scheduleMap.get(scheduleKey) ?? null;
-      const periodKey = statePeriodKey(workState, periodStart, schedule);
-      const effectivePeriodStart = statePeriodStartFor(schedule, year, month);
-
-      if (!statePeriods.has(periodKey)) {
-        statePeriods.set(periodKey, { workState, periodStart: effectivePeriodStart, schedule });
-      }
+  await db.transaction(async (tx) => {
+    // The federal loop shares the lock: two concurrent syncs would otherwise
+    // both insert the same new federal month (select-then-insert).
+    await tx.execute(SYNC_LOCK);
+    const months = await tx
+      .selectDistinct({
+        periodStart: sql<string>`to_char(date_trunc('month', ${payrollRuns.payDate})::date, 'YYYY-MM-DD')`,
+      })
+      .from(payrollRuns)
+      .where(eq(payrollRuns.status, "issued"))
+      .orderBy(sql`1`);
+    for (const { periodStart } of months) {
+      await syncFederalDeposit(tx, periodStart, result);
     }
-  }
 
-  for (const { workState, periodStart, schedule } of statePeriods.values()) {
-    await syncStateDepositsForPeriod(db, workState, periodStart, schedule, result);
-  }
+    const schedules = await loadStateSchedules(tx);
+    for (const unit of await loadStateUnits(tx)) {
+      await applyPlan(tx, unit, planUnit(unit, schedules, today), result);
+    }
 
-  const flipped = await db
-    .update(taxDeposits)
-    .set({ status: "overdue", updatedAt: new Date() })
-    .where(
-      and(
-        eq(taxDeposits.status, "pending"),
-        lt(taxDeposits.dueDate, today),
-        sql`${taxDeposits.amount} > 0`,
-      ),
-    )
-    .returning({ id: taxDeposits.id });
-  result.flippedOverdue = flipped.length;
+    const flipped = await tx
+      .update(taxDeposits)
+      .set({ status: "overdue", updatedAt: new Date() })
+      .where(
+        and(
+          eq(taxDeposits.status, "pending"),
+          lt(taxDeposits.dueDate, today),
+          sql`${taxDeposits.amount} > 0`,
+        ),
+      )
+      .returning({ id: taxDeposits.id });
+    result.flippedOverdue = flipped.length;
+  });
 
   return result;
 }
