@@ -1,0 +1,30 @@
+diff --git a/dist/src/vitest-test-runner.js b/dist/src/vitest-test-runner.js
+index 84f1ca026503b8e92b7adc952ec6c6a401943656..734ffce3b71d5cecb949ca464163d435721420fb 100644
+--- a/dist/src/vitest-test-runner.js
++++ b/dist/src/vitest-test-runner.js
+@@ -142,14 +142,19 @@ export class VitestTestRunner {
+                 : undefined;
+         let testFilesToRun = explicitTestFiles;
+         if (testIds.length > 0) {
++            // Wagon Payroll patch (PAY-93): run every test in each file that
++            // holds a covering test, in file order, with no name filter.
++            // (1) Vitest 5 matches testNamePattern against `fullTestName`
++            //     ("describe > test"); Stryker's space-joined names never
++            //     matched, so every test was skipped and every mutant
++            //     "survived".
++            // (2) The server's PGlite integration tests share state between
++            //     `it` blocks in a file; running a subset fails tests for
++            //     reasons unrelated to the mutant (false kills).
+             const parsedTests = testIds.map(fromTestId);
+-            const regexTestNameFilter = parsedTests
+-                .map(({ test: name }) => escapeRegExp(name))
+-                .join('|');
+-            const regex = new RegExp(regexTestNameFilter);
+-            testFilesToRun = parsedTests.map(({ file }) => file);
++            testFilesToRun = [...new Set(parsedTests.map(({ file }) => file))];
+             this.ctx.projects.forEach((project) => {
+-                project.config.testNamePattern = regex;
++                project.config.testNamePattern = undefined;
+             });
+         }
+         else {

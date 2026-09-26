@@ -8,6 +8,8 @@ FROM node:22-alpine AS build
 RUN npm install -g pnpm@11.17.0
 WORKDIR /app
 COPY pnpm-workspace.yaml package.json pnpm-lock.yaml tsconfig.base.json ./
+# pnpm patchedDependencies (PAY-93): install fails without the patch files.
+COPY patches ./patches
 COPY apps ./apps
 COPY packages ./packages
 RUN pnpm install --frozen-lockfile

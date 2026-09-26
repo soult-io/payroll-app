@@ -46,6 +46,48 @@ pnpm --filter @payroll/e2e e2e
 (The nightly e2e against a live QA deployment requires our self-hosted runner
 and is not expected to run on forks — it skips cleanly there.)
 
+### Mutation testing (test strength on the money path)
+
+[StrykerJS](https://stryker-mutator.io/) makes small changes ("mutants") to the
+code — flips `<` to `<=`, `+` to `-`, drops a branch — and re-runs the tests.
+A mutant that no test catches ("survived") marks a behavior the tests do not
+pin down. It covers the withholding engine and the server's `deposits/` and
+`filings/` modules:
+
+```sh
+pnpm mutation:engine    # packages/engine/src — seconds
+pnpm mutation:server    # apps/server/src/{deposits,filings} — tens of minutes
+```
+
+Extra flags pass through to `stryker run`, e.g. `pnpm mutation:engine --force`
+(re-test every mutant) or `--mutate "src/filings/service.ts"` (one file).
+Runs are incremental: `reports/stryker-incremental.json` in each package holds
+the last result, and only mutants whose code or covering tests changed are
+re-tested.
+
+Reading the report — open `reports/mutation/index.html` in the package
+(`packages/engine/` or `apps/server/`):
+
+- **Killed** — a test failed with the mutant in place. Good.
+- **Survived** — every covering test still passed. A test gap, unless the
+  mutant is equivalent (behaves the same as the original).
+- **No coverage** — no test runs that line at all.
+- **Timeout** — the mutant caused a hang (e.g. an endless loop); counts as
+  detected.
+- **Mutation score** = (killed + timeout) / all valid mutants.
+
+Each config sets `thresholds.break` a little below the recorded baseline
+(`plan/mutation-baseline-2026-09.md`); a score below it fails the run. The
+`mutation` workflow runs weekly and on demand (Actions → mutation → Run
+workflow), not on PRs, and uploads the HTML report as an artifact.
+
+Note: `patches/@stryker-mutator__vitest-runner@10.0.0.patch` makes the runner
+run whole test files (every test in each file that covers a mutant) instead of
+filtering by test name. Upstream's name filter never matches under Vitest 5
+(every mutant looked "survived"), and the server's integration tests share
+state between `it` blocks, so a filtered subset fails for reasons unrelated to
+the mutant. Revisit when upgrading Stryker.
+
 ## PR expectations
 
 - Green CI is required: Biome 0 errors, typecheck clean, unit tests and
