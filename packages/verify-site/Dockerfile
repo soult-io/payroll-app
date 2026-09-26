@@ -1,5 +1,5 @@
 # syntax=docker/dockerfile:1
-# payroll-app-verify — serves the pre-generated static pay-verify dashboard
+# wagon-payroll-verify — serves the pre-generated static pay-verify dashboard
 # (index.html + report/) via an unprivileged nginx. The dashboard is produced by
 # the pay-verify-site workflow's generator (packages/verify-site) from the
 # verify-summary history; this image only serves that static output — no app
