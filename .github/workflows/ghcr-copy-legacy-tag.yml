@@ -11,7 +11,9 @@ name: ghcr-copy-legacy-tag
 # Safety: tags are validated against Docker's tag grammar; the source is copied
 # by digest (a tag that moves mid-run cannot change what is copied); a
 # destination tag that already points at a DIFFERENT digest is never
-# overwritten. Delete this workflow once no legacy-only tag is still needed.
+# overwritten. Do not run it while release.yml is publishing (the check and
+# the copy are not atomic against it). Delete this workflow once no
+# legacy-only tag is still needed.
 
 on:
   workflow_dispatch:
@@ -74,7 +76,8 @@ jobs:
           tags+=("${extra[@]}")
           for t in "${tags[@]}"; do
             if ! [[ "$t" =~ ^[A-Za-z0-9_][A-Za-z0-9._-]{0,127}$ ]]; then
-              echo "::error::invalid tag '$t'"; exit 1
+              # Value not echoed: an API-dispatched input could hold a newline.
+              echo "::error::invalid tag in source_tag/extra_tags"; exit 1
             fi
           done
 
@@ -94,7 +97,9 @@ jobs:
                 exit 1
               fi
               echo "$dst:$t already at $src_digest"
-            elif grep -qi "not found" <<< "$out"; then
+            # Only the resolver's own "<ref>: not found" means absent; any other
+            # error (auth, a missing child manifest) fails closed.
+            elif grep -qF "$dst:$t: not found" <<< "$out"; then
               echo "$dst:$t absent — will create"
             else
               echo "::error::cannot read $dst:$t: $out"; exit 1
@@ -102,7 +107,9 @@ jobs:
             args+=(-t "$dst:$t")
           done
 
-          docker buildx imagetools create "${args[@]}" "$src@$src_digest"
+          # --prefer-index=false: never wrap a single-manifest source in a new
+          # index (that would change the digest).
+          docker buildx imagetools create --prefer-index=false "${args[@]}" "$src@$src_digest"
 
           {
             echo "### $src:$SOURCE_TAG -> $dst"
