@@ -43,6 +43,7 @@ import {
   quarterEnd as filingsQuarterEnd,
 } from "../filings/service.js";
 import { annualDueDate, w2AvailableOn } from "../filings/annual.js";
+import { liveDeposit } from "../deposits/service.js";
 import { interpolateDescription, invoiceDateFor } from "../contractors/recurring.js";
 
 export type CalendarEventKind =
@@ -256,7 +257,7 @@ async function depositEvents(
   const due = await db
     .select()
     .from(taxDeposits)
-    .where(inMonth(taxDeposits.dueDate, monthStart, monthEnd))
+    .where(and(inMonth(taxDeposits.dueDate, monthStart, monthEnd), liveDeposit))
     .orderBy(asc(taxDeposits.dueDate));
   for (const deposit of due) {
     events.push({

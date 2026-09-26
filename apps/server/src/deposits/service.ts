@@ -24,7 +24,7 @@
  * (which needs a real Postgres) — payroll/scheduler.ts only wires the queue.
  */
 
-import { and, desc, eq, isNull, lt, ne, or, sql, type SQLWrapper } from "drizzle-orm";
+import { and, desc, eq, inArray, isNull, lt, or, sql, type SQLWrapper } from "drizzle-orm";
 import {
   appSettings,
   auditEvents,
@@ -36,7 +36,7 @@ import {
   stateDepositSchedules,
   taxDeposits,
 } from "@payroll/db";
-import { formatMoney } from "@payroll/shared";
+import { formatMoney, parseCents } from "@payroll/shared";
 import {
   EVENT_TYPE,
   taxDepositDue as tplTaxDepositDue,
@@ -54,6 +54,18 @@ export type TaxDepositRow = typeof taxDeposits.$inferSelect;
 
 /** periodKind distinguishes monthly (m12) from quarterly (q4) deposits. */
 export type PeriodKind = "month" | "quarter";
+
+/**
+ * Spec 23 §5: a "live" deposit row is any row that has not been replaced by a
+ * period transition. EVERY total, list or sum over tax_deposits must filter
+ * on this fragment — superseded rows are kept for audit and are never counted.
+ */
+export const liveDeposit = sql`${taxDeposits.status} <> 'superseded'`;
+
+/** The stored period_kind column, narrowed (the DB check keeps it to these two). */
+export function withPeriodKind(row: TaxDepositRow): TaxDepositWithPeriodKind {
+  return { ...row, periodKind: row.periodKind === "quarter" ? "quarter" : "month" };
+}
 
 /** PAY-36 — detail payload for GET /api/admin/tax-deposits/:id. */
 export interface DepositDetailRow {
@@ -141,9 +153,9 @@ export function dueDateFor(year: number, month: number): string {
   return d.toISOString().slice(0, 10);
 }
 
-/** "August 2026" — display label for a deposit period (monthly or quarterly). */
-export function periodLabel(periodStart: string, frequency?: "monthly" | "quarterly"): string {
-  if (frequency === "quarterly") {
+/** "August 2026" / "Q3 2026" — display label for a deposit period (stored period_kind). */
+export function periodLabel(periodStart: string, kind: PeriodKind = "month"): string {
+  if (kind === "quarter") {
     const year = Number(periodStart.slice(0, 4));
     const q = quarterOfMonth(Number(periodStart.slice(5, 7)));
     return `Q${q} ${year}`;
@@ -434,18 +446,6 @@ function statePeriodKey(
   return `${state}:${quarterStart}`;
 }
 
-export function periodKindForDeposit(
-  jurisdiction: string,
-  scheduleMap: Map<string, StateSchedule>,
-  periodStart: string,
-): PeriodKind {
-  if (jurisdiction === "federal") return "month";
-  const year = Number(periodStart.slice(0, 4));
-  const schedule = scheduleMap.get(`${jurisdiction}:${year}`);
-  if (schedule?.frequency === "quarterly") return "quarter";
-  return "month";
-}
-
 // ---------------------------------------------------------------------------
 // Deposit sync (daily tick) — idempotent upsert + overdue flip
 // ---------------------------------------------------------------------------
@@ -479,7 +479,14 @@ async function syncFederalDeposit(db: Db, periodStart: string, result: SyncResul
   const existing = await db
     .select()
     .from(taxDeposits)
-    .where(and(eq(taxDeposits.jurisdiction, "federal"), eq(taxDeposits.periodStart, periodStart)))
+    .where(
+      and(
+        eq(taxDeposits.jurisdiction, "federal"),
+        eq(taxDeposits.periodStart, periodStart),
+        eq(taxDeposits.periodKind, "month"),
+        liveDeposit,
+      ),
+    )
     .limit(1);
   const row = existing[0];
 
@@ -525,10 +532,18 @@ async function syncStateDepositsForPeriod(
     }
   }
 
+  const periodKind: PeriodKind = schedule?.frequency === "quarterly" ? "quarter" : "month";
   const existing = await db
     .select()
     .from(taxDeposits)
-    .where(and(eq(taxDeposits.jurisdiction, workState), eq(taxDeposits.periodStart, periodStart)))
+    .where(
+      and(
+        eq(taxDeposits.jurisdiction, workState),
+        eq(taxDeposits.periodStart, periodStart),
+        eq(taxDeposits.periodKind, periodKind),
+        liveDeposit,
+      ),
+    )
     .limit(1);
   const row = existing[0];
 
@@ -536,6 +551,7 @@ async function syncStateDepositsForPeriod(
     await db.insert(taxDeposits).values({
       jurisdiction: workState,
       periodStart,
+      periodKind,
       amount: totalAmount,
       dueDate: stateDueDateFor(schedule, Number(periodStart.slice(0, 4)), periodStart),
       status: "pending",
@@ -599,7 +615,13 @@ export async function syncDeposits(deps: Deps, opts: { today?: string } = {}): P
   const flipped = await db
     .update(taxDeposits)
     .set({ status: "overdue", updatedAt: new Date() })
-    .where(and(eq(taxDeposits.status, "pending"), lt(taxDeposits.dueDate, today)))
+    .where(
+      and(
+        eq(taxDeposits.status, "pending"),
+        lt(taxDeposits.dueDate, today),
+        sql`${taxDeposits.amount} > 0`,
+      ),
+    )
     .returning({ id: taxDeposits.id });
   result.flippedOverdue = flipped.length;
 
@@ -610,10 +632,6 @@ export async function syncDeposits(deps: Deps, opts: { today?: string } = {}): P
 // Admin queries + the mark-deposited mutation
 // ---------------------------------------------------------------------------
 
-async function loadScheduleMap(db: Db): Promise<Map<string, StateSchedule>> {
-  return loadStateSchedules(db);
-}
-
 /** Deposits, newest period first (admin list). PAY-15: optional year/status filters. */
 export async function listDeposits(
   db: Db,
@@ -623,27 +641,19 @@ export async function listDeposits(
     jurisdiction?: string | undefined;
   } = {},
 ): Promise<TaxDepositWithPeriodKind[]> {
-  const conditions = [];
+  const conditions: SQLWrapper[] = [liveDeposit];
   if (filter.year) {
-    conditions.push(
-      and(
-        sql`${taxDeposits.periodStart} >= ${`${filter.year}-01-01`}`,
-        sql`${taxDeposits.periodStart} <= ${`${filter.year}-12-31`}`,
-      ),
-    );
+    conditions.push(sql`${taxDeposits.periodStart} >= ${`${filter.year}-01-01`}`);
+    conditions.push(sql`${taxDeposits.periodStart} <= ${`${filter.year}-12-31`}`);
   }
   if (filter.status) conditions.push(eq(taxDeposits.status, filter.status));
   if (filter.jurisdiction) conditions.push(eq(taxDeposits.jurisdiction, filter.jurisdiction));
   const rows = await db
     .select()
     .from(taxDeposits)
-    .where(conditions.length ? and(...conditions) : undefined)
+    .where(and(...conditions))
     .orderBy(desc(taxDeposits.periodStart), desc(taxDeposits.id));
-  const scheduleMap = await loadScheduleMap(db);
-  return rows.map((row) => ({
-    ...row,
-    periodKind: periodKindForDeposit(row.jurisdiction, scheduleMap, row.periodStart),
-  }));
+  return rows.map(withPeriodKind);
 }
 
 export interface MarkDepositedInput {
@@ -682,8 +692,10 @@ export async function markDeposited(
   if (before.status === "deposited") {
     throw new DepositServiceError("invalid_transition", "deposit is already recorded");
   }
-
-  const scheduleMap = await loadScheduleMap(db);
+  // Spec 23 §5 / D5: a replaced row, or a 0.00 row, has nothing to pay.
+  if (before.status === "superseded" || parseCents(before.amount) === 0) {
+    throw new DepositServiceError("invalid_transition", "This deposit has nothing left to record.");
+  }
 
   return db.transaction(async (tx) => {
     const updated = await tx
@@ -694,8 +706,18 @@ export async function markDeposited(
         eftpsConfirmation: confirmation,
         updatedAt: new Date(),
       })
-      .where(eq(taxDeposits.id, depositId))
+      .where(
+        and(eq(taxDeposits.id, depositId), inArray(taxDeposits.status, ["pending", "overdue"])),
+      )
       .returning();
+    const row = updated[0];
+    if (!row) {
+      // Lost a race with the sync (superseded) or another recorder.
+      throw new DepositServiceError(
+        "invalid_transition",
+        "This deposit has nothing left to record.",
+      );
+    }
 
     await tx.insert(auditEvents).values({
       actorId,
@@ -709,11 +731,7 @@ export async function markDeposited(
         eftpsConfirmation: confirmation,
       },
     });
-    const row = updated[0]!;
-    return {
-      ...row,
-      periodKind: periodKindForDeposit(row.jurisdiction, scheduleMap, row.periodStart),
-    };
+    return withPeriodKind(row);
   });
 }
 
@@ -737,16 +755,10 @@ async function processDepositReminders(
   admins: string[],
   deposit: TaxDepositRow,
   offsets: number[],
-  scheduleMap: Map<string, StateSchedule>,
   today: string,
 ): Promise<number> {
   const periodStart = deposit.periodStart;
-  const periodKind = periodKindForDeposit(deposit.jurisdiction, scheduleMap, periodStart);
-  const schedule =
-    deposit.jurisdiction === "federal"
-      ? null
-      : (scheduleMap.get(`${deposit.jurisdiction}:${Number(periodStart.slice(0, 4))}`) ?? null);
-  const frequency = schedule?.frequency ?? "monthly";
+  const { periodKind } = withPeriodKind(deposit);
 
   let sent = 0;
   const fired = new Set((deposit.remindersSent as number[] | null) ?? []);
@@ -757,7 +769,7 @@ async function processDepositReminders(
 
     const rendered = tplTaxDepositDue(ctx, {
       jurisdiction: deposit.jurisdiction,
-      periodLabel: periodLabel(periodStart, frequency),
+      periodLabel: periodLabel(periodStart, periodKind),
       amountLabel: formatMoney(Number(deposit.amount)),
       dueDate: deposit.dueDate,
     });
@@ -795,12 +807,12 @@ export async function sendDepositReminders(
   const { db, config } = deps;
   const today = opts.today ?? todayIso();
   const offsets = await getReminderOffsets(db);
-  const scheduleMap = await loadStateSchedules(db);
 
+  // Spec 23 §5 / D5: only open rows with something to pay are reminded.
   const deposits = await db
     .select()
     .from(taxDeposits)
-    .where(ne(taxDeposits.status, "deposited"))
+    .where(and(inArray(taxDeposits.status, ["pending", "overdue"]), sql`${taxDeposits.amount} > 0`))
     .orderBy(taxDeposits.periodStart);
   if (deposits.length === 0) return { sent: 0 };
 
@@ -809,15 +821,7 @@ export async function sendDepositReminders(
   let totalSent = 0;
 
   for (const deposit of deposits) {
-    const sent = await processDepositReminders(
-      db,
-      ctx,
-      admins,
-      deposit,
-      offsets,
-      scheduleMap,
-      today,
-    );
+    const sent = await processDepositReminders(db, ctx, admins, deposit, offsets, today);
     totalSent += sent;
   }
   return { sent: totalSent };
@@ -911,7 +915,7 @@ async function getFederalOrMonthlyDepositDetail(
     .orderBy(payrollRuns.payDate);
 
   return {
-    deposit: { ...deposit, periodKind: "month" },
+    deposit: withPeriodKind(deposit),
     breakdown,
     runs: runs.map((row) => ({
       publicId: row.publicId,
@@ -1002,18 +1006,11 @@ export async function getDepositDetail(db: Db, id: number): Promise<DepositDetai
   const deposit = depositRows[0];
   if (!deposit) return null;
 
-  const periodStart = deposit.periodStart;
-  const year = Number(periodStart.slice(0, 4));
-  const scheduleKey = `${deposit.jurisdiction}:${year}`;
-  const scheduleMap = await loadStateSchedules(db);
-  const schedule =
-    deposit.jurisdiction === "federal" ? null : (scheduleMap.get(scheduleKey) ?? null);
-  const periodKind = periodKindForDeposit(deposit.jurisdiction, scheduleMap, periodStart);
-
-  if (deposit.jurisdiction === "federal" || !schedule || schedule.frequency === "monthly") {
-    return getFederalOrMonthlyDepositDetail(db, deposit, periodStart);
-  } else {
-    const depositWithKind: TaxDepositWithPeriodKind = { ...deposit, periodKind };
-    return getQuarterlyDepositDetail(db, depositWithKind, periodStart);
+  // Spec 23 §5: the kind is the stored column, never today's schedule. A
+  // superseded row is still returned (audit).
+  const withKind = withPeriodKind(deposit);
+  if (withKind.periodKind === "quarter") {
+    return getQuarterlyDepositDetail(db, withKind, deposit.periodStart);
   }
+  return getFederalOrMonthlyDepositDetail(db, deposit, deposit.periodStart);
 }

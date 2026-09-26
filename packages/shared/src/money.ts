@@ -23,3 +23,26 @@ export const CURRENCY = "USD";
 export function formatMoney(amount: number, currency: string = CURRENCY): string {
   return new Intl.NumberFormat("en-US", { style: "currency", currency }).format(amount);
 }
+
+/**
+ * PAY-91 (spec 23 §6): exact conversion between a NUMERIC(12,2) string and
+ * integer cents. No floats: "123.45" → 12345. Accepts an optional leading
+ * minus and 0–2 decimals ("5", "5.5", "5.50"); rejects anything else.
+ */
+export function parseCents(value: string): number {
+  const m = /^(-?)(\d+)(?:\.(\d{1,2}))?$/.exec(value);
+  if (!m) throw new Error(`parseCents: not a money string: ${JSON.stringify(value)}`);
+  const whole = Number(m[2]);
+  const frac = Number((m[3] ?? "").padEnd(2, "0"));
+  const c = whole * 100 + frac;
+  if (!Number.isSafeInteger(c)) throw new Error(`parseCents: out of range: ${value}`);
+  return m[1] && c !== 0 ? -c : c;
+}
+
+/** Integer cents → "123.45" (the NUMERIC(12,2) wire form). */
+export function formatCents(cents: number): string {
+  if (!Number.isSafeInteger(cents)) throw new Error(`formatCents: not integer cents: ${cents}`);
+  const sign = cents < 0 ? "-" : "";
+  const a = Math.abs(cents);
+  return `${sign}${Math.floor(a / 100)}.${String(a % 100).padStart(2, "0")}`;
+}

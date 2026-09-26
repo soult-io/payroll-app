@@ -42,13 +42,15 @@ interface Deps {
   config: AppConfig;
 }
 
-async function depositExists(db: Db, depositId: number): Promise<void> {
+/** Returns the deposit's status; throws not_found when it does not exist. */
+async function depositExists(db: Db, depositId: number): Promise<string> {
   const rows = await db
-    .select({ id: taxDeposits.id })
+    .select({ id: taxDeposits.id, status: taxDeposits.status })
     .from(taxDeposits)
     .where(eq(taxDeposits.id, depositId))
     .limit(1);
   if (!rows[0]) throw new DepositServiceError("not_found", `tax deposit ${depositId} not found`);
+  return rows[0].status;
 }
 
 export async function listDepositAttachments(
@@ -74,7 +76,14 @@ export async function addDepositAttachment(
   actorId: string,
 ): Promise<DepositAttachmentMeta> {
   const { db, config } = deps;
-  await depositExists(db, depositId);
+  const status = await depositExists(db, depositId);
+  // Spec 23 §5: a replaced (superseded) row takes no new evidence.
+  if (status === "superseded") {
+    throw new DepositServiceError(
+      "invalid_transition",
+      "This deposit was replaced and takes no new attachments.",
+    );
+  }
   const { data } = input;
   if (data.length === 0 || data.length > MAX_ATTACHMENT_BYTES) {
     throw new DepositServiceError(
